@@ -1,4 +1,6 @@
 import { Alert, Layout, Space, Typography } from "antd";
+import type { ManagerComposition } from "../composition/types";
+import { ManagerPage } from "./ManagerPage";
 
 const { Content, Header } = Layout;
 
@@ -11,12 +13,12 @@ function hasSourceTab(): boolean {
 }
 
 export interface AppProps {
-  readonly mode?: "demo" | "production-deferred";
+  readonly composition: ManagerComposition;
 }
 
-export function App({ mode = "production-deferred" }: AppProps) {
+export function App({ composition }: AppProps) {
   const sourceTabAvailable = hasSourceTab();
-  const demoMode = mode === "demo";
+  const demoMode = composition.mode === "demo";
 
   return (
     <Layout className="manager-shell">
@@ -24,30 +26,25 @@ export function App({ mode = "production-deferred" }: AppProps) {
         <Typography.Title level={2}>ChatGPTCleaner</Typography.Title>
       </Header>
       <Content className="manager-content">
-        <Space direction="vertical" size="large" className="manager-panel">
+        <Space orientation="vertical" size="large" className="manager-panel">
           <Typography.Paragraph>
             Review and delete standalone conversations with explicit safety
             checks.
           </Typography.Paragraph>
           {demoMode ? (
-            <Alert
-              type="success"
-              showIcon
-              message="Demo mode"
-              description="Deterministic fake infrastructure is active. Demo mode cannot access ChatGPT or issue a real DELETE."
-            />
+            <ManagerPage composition={composition} />
           ) : sourceTabAvailable ? (
             <Alert
               type="info"
               showIcon
-              message="Extension bootstrap is ready"
+              title="Extension bootstrap is ready"
               description="Conversation inventory and deletion remain disabled until the safety workflow is implemented."
             />
           ) : (
             <Alert
               type="warning"
               showIcon
-              message="Open ChatGPT in a tab and launch ChatGPTCleaner from that tab."
+              title="Open ChatGPT in a tab and launch ChatGPTCleaner from that tab."
             />
           )}
         </Space>

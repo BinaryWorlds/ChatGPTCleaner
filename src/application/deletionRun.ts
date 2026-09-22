@@ -22,6 +22,7 @@ const MAX_RETRY_DELAY_MS = 60_000;
 export interface DeletionRunProgress extends DeletionProgress {
   readonly currentConversationId: string | null;
   readonly failedConversationIds: readonly string[];
+  readonly removedConversationIds: readonly string[];
 }
 
 export type DeletionRunState =
@@ -62,6 +63,7 @@ export class DeletionRun {
   private readonly confirmedPlan: ConfirmedDeletionPlan;
   private remainingConversationIds: string[];
   private failedConversationIds: string[] = [];
+  private removedConversationIds: string[] = [];
   private counts: MutableRunCounts = {
     deleted: 0,
     failed: 0,
@@ -197,8 +199,14 @@ export class DeletionRun {
       }
 
       this.remainingConversationIds.shift();
-      if (outcome.kind === "deleted") this.counts.deleted += 1;
-      if (outcome.kind === "skipped") this.counts.skipped += 1;
+      if (outcome.kind === "deleted") {
+        this.counts.deleted += 1;
+        this.removedConversationIds.push(conversationId);
+      }
+      if (outcome.kind === "skipped") {
+        this.counts.skipped += 1;
+        this.removedConversationIds.push(conversationId);
+      }
       if (outcome.kind === "failed") {
         this.counts.failed += 1;
         this.failedConversationIds.push(conversationId);
@@ -344,6 +352,7 @@ export class DeletionRun {
   private resetCurrentRun(): void {
     this.command = "run";
     this.failedConversationIds = [];
+    this.removedConversationIds = [];
     this.counts = { deleted: 0, failed: 0, skipped: 0, retries: 0 };
     this.activeElapsedMs = 0;
     this.activeStartedAt = null;
@@ -375,6 +384,7 @@ export class DeletionRun {
       ...progress,
       currentConversationId,
       failedConversationIds: [...this.failedConversationIds],
+      removedConversationIds: [...this.removedConversationIds],
     };
   }
 

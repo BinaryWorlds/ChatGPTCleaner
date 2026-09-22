@@ -1,5 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
+import { createManagerComposition as createDemoComposition } from "../composition/demo";
+import { createManagerComposition as createProductionComposition } from "../composition/production";
 import { App } from "./App";
 
 describe("App", () => {
@@ -8,7 +10,7 @@ describe("App", () => {
   });
 
   it("instructs the user to launch from ChatGPT without a source tab", () => {
-    render(<App />);
+    render(<App composition={createProductionComposition()} />);
 
     expect(
       screen.getByText(
@@ -20,7 +22,7 @@ describe("App", () => {
   it("recognizes a captured numeric source tab", () => {
     window.history.replaceState({}, "", "/manager.html?sourceTabId=42");
 
-    render(<App />);
+    render(<App composition={createProductionComposition()} />);
 
     expect(
       screen.getByText("Extension bootstrap is ready"),
@@ -28,11 +30,11 @@ describe("App", () => {
   });
 
   it("shows demo mode without requiring a source tab", () => {
-    render(<App mode="demo" />);
+    render(<App composition={createDemoComposition()} />);
 
     expect(screen.getByText("Demo mode")).toBeInTheDocument();
     expect(
-      screen.getByText(/Demo mode cannot access ChatGPT/),
+      screen.getByText(/No request can reach ChatGPT/),
     ).toBeInTheDocument();
   });
 });

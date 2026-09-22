@@ -29,5 +29,13 @@ body {
 }
 
 .manager-panel {
-  width: min(880px, 100%);
+  width: min(1400px, 100%);
+}
+
+.full-width {
+  width: 100%;
+}
+
+.confirmation-instruction {
+  margin-top: 16px;
 }

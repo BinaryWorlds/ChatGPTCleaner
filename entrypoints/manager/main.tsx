@@ -15,6 +15,6 @@ const composition = createManagerComposition();
 
 createRoot(rootElement).render(
   <StrictMode>
-    <App mode={composition.mode} />
+    <App composition={composition} />
   </StrictMode>,
 );

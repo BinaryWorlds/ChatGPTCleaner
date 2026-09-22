@@ -1,17 +1,47 @@
-import { FakeClock } from "../infrastructure/fake/FakeClock";
 import { FakeConversationGateway } from "../infrastructure/fake/FakeConversationGateway";
 import { FakeDestructiveRunLock } from "../infrastructure/fake/FakeDestructiveRunLock";
 import {
   FakeProtectedConversationStore,
   FakeSettingsStore,
 } from "../infrastructure/fake/FakeStores";
-import { DEMO_FIXTURE } from "../infrastructure/fake/fixtures";
+import {
+  DEMO_FIXTURE,
+  MALFORMED_STANDALONE_FIXTURE,
+  SESSION_MISMATCH_FIXTURE,
+  type FakeGatewayFixture,
+} from "../infrastructure/fake/fixtures";
+import { SystemClock } from "../infrastructure/time/SystemClock";
+import type { ManagerComposition, ManagerDependencies } from "./types";
 
-export function createManagerComposition() {
-  const clock = new FakeClock();
+const scenarios = [
+  {
+    id: "standard",
+    label: "Standard outcomes",
+    description:
+      "IDs 001–007 cover success, gone, retries, failed network, and fatal 403.",
+  },
+  {
+    id: "session-mismatch",
+    label: "Session/workspace mismatch",
+    description: "Inventory loads, but destructive preflight fails closed.",
+  },
+  {
+    id: "malformed",
+    label: "Malformed API response",
+    description: "Safety-critical inventory validation fails closed.",
+  },
+] as const;
+
+function fixtureForScenario(scenarioId: string): FakeGatewayFixture {
+  if (scenarioId === "session-mismatch") return SESSION_MISMATCH_FIXTURE;
+  if (scenarioId === "malformed") return MALFORMED_STANDALONE_FIXTURE;
+  return DEMO_FIXTURE;
+}
+
+function createDependencies(scenarioId: string): ManagerDependencies {
+  const clock = new SystemClock();
   return {
-    mode: "demo" as const,
-    gateway: new FakeConversationGateway(DEMO_FIXTURE, clock),
+    gateway: new FakeConversationGateway(fixtureForScenario(scenarioId), clock),
     protectedConversationStore: new FakeProtectedConversationStore([
       "standalone-010",
       "standalone-011",
@@ -19,5 +49,15 @@ export function createManagerComposition() {
     settingsStore: new FakeSettingsStore(60),
     clock,
     destructiveRunLock: new FakeDestructiveRunLock(),
+  };
+}
+
+export function createManagerComposition(): ManagerComposition {
+  return {
+    mode: "demo",
+    scenarios,
+    initialScenarioId: "standard",
+    createDependencies,
+    openConversation: () => undefined,
   };
 }
