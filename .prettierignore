@@ -1,0 +1,7 @@
+.output
+.wxt
+.vscode
+coverage
+docs/PROJECT_SPEC.md
+node_modules
+pnpm-lock.yaml

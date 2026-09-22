@@ -1,0 +1,39 @@
+export interface DeletionProgressInput {
+  readonly total: number;
+  readonly deleted: number;
+  readonly failed: number;
+  readonly skipped: number;
+  readonly retries: number;
+  readonly requestsPerMinute: number;
+  readonly activeElapsedMs: number;
+  readonly paused: boolean;
+}
+
+export interface DeletionProgress extends DeletionProgressInput {
+  readonly processed: number;
+  readonly remaining: number;
+  readonly etaMs: number | null;
+}
+
+export function calculateDeletionProgress(
+  input: DeletionProgressInput,
+): DeletionProgress {
+  const processed = input.deleted + input.failed + input.skipped;
+  const remaining = Math.max(0, input.total - processed);
+
+  if (input.paused) {
+    return { ...input, processed, remaining, etaMs: null };
+  }
+
+  const millisecondsPerItem =
+    processed >= 3 && input.activeElapsedMs > 0
+      ? input.activeElapsedMs / processed
+      : 60_000 / input.requestsPerMinute;
+
+  return {
+    ...input,
+    processed,
+    remaining,
+    etaMs: Math.ceil(remaining * millisecondsPerItem),
+  };
+}

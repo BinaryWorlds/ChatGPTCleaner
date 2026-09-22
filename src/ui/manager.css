@@ -1,0 +1,33 @@
+:root {
+  color-scheme: light;
+  font-family: Inter, system-ui, sans-serif;
+  background: #f5f5f5;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+}
+
+.manager-shell {
+  min-height: 100vh;
+}
+
+.manager-header {
+  display: flex;
+  align-items: center;
+  background: #ffffff;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.manager-header h2 {
+  margin: 0;
+}
+
+.manager-content {
+  padding: 32px;
+}
+
+.manager-panel {
+  width: min(880px, 100%);
+}

@@ -1,0 +1,51 @@
+{
+  "name": "chatgpt-cleaner",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A safety-first Chrome extension for reviewing and deleting standalone ChatGPT conversations.",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "packageManager": "pnpm@10.17.1",
+  "scripts": {
+    "dev": "wxt",
+    "dev:demo": "wxt --mode demo",
+    "build": "wxt build",
+    "build:demo": "wxt build --mode demo",
+    "prepare": "wxt prepare",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "check:manifest": "node scripts/check-manifest.mjs",
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm check:manifest"
+  },
+  "dependencies": {
+    "antd": "6.6.5",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@testing-library/jest-dom": "7.0.1",
+    "@testing-library/react": "16.3.3",
+    "@testing-library/user-event": "14.6.7",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.1",
+    "@wxt-dev/module-react": "1.2.2",
+    "eslint": "10.11.0",
+    "eslint-config-prettier": "10.1.8",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "globals": "17.12.0",
+    "jsdom": "30.1.0",
+    "prettier": "3.9.8",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.70.1",
+    "vitest": "5.0.1",
+    "wxt": "0.21.4"
+  }
+}
