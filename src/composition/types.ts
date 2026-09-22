@@ -19,7 +19,7 @@ export interface DemoScenario {
 }
 
 export interface ManagerComposition {
-  readonly mode: "demo" | "production-deferred";
+  readonly mode: "demo" | "production";
   readonly scenarios: readonly DemoScenario[];
   readonly initialScenarioId: string;
   createDependencies(scenarioId: string): ManagerDependencies | null;

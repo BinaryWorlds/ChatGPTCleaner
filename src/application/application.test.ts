@@ -121,6 +121,55 @@ describe("inventory and preflight", () => {
     expect(result).toEqual({ kind: "blocked", reason: "pagination" });
   });
 
+  it("blocks standalone pagination that reaches the safety ceiling", async () => {
+    const standalonePages: Record<string, unknown> = {};
+    for (let index = 0; index <= 1_000; index += 1) {
+      const key = index === 0 ? "first" : `cursor-${index}`;
+      standalonePages[key] = {
+        conversations: [],
+        nextCursor: `cursor-${index + 1}`,
+      };
+    }
+    const result = await loadSafetyInventory(
+      new FakeConversationGateway(
+        {
+          ...DEMO_FIXTURE,
+          standalonePages,
+          projects: [],
+          projectConversationPages: {},
+        },
+        new FakeClock(),
+      ),
+    );
+    expect(result).toEqual({ kind: "blocked", reason: "pagination" });
+  });
+
+  it("blocks incomplete Project-conversation pagination", async () => {
+    const result = await loadSafetyInventory(
+      new FakeConversationGateway(
+        {
+          ...DEMO_FIXTURE,
+          standalonePages: {
+            first: { conversations: [], nextCursor: null },
+          },
+          projects: [{ id: "project" }],
+          projectConversationPages: {
+            "project:first": {
+              conversationIds: ["project-chat"],
+              nextCursor: "loop",
+            },
+            "project:loop": {
+              conversationIds: ["project-chat"],
+              nextCursor: "loop",
+            },
+          },
+        },
+        new FakeClock(),
+      ),
+    );
+    expect(result).toEqual({ kind: "blocked", reason: "pagination" });
+  });
+
   it("normalizes malformed rate settings but blocks malformed protections", async () => {
     const settingsStore = new FakeSettingsStore("fast");
     const normalized = await loadInventory({

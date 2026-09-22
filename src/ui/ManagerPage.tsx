@@ -15,6 +15,7 @@ import { useEffect, useMemo, useState } from "react";
 import { DeletionRun, type DeletionRunState } from "../application/deletionRun";
 import { loadInventory } from "../application/inventory";
 import { runPreflight } from "../application/preflight";
+import { saveProtectedConversationIds } from "../application/protection";
 import { saveRequestsPerMinute } from "../application/settings";
 import type {
   ManagerComposition,
@@ -204,9 +205,17 @@ export function ManagerPage({ composition }: ManagerPageProps) {
     nextSelection: ReadonlySet<string>,
   ) => {
     if (dependencies === null) return;
-    dependencies.protectedConversationStore
-      .saveProtectedConversationIds(nextProtectedIds)
-      .then(() => {
+    saveProtectedConversationIds({
+      protectedConversationIds: nextProtectedIds,
+      protectedConversationStore: dependencies.protectedConversationStore,
+      destructiveRunLock: dependencies.destructiveRunLock,
+      currentRunOwnsLock: runState?.kind === "paused",
+    })
+      .then((result) => {
+        if (result === "locked") {
+          setSafetyOverride("destructive-run-lock");
+          return;
+        }
         setProtectedConversationIds(nextProtectedIds);
         setSelectedConversationIds(nextSelection);
       })
@@ -341,32 +350,38 @@ export function ManagerPage({ composition }: ManagerPageProps) {
 
   return (
     <Space orientation="vertical" size="middle" className="manager-panel">
-      <Alert
-        type="success"
-        showIcon
-        title="Demo mode"
-        description="Deterministic fake infrastructure is active. No request can reach ChatGPT and no real DELETE can be issued."
-      />
-      <Card size="small" title="Demo scenario">
-        <Space wrap>
-          <Select
-            aria-label="Demo scenario"
-            value={scenarioId}
-            disabled={runActive || preflightRunning || preflightPlan !== null}
-            options={composition.scenarios.map((scenario) => ({
-              value: scenario.id,
-              label: scenario.label,
-            }))}
-            onChange={changeScenario}
+      {composition.mode === "demo" && (
+        <>
+          <Alert
+            type="success"
+            showIcon
+            title="Demo mode"
+            description="Deterministic fake infrastructure is active. No request can reach ChatGPT and no real DELETE can be issued."
           />
-          <Typography.Text type="secondary">
-            {
-              composition.scenarios.find(({ id }) => id === scenarioId)
-                ?.description
-            }
-          </Typography.Text>
-        </Space>
-      </Card>
+          <Card size="small" title="Demo scenario">
+            <Space wrap>
+              <Select
+                aria-label="Demo scenario"
+                value={scenarioId}
+                disabled={
+                  runActive || preflightRunning || preflightPlan !== null
+                }
+                options={composition.scenarios.map((scenario) => ({
+                  value: scenario.id,
+                  label: scenario.label,
+                }))}
+                onChange={changeScenario}
+              />
+              <Typography.Text type="secondary">
+                {
+                  composition.scenarios.find(({ id }) => id === scenarioId)
+                    ?.description
+                }
+              </Typography.Text>
+            </Space>
+          </Card>
+        </>
+      )}
 
       <SafetyStatus status={safetyStatus} blockedReason={blockedReason} />
 
@@ -531,7 +546,11 @@ export function ManagerPage({ composition }: ManagerPageProps) {
             onUnprotect={handleUnprotect}
             onOpen={(conversationId) => {
               composition.openConversation(conversationId);
-              setNotice(`Demo Open action: ${conversationId}`);
+              setNotice(
+                composition.mode === "demo"
+                  ? `Demo Open action: ${conversationId}`
+                  : "Open is unavailable until the current ChatGPT conversation route is verified.",
+              );
             }}
             onSort={(field, direction) => {
               setSortField(field);

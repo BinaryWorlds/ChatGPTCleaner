@@ -9,8 +9,12 @@ const blockedReasonLabels: Readonly<Record<string, string>> = {
   authentication: "Authentication unavailable",
   compatibility: "Read API compatibility failed",
   network: "Network unavailable",
+  request: "ChatGPT rejected an inventory request",
   "retry-later": "Retry later",
-  "source-unavailable": "Source tab unavailable",
+  "contract-unverified":
+    "Current ChatGPT read contract has not been verified. Capture the requested DevTools Network evidence before enabling inventory reads.",
+  "source-unavailable":
+    "Source tab unavailable. Return to a valid ChatGPT tab and relaunch ChatGPTCleaner.",
   pagination: "Inventory pagination incomplete",
   "context-changed": "Session/workspace changed",
   "protected-storage": "Protected-ID storage invalid",

@@ -19,13 +19,38 @@ describe("App", () => {
     ).toBeInTheDocument();
   });
 
-  it("recognizes a captured numeric source tab", () => {
+  it("validates a captured numeric source tab and fails closed on the unverified contract", async () => {
     window.history.replaceState({}, "", "/manager.html?sourceTabId=42");
 
-    render(<App composition={createProductionComposition()} />);
+    render(
+      <App
+        composition={createProductionComposition({
+          sourceTabBrowser: {
+            getTab: () =>
+              Promise.resolve({ id: 42, url: "https://chatgpt.com/" }),
+            probePage: () =>
+              Promise.resolve([
+                {
+                  result: {
+                    origin: "https://chatgpt.com",
+                    readyState: "complete",
+                  },
+                },
+              ]),
+          },
+          storage: {
+            get: () => Promise.resolve({}),
+            set: () => Promise.resolve(),
+          },
+          locks: null,
+        })}
+      />,
+    );
 
     expect(
-      screen.getByText("Extension bootstrap is ready"),
+      await screen.findByText(
+        /Current ChatGPT read contract has not been verified/,
+      ),
     ).toBeInTheDocument();
   });
 

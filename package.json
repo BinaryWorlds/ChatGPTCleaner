@@ -20,7 +20,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "check:manifest": "node scripts/check-manifest.mjs",
-    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm check:manifest"
+    "check:bundles": "node scripts/check-bundles.mjs",
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm check:manifest && pnpm build:demo && pnpm check:bundles"
   },
   "dependencies": {
     "antd": "6.6.5",

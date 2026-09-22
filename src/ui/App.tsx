@@ -5,11 +5,12 @@ import { ManagerPage } from "./ManagerPage";
 const { Content, Header } = Layout;
 
 function hasSourceTab(): boolean {
-  const sourceTabId = new URLSearchParams(window.location.search).get(
+  const rawSourceTabId = new URLSearchParams(window.location.search).get(
     "sourceTabId",
   );
-
-  return sourceTabId !== null && /^\d+$/.test(sourceTabId);
+  if (rawSourceTabId === null || !/^\d+$/.test(rawSourceTabId)) return false;
+  const sourceTabId = Number(rawSourceTabId);
+  return Number.isSafeInteger(sourceTabId) && sourceTabId > 0;
 }
 
 export interface AppProps {
@@ -31,15 +32,8 @@ export function App({ composition }: AppProps) {
             Review and delete standalone conversations with explicit safety
             checks.
           </Typography.Paragraph>
-          {demoMode ? (
+          {demoMode || sourceTabAvailable ? (
             <ManagerPage composition={composition} />
-          ) : sourceTabAvailable ? (
-            <Alert
-              type="info"
-              showIcon
-              title="Extension bootstrap is ready"
-              description="Conversation inventory and deletion remain disabled until the safety workflow is implemented."
-            />
           ) : (
             <Alert
               type="warning"

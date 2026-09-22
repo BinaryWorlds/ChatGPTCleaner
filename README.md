@@ -104,6 +104,12 @@ ChatGPT tab or account, and its deterministic deletion outcomes only mutate
 in-memory fake data. Query parameters and browser storage cannot switch a
 production build into demo mode.
 
+Production source-tab, storage, retry, and locking boundaries are implemented.
+Real inventory reads remain fail-closed until the current undocumented ChatGPT
+request/response shapes are verified. See
+[`docs/PHASE5_NETWORK_EVIDENCE.md`](docs/PHASE5_NETWORK_EVIDENCE.md) for the
+sanitized DevTools evidence needed; never share credentials or a full HAR.
+
 Quality gate:
 
 ```bash

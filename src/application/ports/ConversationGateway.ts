@@ -22,7 +22,9 @@ export type ReadFailureReason =
   | "authentication"
   | "compatibility"
   | "network"
+  | "request"
   | "retry-later"
+  | "contract-unverified"
   | "source-unavailable";
 
 export type ReadResult<T> =
