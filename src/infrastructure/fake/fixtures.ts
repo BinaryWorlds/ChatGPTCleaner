@@ -1,5 +1,4 @@
 export interface FakeGatewayFixture {
-  readonly contexts: readonly string[];
   readonly standalonePages: Readonly<Record<string, unknown>>;
   readonly projects: unknown;
   readonly projectConversationPages: Readonly<Record<string, unknown>>;
@@ -23,7 +22,6 @@ const standaloneRecords = Array.from({ length: 64 }, (_, index) => ({
 }));
 
 export const DEMO_FIXTURE: FakeGatewayFixture = {
-  contexts: ["demo-account:demo-workspace"],
   standalonePages: {
     first: {
       conversations: [
@@ -89,9 +87,4 @@ export const MALFORMED_STANDALONE_FIXTURE: FakeGatewayFixture = {
       nextCursor: null,
     },
   },
-};
-
-export const SESSION_MISMATCH_FIXTURE: FakeGatewayFixture = {
-  ...DEMO_FIXTURE,
-  contexts: ["demo-account:workspace-a", "demo-account:workspace-b"],
 };

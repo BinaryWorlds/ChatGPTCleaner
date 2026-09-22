@@ -45,7 +45,7 @@ import { SafetyStatus } from "./SafetyStatus";
 type InventoryState =
   | { readonly kind: "loading" }
   | { readonly kind: "blocked"; readonly reason: string }
-  | { readonly kind: "ready"; readonly contextFingerprint: string };
+  | { readonly kind: "ready" };
 
 function isRunActive(state: DeletionRunState | null): boolean {
   return (
@@ -136,10 +136,7 @@ export function ManagerPage({ composition }: ManagerPageProps) {
         );
         setProtectedConversationIds(result.protectedConversationIds);
         setRequestsPerMinute(result.requestsPerMinute);
-        setInventoryState({
-          kind: "ready",
-          contextFingerprint: result.inventory.context.fingerprint,
-        });
+        setInventoryState({ kind: "ready" });
       })
       .catch(() => {
         if (current) {
@@ -265,7 +262,6 @@ export function ManagerPage({ composition }: ManagerPageProps) {
     setSafetyOverride(null);
     runPreflight({
       selectedConversationIds: [...selectedConversationIds],
-      expectedContextFingerprint: inventoryState.contextFingerprint,
       gateway: dependencies.gateway,
       protectedConversationStore: dependencies.protectedConversationStore,
     })
@@ -316,10 +312,6 @@ export function ManagerPage({ composition }: ManagerPageProps) {
 
     const deletionRun = new DeletionRun({
       confirmedPlan: confirmation.plan,
-      expectedContextFingerprint:
-        inventoryState.kind === "ready"
-          ? inventoryState.contextFingerprint
-          : "",
       requestsPerMinute,
       gateway: dependencies.gateway,
       protectedConversationStore: dependencies.protectedConversationStore,

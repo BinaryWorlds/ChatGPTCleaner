@@ -26,7 +26,7 @@ Examples include:
 - bypassing the `DeletionPlan` safety boundary;
 - arbitrary authenticated requests through the extension;
 - credential/token/cookie leakage;
-- source/session/workspace confusion;
+- source-tab binding confusion;
 - unexpected broad Chrome permissions;
 - destructive execution continuing unexpectedly after manager teardown;
 - concurrent destructive executors;

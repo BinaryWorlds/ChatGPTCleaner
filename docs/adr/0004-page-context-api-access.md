@@ -16,7 +16,7 @@ Expose only narrow fixed ChatGPT operations. Do not implement a generic authenti
 
 Never require users to paste tokens and never persist auth secrets.
 
-The manager is bound to a single source tab and must fail closed if that source/session context becomes unusable or changes.
+The manager is bound to a single source tab and must fail closed if that source tab becomes unusable or leaves the exact ChatGPT origin. The MVP does not add a separate identity-context mechanism.
 
 ## Alternatives considered
 

@@ -168,11 +168,11 @@ These rules must remain true even if UI state is wrong.
 4. Malformed or incompatible API data is never interpreted as permission to delete.
 5. Raw UI selection never reaches a DELETE loop.
 6. Only a validated `DeletionPlan` may reach destructive execution.
-7. A newly confirmed destructive batch uses fresh standalone inventory, fresh Project protection, current user protection, and the current authenticated session/workspace context.
+7. A newly confirmed destructive batch uses the current authenticated source tab, fresh standalone inventory, fresh Project protection, and current user protection.
 8. All Project conversation IDs are explicitly enumerated before deletion.
 9. Incomplete Project discovery/enumeration blocks deletion.
 10. Read-side API incompatibility blocks deletion.
-11. A change or loss of source tab, authenticated account/session, or workspace context blocks/stops deletion.
+11. A change or loss of the bound authenticated source tab blocks/stops deletion.
 12. `401`, `403`, and unexpected non-retryable destructive `4xx` stop the batch.
 13. The configured requests-per-minute limit applies to every DELETE attempt, including retries.
 14. A successfully processed ID is never intentionally deleted twice in one logical run.
@@ -226,7 +226,6 @@ Do not claim an atomic guarantee the client cannot provide.
 - ChatGPT API drift;
 - malformed responses;
 - stale Project membership;
-- account/workspace context changes;
 - source-tab navigation/reload/close;
 - UI selection bugs;
 - credential leakage;
@@ -241,7 +240,7 @@ Do not claim an atomic guarantee the client cannot provide.
 - runtime validation;
 - exact source-origin validation;
 - explicit Project enumeration;
-- session/workspace context checks;
+- source-tab revalidation before every safety-sensitive read;
 - `DeletionPlan` safety boundary;
 - fresh preflight;
 - monotonic confirmed-ID subset;
@@ -355,7 +354,6 @@ protected-ID storage
 settings storage
 clock/sleep
 destructive-run lock
-session/workspace context
 ```
 
 Application depends on ports; Infrastructure implements them.
@@ -468,41 +466,16 @@ Do not perform API work.
 
 ---
 
-## 11. Session/workspace stability
+## 11. Source-bound freshness
 
-The tool does not implement multi-workspace management.
+The MVP safety boundary remains bound to the exact authenticated source tab
+captured at launch and does not add a separate identity-context mechanism.
 
-It does require **context stability**.
-
-When the current ChatGPT web contract exposes stable non-secret fields suitable for identifying the current account/session/workspace context, production integration must capture an in-memory safety fingerprint.
-
-The fingerprint is:
-
-```text
-observed from current authenticated context
-kept in memory only
-not shown unless useful
-not persisted
-```
-
-Compare it at:
-
-```text
-initial inventory
-preflight
-Resume
-Retry Failed
-```
-
-If the context changes or can no longer be verified:
-
-```text
-Deletion safety = BLOCKED
-```
-
-Do not guess which backend fields constitute the fingerprint before inspecting the current ChatGPT Network/session contract.
-
-If no stable context identifier is available, stop that integration step and document the limitation rather than inventing one.
+Initial inventory, preflight, Resume, and Retry Failed each revalidate that
+source tab and load fresh standalone inventory, complete Project protection,
+and current user-protected IDs. If the tab is missing, has left the exact
+`https://chatgpt.com` origin, or cannot execute the narrow read transport,
+deletion safety is BLOCKED.
 
 ---
 
@@ -602,7 +575,6 @@ Expose only fixed ChatGPT operations such as:
 fetch standalone conversation page
 fetch Project sidebar
 fetch Project conversation page
-read current session/workspace context
 delete conversation
 ```
 
@@ -634,6 +606,15 @@ Observed family:
 GET /backend-api/conversations
 ```
 
+Current sanitized capture structure:
+
+```text
+query names: offset, limit, order, is_archived, is_starred
+response: { items, total, limit, offset }
+item safety field: id (string)
+item display fields: title, create_time, update_time
+```
+
 Implementation must:
 
 - load all pages;
@@ -657,12 +638,28 @@ GET /backend-api/gizmos/snorlax/sidebar
 
 Used only for protection.
 
+Current sanitized capture structure:
+
+```text
+query names: owned_only, conversations_per_gizmo, limit
+response: { items, cursor }
+Project ID path: items[].gizmo.gizmo.id
+```
+
 ### Project conversations
 
 Observed family:
 
 ```text
 GET /backend-api/gizmos/{projectId}/conversations
+```
+
+Current sanitized capture structure:
+
+```text
+query names: cursor, limit, owned_only
+response: { items, cursor }
+membership conversation ID path: items[].id
 ```
 
 Build a complete set:
@@ -712,7 +709,6 @@ conversation ID
 Project ID
 Project membership conversation ID
 pagination fields required to make progress
-session/workspace identity fields used by safety checks
 ```
 
 Missing/invalid critical data blocks deletion.
@@ -1094,7 +1090,7 @@ Display compact state such as:
 
 ```text
 ChatGPT connection       OK
-Session/workspace        OK
+Source tab access        OK
 Read API compatibility   OK
 Project protection       OK
 Run lock                 AVAILABLE
@@ -1108,7 +1104,6 @@ Blocked examples:
 
 ```text
 source tab unavailable/changed
-session/workspace changed
 inventory contract changed
 Project protection incomplete
 another destructive run active
@@ -1125,7 +1120,6 @@ On manager load:
 
 ```text
 validate source tab
--> read/capture session-workspace context when supported
 -> load standalone inventory
 -> load all Project conversation IDs
 -> validate
@@ -1145,7 +1139,6 @@ When the user chooses `Delete selected`:
 ```text
 verify no run is already active
 -> revalidate source tab
--> revalidate session/workspace context
 -> refresh standalone inventory
 -> refresh all Project conversation IDs
 -> reload/validate protected IDs
@@ -1272,7 +1265,6 @@ Resume performs fresh revalidation for remaining confirmed IDs:
 
 ```text
 source tab
-session/workspace context
 standalone inventory
 Project IDs
 protected IDs
@@ -1423,7 +1415,6 @@ varied/null dates
 untitled conversations
 duplicates
 malformed responses
-session/workspace mismatch
 success and relevant HTTP/network failures
 latency
 ```
@@ -1478,9 +1469,9 @@ Prove that Project, protected, and missing IDs cannot reach eligible IDs, includ
 
 Cover exact `DELETE N` for new batches and confirmed-ID monotonic subset behavior.
 
-### Source tab/session/path safety
+### Source tab/path safety
 
-Cover exact origin validation, deceptive lookalike hosts, source-tab change, session/workspace mismatch, invalid IDs, and path-segment encoding.
+Cover exact origin validation, deceptive lookalike hosts, source-tab change, invalid IDs, and path-segment encoding.
 
 ### Rate limiter and DELETE policy
 
@@ -1733,7 +1724,7 @@ Implement/test:
 ```text
 ports
 inventory/preflight orchestration
-session/workspace stability
+source-tab stability
 rate limiting
 destructive run orchestration
 Pause/Resume/Stop
@@ -1755,7 +1746,6 @@ Implement:
 
 ```text
 source-tab validation
-session/workspace context observation
 narrow page transport
 standalone pagination
 Project discovery/enumeration
@@ -1825,7 +1815,6 @@ MVP is done when:
 - extension action opens the manager from a valid ChatGPT source tab;
 - fake workflow works end-to-end without network;
 - real read integration loads standalone inventory and complete Project protection;
-- session/workspace context changes fail closed when a stable context signal is available;
 - production DELETE gateway is implemented behind the safety pipeline;
 - Project/protected/missing IDs cannot reach DELETE;
 - typed confirmation protects each new destructive batch;
@@ -1870,7 +1859,7 @@ Destructive path:
 
 ```text
 UI selection
--> source/session/workspace revalidation
+-> source-tab revalidation
 -> fresh inventory + Project protection
 -> DeletionPlan
 -> typed confirmation
@@ -1891,4 +1880,4 @@ remaining confirmed IDs
 
 Core rule:
 
-> A conversation can reach DELETE only through a fresh validated plan built from current standalone inventory, complete Project-protection data, current user-protection data, stable source/session context, and an explicit user-confirmed ID set. Revalidation may remove IDs from that confirmed set but may never add new ones.
+> A conversation can reach DELETE only through a fresh validated plan built from the current bound source tab, current standalone inventory, complete Project-protection data, current user-protection data, and an explicit user-confirmed ID set. Revalidation may remove IDs from that confirmed set but may never add new ones.

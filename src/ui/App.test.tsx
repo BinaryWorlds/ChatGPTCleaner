@@ -38,6 +38,9 @@ describe("App", () => {
                 },
               ]),
           },
+          pageReadExecutor: {
+            execute: () => Promise.resolve([{ result: { malformed: true } }]),
+          },
           storage: {
             get: () => Promise.resolve({}),
             set: () => Promise.resolve(),
@@ -48,9 +51,7 @@ describe("App", () => {
     );
 
     expect(
-      await screen.findByText(
-        /Current ChatGPT read contract has not been verified/,
-      ),
+      await screen.findByText("Read API compatibility failed"),
     ).toBeInTheDocument();
   });
 

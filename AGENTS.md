@@ -48,7 +48,7 @@ Infrastructure -> Application ports
 - Resume/Retry may only shrink the already-confirmed ID set.
 - Incomplete Project protection blocks deletion.
 - API incompatibility blocks deletion.
-- Source-tab/session/workspace instability blocks or stops deletion.
+- Source-tab instability blocks or stops deletion.
 - Only one destructive executor may run.
 - Executor lives in manager page, never MV3 service worker.
 - Manager close/reload/crash means no new DELETE attempts, no background continuation, no auto-resume.

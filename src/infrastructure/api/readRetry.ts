@@ -16,7 +16,8 @@ export type ReadAttemptResult =
       readonly body: unknown;
       readonly retryAfter: string | null;
     }
-  | { readonly kind: "network-error" };
+  | { readonly kind: "network-error" }
+  | { readonly kind: "failure"; readonly reason: ReadFailureReason };
 
 export type RawReadResult = ReadResult<unknown>;
 
@@ -57,6 +58,9 @@ export async function executeReadWithRetry(input: {
 
   for (let attempt = 1; attempt <= READ_MAX_ATTEMPTS; attempt += 1) {
     const result = await input.attempt();
+    if (result.kind === "failure") {
+      return { kind: "failure", reason: result.reason };
+    }
     if (
       result.kind === "response" &&
       result.status >= 200 &&

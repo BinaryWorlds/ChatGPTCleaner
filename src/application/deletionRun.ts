@@ -77,7 +77,6 @@ export class DeletionRun {
   public constructor(
     private readonly input: {
       readonly confirmedPlan: ConfirmedDeletionPlan;
-      readonly expectedContextFingerprint: string;
       readonly requestsPerMinute: number;
       readonly gateway: ConversationGateway;
       readonly protectedConversationStore: ProtectedConversationStore;
@@ -142,7 +141,6 @@ export class DeletionRun {
 
     const preflightResult = await runPreflight({
       selectedConversationIds: this.failedConversationIds,
-      expectedContextFingerprint: this.input.expectedContextFingerprint,
       gateway: this.input.gateway,
       protectedConversationStore: this.input.protectedConversationStore,
     });
@@ -314,7 +312,6 @@ export class DeletionRun {
 
     const preflightResult = await runPreflight({
       selectedConversationIds: this.remainingConversationIds,
-      expectedContextFingerprint: this.input.expectedContextFingerprint,
       gateway: this.input.gateway,
       protectedConversationStore: this.input.protectedConversationStore,
     });

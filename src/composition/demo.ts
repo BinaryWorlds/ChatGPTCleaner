@@ -7,7 +7,6 @@ import {
 import {
   DEMO_FIXTURE,
   MALFORMED_STANDALONE_FIXTURE,
-  SESSION_MISMATCH_FIXTURE,
   type FakeGatewayFixture,
 } from "../infrastructure/fake/fixtures";
 import { SystemClock } from "../infrastructure/time/SystemClock";
@@ -21,11 +20,6 @@ const scenarios = [
       "IDs 001–007 cover success, gone, retries, failed network, and fatal 403.",
   },
   {
-    id: "session-mismatch",
-    label: "Session/workspace mismatch",
-    description: "Inventory loads, but destructive preflight fails closed.",
-  },
-  {
     id: "malformed",
     label: "Malformed API response",
     description: "Safety-critical inventory validation fails closed.",
@@ -33,7 +27,6 @@ const scenarios = [
 ] as const;
 
 function fixtureForScenario(scenarioId: string): FakeGatewayFixture {
-  if (scenarioId === "session-mismatch") return SESSION_MISMATCH_FIXTURE;
   if (scenarioId === "malformed") return MALFORMED_STANDALONE_FIXTURE;
   return DEMO_FIXTURE;
 }

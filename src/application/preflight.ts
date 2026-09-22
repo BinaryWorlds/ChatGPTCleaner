@@ -10,23 +10,15 @@ export type PreflightResult =
   | { readonly kind: "ready"; readonly plan: DeletionPlan }
   | {
       readonly kind: "blocked";
-      readonly reason:
-        | ReadFailureReason
-        | "pagination"
-        | "context-changed"
-        | "protected-storage";
+      readonly reason: ReadFailureReason | "pagination" | "protected-storage";
     };
 
 export async function runPreflight(input: {
   readonly selectedConversationIds: readonly unknown[];
-  readonly expectedContextFingerprint: string;
   readonly gateway: ConversationGateway;
   readonly protectedConversationStore: ProtectedConversationStore;
 }): Promise<PreflightResult> {
-  const inventoryResult = await loadSafetyInventory(
-    input.gateway,
-    input.expectedContextFingerprint,
-  );
+  const inventoryResult = await loadSafetyInventory(input.gateway);
   if (inventoryResult.kind === "blocked") return inventoryResult;
 
   const protectedIdsResult =

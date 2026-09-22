@@ -11,12 +11,9 @@ const blockedReasonLabels: Readonly<Record<string, string>> = {
   network: "Network unavailable",
   request: "ChatGPT rejected an inventory request",
   "retry-later": "Retry later",
-  "contract-unverified":
-    "Current ChatGPT read contract has not been verified. Capture the requested DevTools Network evidence before enabling inventory reads.",
   "source-unavailable":
     "Source tab unavailable. Return to a valid ChatGPT tab and relaunch ChatGPTCleaner.",
   pagination: "Inventory pagination incomplete",
-  "context-changed": "Session/workspace changed",
   "protected-storage": "Protected-ID storage invalid",
   "destructive-run-lock": "Another destructive run is active",
 };
@@ -33,7 +30,7 @@ export function SafetyStatus({ status, blockedReason }: SafetyStatusProps) {
         <Descriptions.Item label="ChatGPT connection">
           <Tag color={statusColor}>{statusText}</Tag>
         </Descriptions.Item>
-        <Descriptions.Item label="Session/workspace">
+        <Descriptions.Item label="Source tab access">
           <Tag color={statusColor}>{statusText}</Tag>
         </Descriptions.Item>
         <Descriptions.Item label="Read API compatibility">

@@ -21,11 +21,7 @@ function assert(condition, message) {
 const productionBundle = await readJavaScript(".output/chrome-mv3");
 const demoBundle = await readJavaScript(".output/chrome-mv3-demo");
 
-for (const fakeMarker of [
-  "demo-account:demo-workspace",
-  "standalone-001",
-  "project-alpha-page-2",
-]) {
+for (const fakeMarker of ["standalone-001", "project-alpha-page-2"]) {
   assert(
     !productionBundle.includes(fakeMarker),
     `Production bundle contains fake fixture marker: ${fakeMarker}`,
@@ -39,6 +35,20 @@ for (const productionMarker of [
   assert(
     !demoBundle.includes(productionMarker),
     `Demo bundle contains production infrastructure marker: ${productionMarker}`,
+  );
+}
+
+for (const readPath of [
+  "/backend-api/conversations",
+  "/backend-api/gizmos/snorlax/sidebar",
+]) {
+  assert(
+    productionBundle.includes(readPath),
+    `Production bundle is missing read integration: ${readPath}`,
+  );
+  assert(
+    !demoBundle.includes(readPath),
+    `Demo bundle contains a real ChatGPT read path: ${readPath}`,
   );
 }
 

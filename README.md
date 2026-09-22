@@ -31,7 +31,7 @@ The deletion path is:
 
 ```text
 selection
--> fresh source/session/project preflight
+-> fresh source/inventory/Project preflight
 -> DeletionPlan
 -> typed confirmation
 -> confirmed IDs
@@ -45,7 +45,7 @@ Important rules:
 - User-protected conversations are excluded.
 - Incomplete Project protection blocks deletion.
 - API incompatibility blocks deletion.
-- Source/session/workspace instability blocks or stops deletion.
+- Source-tab instability blocks or stops deletion.
 - Raw table selection never reaches DELETE.
 - Resume/Retry may only shrink the already-confirmed ID set.
 - Closing/reloading the manager prevents new DELETE requests from starting.
@@ -104,11 +104,8 @@ ChatGPT tab or account, and its deterministic deletion outcomes only mutate
 in-memory fake data. Query parameters and browser storage cannot switch a
 production build into demo mode.
 
-Production source-tab, storage, retry, and locking boundaries are implemented.
-Real inventory reads remain fail-closed until the current undocumented ChatGPT
-request/response shapes are verified. See
-[`docs/PHASE5_NETWORK_EVIDENCE.md`](docs/PHASE5_NETWORK_EVIDENCE.md) for the
-sanitized DevTools evidence needed; never share credentials or a full HAR.
+Production source-tab, read-only inventory, Project protection, storage, retry,
+and locking boundaries are implemented.
 
 Quality gate:
 

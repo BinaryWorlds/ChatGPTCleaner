@@ -20,10 +20,8 @@ const DAY_MS = 86_400_000;
 function fixture(
   conversations: readonly Record<string, unknown>[],
   deleteOutcomes: FakeGatewayFixture["deleteOutcomes"] = {},
-  contexts: readonly string[] = ["account:workspace"],
 ): FakeGatewayFixture {
   return {
-    contexts,
     standalonePages: {
       first: { conversations, nextCursor: null },
     },
@@ -330,7 +328,7 @@ describe("ManagerPage destructive flow", () => {
     expect(screen.getByText("Authentication unavailable")).toBeInTheDocument();
   });
 
-  it("shows BLOCKED for malformed inventory and session changes", async () => {
+  it("shows BLOCKED for malformed inventory", async () => {
     const malformed = fixture([{ title: "Missing ID" }]);
     const firstRender = renderManager({ gatewayFixture: malformed });
     expect(
@@ -339,28 +337,5 @@ describe("ManagerPage destructive flow", () => {
     expect(screen.getAllByText("BLOCKED").length).toBeGreaterThan(0);
 
     firstRender.gateway.deleteAttempts.length = 0;
-  });
-
-  it("blocks deletion when the session/workspace changes during preflight", async () => {
-    const user = userEvent.setup();
-    renderManager({
-      gatewayFixture: fixture(
-        [{ id: "alpha", title: "Alpha", updatedAt: 100 }],
-        {},
-        ["account:workspace-a", "account:workspace-b"],
-      ),
-    });
-    await waitForInventory();
-    await selectConversation(user, "Alpha");
-    await user.click(
-      screen.getByRole("button", { name: "Delete selected (1)" }),
-    );
-
-    expect(
-      await screen.findByText("Session/workspace changed"),
-    ).toBeInTheDocument();
-    expect(
-      screen.queryByRole("dialog", { name: "Confirm deletion" }),
-    ).not.toBeInTheDocument();
   });
 });

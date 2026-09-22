@@ -7,7 +7,6 @@ import type {
   ProjectConversationPage,
   ProjectReference,
   ReadResult,
-  SafetyContext,
 } from "../../application/ports/ConversationGateway";
 import type { Conversation } from "../../domain/conversation";
 import type { FakeDeleteOutcome, FakeGatewayFixture } from "./fixtures";
@@ -53,7 +52,6 @@ function deleteResult(outcome: FakeDeleteOutcome): DeleteAttemptResult {
 }
 
 export class FakeConversationGateway implements ConversationGateway {
-  private contextReadCount = 0;
   private readonly outcomeIndexes = new Map<string, number>();
   public readonly deleteAttempts: { id: string; startedAt: number }[] = [];
 
@@ -61,20 +59,6 @@ export class FakeConversationGateway implements ConversationGateway {
     private readonly fixture: FakeGatewayFixture,
     private readonly clock: Clock,
   ) {}
-
-  public readSafetyContext(): Promise<ReadResult<SafetyContext>> {
-    const index = Math.min(
-      this.contextReadCount,
-      this.fixture.contexts.length - 1,
-    );
-    this.contextReadCount += 1;
-    const fingerprint = this.fixture.contexts[index];
-    return Promise.resolve(
-      fingerprint === undefined || fingerprint === ""
-        ? { kind: "failure", reason: "compatibility" }
-        : { kind: "success", value: { fingerprint } },
-    );
-  }
 
   public fetchStandaloneConversationPage(
     cursor: string | null,

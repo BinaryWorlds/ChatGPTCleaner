@@ -16,7 +16,6 @@ Examples:
 Project protection incomplete
 required API contract invalid
 source ChatGPT tab invalid
-session/workspace context changed
 protected-ID storage invalid
 another destructive run active
 ```

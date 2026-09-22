@@ -15,7 +15,6 @@ import {
 import {
   DEMO_FIXTURE,
   MALFORMED_STANDALONE_FIXTURE,
-  SESSION_MISMATCH_FIXTURE,
   type FakeGatewayFixture,
 } from "../infrastructure/fake/fixtures";
 import { DeletionRun } from "./deletionRun";
@@ -47,7 +46,6 @@ function fixtureForDeletion(
   deleteOutcomes: FakeGatewayFixture["deleteOutcomes"],
 ): FakeGatewayFixture {
   return {
-    contexts: ["account:workspace"],
     standalonePages: {
       first: {
         conversations: ids.map((id) => ({ id, title: id })),
@@ -190,22 +188,6 @@ describe("inventory and preflight", () => {
     expect(blocked).toEqual({ kind: "blocked", reason: "protected-storage" });
   });
 
-  it("blocks a changed session/workspace context", async () => {
-    const gateway = new FakeConversationGateway(
-      SESSION_MISMATCH_FIXTURE,
-      new FakeClock(),
-    );
-    const initial = await loadSafetyInventory(gateway);
-    expect(initial.kind).toBe("ready");
-    const result = await runPreflight({
-      selectedConversationIds: ["standalone-001"],
-      expectedContextFingerprint: "demo-account:workspace-a",
-      gateway,
-      protectedConversationStore: new FakeProtectedConversationStore(),
-    });
-    expect(result).toEqual({ kind: "blocked", reason: "context-changed" });
-  });
-
   it("builds a fresh plan that excludes Project, protected, and missing IDs", async () => {
     const result = await runPreflight({
       selectedConversationIds: [
@@ -214,7 +196,6 @@ describe("inventory and preflight", () => {
         "project-overlap",
         "missing",
       ],
-      expectedContextFingerprint: "demo-account:demo-workspace",
       gateway: new FakeConversationGateway(DEMO_FIXTURE, new FakeClock()),
       protectedConversationStore: new FakeProtectedConversationStore([
         "standalone-010",
@@ -246,7 +227,6 @@ describe("destructive run", () => {
     );
     const run = new DeletionRun({
       confirmedPlan: confirmedPlan(ids),
-      expectedContextFingerprint: "account:workspace",
       requestsPerMinute: 60,
       gateway,
       protectedConversationStore: new FakeProtectedConversationStore(),
@@ -279,7 +259,6 @@ describe("destructive run", () => {
     );
     const run = new DeletionRun({
       confirmedPlan: confirmedPlan(ids),
-      expectedContextFingerprint: "account:workspace",
       requestsPerMinute: 60,
       gateway,
       protectedConversationStore: new FakeProtectedConversationStore(),
@@ -295,7 +274,6 @@ describe("destructive run", () => {
     const sharedLockState = { active: true };
     const run = new DeletionRun({
       confirmedPlan: confirmedPlan(["a"]),
-      expectedContextFingerprint: "account:workspace",
       requestsPerMinute: 60,
       gateway: new FakeConversationGateway(
         fixtureForDeletion(["a"], {}),
@@ -318,7 +296,6 @@ describe("destructive run", () => {
     );
     const run = new DeletionRun({
       confirmedPlan: confirmedPlan(ids),
-      expectedContextFingerprint: "account:workspace",
       requestsPerMinute: 60,
       gateway,
       protectedConversationStore: new FakeProtectedConversationStore(),
@@ -352,7 +329,6 @@ describe("destructive run", () => {
     const sharedLockState = { active: false };
     const run = new DeletionRun({
       confirmedPlan: confirmedPlan(ids),
-      expectedContextFingerprint: "account:workspace",
       requestsPerMinute: 60,
       gateway,
       protectedConversationStore: new FakeProtectedConversationStore(),
@@ -385,7 +361,6 @@ describe("destructive run", () => {
     );
     const run = new DeletionRun({
       confirmedPlan: confirmedPlan(ids),
-      expectedContextFingerprint: "account:workspace",
       requestsPerMinute: 60,
       gateway,
       protectedConversationStore: new FakeProtectedConversationStore(),
@@ -411,7 +386,6 @@ describe("destructive run", () => {
     );
     const run = new DeletionRun({
       confirmedPlan: confirmedPlan(ids),
-      expectedContextFingerprint: "account:workspace",
       requestsPerMinute: 60,
       gateway,
       protectedConversationStore: store,
@@ -441,7 +415,6 @@ describe("destructive run", () => {
     );
     const run = new DeletionRun({
       confirmedPlan: confirmedPlan(["failed"]),
-      expectedContextFingerprint: "account:workspace",
       requestsPerMinute: 60,
       gateway,
       protectedConversationStore: store,
@@ -468,7 +441,6 @@ describe("destructive run", () => {
     );
     const run = new DeletionRun({
       confirmedPlan: confirmedPlan(["failed"]),
-      expectedContextFingerprint: "account:workspace",
       requestsPerMinute: 60,
       gateway,
       protectedConversationStore: new FakeProtectedConversationStore(),

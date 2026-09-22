@@ -1,5 +1,10 @@
 import { ProductionConversationGateway } from "../infrastructure/api/ProductionConversationGateway";
 import {
+  createChromePageContextReadExecutor,
+  PageContextReadTransport,
+  type PageContextReadExecutor,
+} from "../infrastructure/api/PageContextReadTransport";
+import {
   createChromeSourceTabBrowser,
   parseSourceTabId,
   SourceTabBinding,
@@ -22,6 +27,7 @@ import type { ManagerComposition, ManagerDependencies } from "./types";
 
 export interface ProductionRuntime {
   readonly sourceTabBrowser: SourceTabBrowser;
+  readonly pageReadExecutor?: PageContextReadExecutor;
   readonly storage: BrowserLocalStorage;
   readonly locks: WebLockManager | null;
 }
@@ -29,6 +35,7 @@ export interface ProductionRuntime {
 function createBrowserRuntime(): ProductionRuntime {
   return {
     sourceTabBrowser: createChromeSourceTabBrowser(),
+    pageReadExecutor: createChromePageContextReadExecutor(),
     storage: createChromeLocalStorage(),
     locks: currentWebLockManager(),
   };
@@ -45,10 +52,18 @@ export function createManagerComposition(
     if (sourceTabId === null) return null;
     const activeRuntime = runtime ?? createBrowserRuntime();
     const trustedStorage = new TrustedStorageAccess(activeRuntime.storage);
+    const clock = new SystemClock();
+    const sourceTab = new SourceTabBinding(
+      sourceTabId,
+      activeRuntime.sourceTabBrowser,
+    );
+    const transport = new PageContextReadTransport(
+      sourceTab,
+      activeRuntime.pageReadExecutor ?? createChromePageContextReadExecutor(),
+      clock,
+    );
     return {
-      gateway: new ProductionConversationGateway(
-        new SourceTabBinding(sourceTabId, activeRuntime.sourceTabBrowser),
-      ),
+      gateway: new ProductionConversationGateway(transport),
       protectedConversationStore: new BrowserProtectedConversationStore(
         activeRuntime.storage,
         trustedStorage,
@@ -57,7 +72,7 @@ export function createManagerComposition(
         activeRuntime.storage,
         trustedStorage,
       ),
-      clock: new SystemClock(),
+      clock,
       destructiveRunLock: new WebLocksDestructiveRunLock(activeRuntime.locks),
     };
   };

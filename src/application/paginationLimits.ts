@@ -1,0 +1,2 @@
+export const INVENTORY_MAX_PAGES = 1_000;
+export const INVENTORY_MAX_RECORDS = 100_000;

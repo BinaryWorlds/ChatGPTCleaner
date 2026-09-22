@@ -1,9 +1,5 @@
 import type { Conversation } from "../../domain/conversation";
 
-export interface SafetyContext {
-  readonly fingerprint: string;
-}
-
 export interface ProjectReference {
   readonly id: string;
 }
@@ -24,7 +20,6 @@ export type ReadFailureReason =
   | "network"
   | "request"
   | "retry-later"
-  | "contract-unverified"
   | "source-unavailable";
 
 export type ReadResult<T> =
@@ -45,7 +40,6 @@ export type DeleteAttemptResult =
     };
 
 export interface ConversationGateway {
-  readSafetyContext(): Promise<ReadResult<SafetyContext>>;
   fetchStandaloneConversationPage(
     cursor: string | null,
   ): Promise<ReadResult<ConversationPage>>;

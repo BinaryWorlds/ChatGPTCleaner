@@ -3,17 +3,13 @@ import { excludeProjectConversations } from "../domain/selection";
 import type {
   ConversationGateway,
   ReadFailureReason,
-  SafetyContext,
 } from "./ports/ConversationGateway";
 import type { ProtectedConversationStore } from "./ports/ProtectedConversationStore";
 import type { SettingsStore } from "./ports/SettingsStore";
 import { loadRequestsPerMinute } from "./settings";
-
-const MAX_PAGES = 1_000;
-const MAX_RECORDS = 100_000;
+import { INVENTORY_MAX_PAGES, INVENTORY_MAX_RECORDS } from "./paginationLimits";
 
 export interface SafetyInventory {
-  readonly context: SafetyContext;
   readonly standaloneConversations: readonly Conversation[];
   readonly projectConversationIds: ReadonlySet<string>;
 }
@@ -22,7 +18,7 @@ export type SafetyInventoryResult =
   | { readonly kind: "ready"; readonly inventory: SafetyInventory }
   | {
       readonly kind: "blocked";
-      readonly reason: ReadFailureReason | "pagination" | "context-changed";
+      readonly reason: ReadFailureReason | "pagination";
     };
 
 export type InventoryLoadResult =
@@ -34,11 +30,7 @@ export type InventoryLoadResult =
     }
   | {
       readonly kind: "blocked";
-      readonly reason:
-        | ReadFailureReason
-        | "pagination"
-        | "context-changed"
-        | "protected-storage";
+      readonly reason: ReadFailureReason | "pagination" | "protected-storage";
     };
 
 async function loadStandaloneConversations(
@@ -57,13 +49,13 @@ async function loadStandaloneConversations(
   const visitedCursors = new Set<string>();
   let cursor: string | null = null;
 
-  for (let pageCount = 0; pageCount < MAX_PAGES; pageCount += 1) {
+  for (let pageCount = 0; pageCount < INVENTORY_MAX_PAGES; pageCount += 1) {
     const pageResult = await gateway.fetchStandaloneConversationPage(cursor);
     if (pageResult.kind === "failure") return pageResult;
 
     for (const conversation of pageResult.value.conversations) {
       conversationsById.set(conversation.id, conversation);
-      if (conversationsById.size > MAX_RECORDS) {
+      if (conversationsById.size > INVENTORY_MAX_RECORDS) {
         return { kind: "failure", reason: "pagination" };
       }
     }
@@ -104,7 +96,7 @@ async function loadProjectConversationIds(
     const visitedCursors = new Set<string>();
     let cursor: string | null = null;
 
-    while (totalPages < MAX_PAGES) {
+    while (totalPages < INVENTORY_MAX_PAGES) {
       const pageResult = await gateway.fetchProjectConversationPage(
         project.id,
         cursor,
@@ -114,7 +106,7 @@ async function loadProjectConversationIds(
 
       for (const conversationId of pageResult.value.conversationIds) {
         conversationIds.add(conversationId);
-        if (conversationIds.size > MAX_RECORDS) {
+        if (conversationIds.size > INVENTORY_MAX_RECORDS) {
           return { kind: "failure", reason: "pagination" };
         }
       }
@@ -128,7 +120,7 @@ async function loadProjectConversationIds(
       cursor = nextCursor;
     }
 
-    if (cursor !== null && totalPages >= MAX_PAGES) {
+    if (cursor !== null && totalPages >= INVENTORY_MAX_PAGES) {
       return { kind: "failure", reason: "pagination" };
     }
   }
@@ -138,19 +130,7 @@ async function loadProjectConversationIds(
 
 export async function loadSafetyInventory(
   gateway: ConversationGateway,
-  expectedContextFingerprint?: string,
 ): Promise<SafetyInventoryResult> {
-  const contextResult = await gateway.readSafetyContext();
-  if (contextResult.kind === "failure") {
-    return { kind: "blocked", reason: contextResult.reason };
-  }
-  if (
-    expectedContextFingerprint !== undefined &&
-    contextResult.value.fingerprint !== expectedContextFingerprint
-  ) {
-    return { kind: "blocked", reason: "context-changed" };
-  }
-
   const standaloneResult = await loadStandaloneConversations(gateway);
   if (standaloneResult.kind === "failure") {
     return { kind: "blocked", reason: standaloneResult.reason };
@@ -164,7 +144,6 @@ export async function loadSafetyInventory(
   return {
     kind: "ready",
     inventory: {
-      context: contextResult.value,
       standaloneConversations: excludeProjectConversations(
         standaloneResult.conversations,
         projectResult.conversationIds,
