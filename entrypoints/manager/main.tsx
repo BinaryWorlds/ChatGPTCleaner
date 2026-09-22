@@ -1,6 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "antd/dist/reset.css";
+import { createManagerComposition } from "@manager-composition";
 import { App } from "../../src/ui/App";
 import "../../src/ui/manager.css";
 
@@ -10,8 +11,10 @@ if (rootElement === null) {
   throw new Error("Manager root element is missing.");
 }
 
+const composition = createManagerComposition();
+
 createRoot(rootElement).render(
   <StrictMode>
-    <App />
+    <App mode={composition.mode} />
   </StrictMode>,
 );

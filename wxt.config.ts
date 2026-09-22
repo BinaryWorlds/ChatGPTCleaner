@@ -1,7 +1,22 @@
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "wxt";
 
 export default defineConfig({
   modules: ["@wxt-dev/module-react"],
+  vite: ({ mode }) => ({
+    resolve: {
+      alias: {
+        "@manager-composition": fileURLToPath(
+          new URL(
+            mode === "demo"
+              ? "./src/composition/demo.ts"
+              : "./src/composition/production.ts",
+            import.meta.url,
+          ),
+        ),
+      },
+    },
+  }),
   manifest: {
     name: "ChatGPTCleaner",
     description:

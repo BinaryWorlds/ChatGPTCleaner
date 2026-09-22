@@ -26,4 +26,13 @@ describe("App", () => {
       screen.getByText("Extension bootstrap is ready"),
     ).toBeInTheDocument();
   });
+
+  it("shows demo mode without requiring a source tab", () => {
+    render(<App mode="demo" />);
+
+    expect(screen.getByText("Demo mode")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Demo mode cannot access ChatGPT/),
+    ).toBeInTheDocument();
+  });
 });

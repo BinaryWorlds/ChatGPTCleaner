@@ -10,8 +10,13 @@ function hasSourceTab(): boolean {
   return sourceTabId !== null && /^\d+$/.test(sourceTabId);
 }
 
-export function App() {
+export interface AppProps {
+  readonly mode?: "demo" | "production-deferred";
+}
+
+export function App({ mode = "production-deferred" }: AppProps) {
   const sourceTabAvailable = hasSourceTab();
+  const demoMode = mode === "demo";
 
   return (
     <Layout className="manager-shell">
@@ -24,7 +29,14 @@ export function App() {
             Review and delete standalone conversations with explicit safety
             checks.
           </Typography.Paragraph>
-          {sourceTabAvailable ? (
+          {demoMode ? (
+            <Alert
+              type="success"
+              showIcon
+              message="Demo mode"
+              description="Deterministic fake infrastructure is active. Demo mode cannot access ChatGPT or issue a real DELETE."
+            />
+          ) : sourceTabAvailable ? (
             <Alert
               type="info"
               showIcon

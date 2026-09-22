@@ -99,6 +99,11 @@ Demo mode uses fake infrastructure and must not access the real ChatGPT network:
 pnpm dev:demo
 ```
 
+This selects the fake composition at build time. It does not depend on a
+ChatGPT tab or account, and its deterministic deletion outcomes only mutate
+in-memory fake data. Query parameters and browser storage cannot switch a
+production build into demo mode.
+
 Quality gate:
 
 ```bash
