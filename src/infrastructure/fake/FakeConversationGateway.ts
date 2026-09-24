@@ -24,7 +24,7 @@ const rawConversationPageSchema = z.object({
 const projectSchema = z.object({ id: z.string().min(1).max(512) });
 const projectsSchema = z.array(projectSchema);
 const projectConversationPageSchema = z.object({
-  conversationIds: z.array(z.string().min(1).max(512)),
+  conversations: z.array(rawConversationSchema),
   nextCursor: z.string().min(1).nullable(),
 });
 
@@ -59,6 +59,14 @@ export class FakeConversationGateway implements ConversationGateway {
     private readonly fixture: FakeGatewayFixture,
     private readonly clock: Clock,
   ) {}
+
+  public beginSafetyInventoryRead(): Promise<ReadResult<null>> {
+    return Promise.resolve({ kind: "success", value: null });
+  }
+
+  public completeStandaloneInventoryRead(committedPageCount: number): void {
+    void committedPageCount;
+  }
 
   public fetchStandaloneConversationPage(
     cursor: string | null,
@@ -102,7 +110,20 @@ export class FakeConversationGateway implements ConversationGateway {
     );
     return Promise.resolve(
       parsedPage.success
-        ? { kind: "success", value: parsedPage.data }
+        ? {
+            kind: "success",
+            value: {
+              conversations: parsedPage.data.conversations.map(
+                (rawConversation) => ({
+                  id: rawConversation.id,
+                  title: displayTitle(rawConversation.title),
+                  createdAt: displayTimestamp(rawConversation.createdAt),
+                  updatedAt: displayTimestamp(rawConversation.updatedAt),
+                }),
+              ),
+              nextCursor: parsedPage.data.nextCursor,
+            },
+          }
         : { kind: "failure", reason: "compatibility" },
     );
   }

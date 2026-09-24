@@ -3,6 +3,7 @@ import type { ConversationGateway } from "../application/ports/ConversationGatew
 import type { DestructiveRunLock } from "../application/ports/DestructiveRunLock";
 import type { ProtectedConversationStore } from "../application/ports/ProtectedConversationStore";
 import type { SettingsStore } from "../application/ports/SettingsStore";
+import type { ApplicationObservability } from "../application/ports/Observability";
 
 export interface ManagerDependencies {
   readonly gateway: ConversationGateway;
@@ -10,6 +11,7 @@ export interface ManagerDependencies {
   readonly settingsStore: SettingsStore;
   readonly clock: Clock;
   readonly destructiveRunLock: DestructiveRunLock;
+  readonly observability?: ApplicationObservability;
 }
 
 export interface DemoScenario {

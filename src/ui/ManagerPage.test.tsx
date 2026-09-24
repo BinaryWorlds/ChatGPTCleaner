@@ -31,12 +31,47 @@ function fixture(
   };
 }
 
+function fixtureWithProjects(input?: {
+  readonly projectConversations?: readonly Record<string, unknown>[];
+}): FakeGatewayFixture {
+  return {
+    standalonePages: {
+      first: {
+        conversations: [
+          { id: "standalone", title: "Standalone row", updatedAt: 300 },
+          { id: "overlap", title: "Standalone overlap", updatedAt: 200 },
+        ],
+        nextCursor: null,
+      },
+    },
+    projects: [{ id: "project-one" }],
+    projectConversationPages: {
+      "project-one:first": {
+        conversations: input?.projectConversations ?? [
+          {
+            id: "overlap",
+            title: "Project overlap",
+            updatedAt: Date.now() - DAY_MS,
+          },
+          {
+            id: "project-chat",
+            title: "Project planning",
+            createdAt: Date.now() - 20 * DAY_MS,
+            updatedAt: Date.now() - 10 * DAY_MS,
+          },
+        ],
+        nextCursor: null,
+      },
+    },
+  };
+}
+
 function renderManager(input?: {
   readonly gatewayFixture?: FakeGatewayFixture;
   readonly protectedIds?: readonly string[];
   readonly clock?: FakeClock;
 }) {
-  const clock = input?.clock ?? new FakeClock();
+  const clock = input?.clock ?? new FakeClock(Date.now());
   const gateway = new FakeConversationGateway(
     input?.gatewayFixture ??
       fixture([
@@ -82,7 +117,7 @@ function renderManager(input?: {
 }
 
 async function waitForInventory(): Promise<void> {
-  await screen.findByText("Standalone conversations");
+  await screen.findByRole("table", { name: "Standalone conversations" });
 }
 
 function conversationRows(): HTMLElement[] {
@@ -96,6 +131,15 @@ async function selectConversation(
   title: string,
 ) {
   await user.click(screen.getByLabelText(`Select ${title}`));
+}
+
+async function showProjectConversations(
+  user: ReturnType<typeof userEvent.setup>,
+): Promise<void> {
+  const input = screen.getByRole("radio", { name: "Project conversations" });
+  const label = input.closest("label");
+  if (label === null) throw new Error("Project view label not found");
+  await user.click(label);
 }
 
 async function openConfirmation(
@@ -112,6 +156,99 @@ afterEach(() => {
 });
 
 describe("ManagerPage inventory controls", () => {
+  it("defaults to standalone rows and exposes Projects only in the read-only view", async () => {
+    const user = userEvent.setup();
+    const { openConversation } = renderManager({
+      gatewayFixture: fixtureWithProjects(),
+    });
+    await waitForInventory();
+
+    expect(
+      screen.getByRole("table", { name: "Standalone conversations" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Standalone row")).toBeInTheDocument();
+    expect(screen.queryByText("Project overlap")).not.toBeInTheDocument();
+    expect(screen.queryByText("Standalone overlap")).not.toBeInTheDocument();
+    expect(screen.getByTestId("standalone-summary")).toHaveTextContent("1");
+    expect(screen.getByTestId("project-summary")).toHaveTextContent("2");
+    expect(screen.getByTestId("protected-summary")).toHaveTextContent("0");
+    await selectConversation(user, "Standalone row");
+
+    await showProjectConversations(user);
+
+    expect(
+      screen.getByRole("table", { name: "Project conversations" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Project overlap")).toBeInTheDocument();
+    expect(screen.getByText("Project planning")).toBeInTheDocument();
+    expect(screen.queryByText("Standalone row")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Project protected")).toHaveLength(2);
+    expect(screen.queryByLabelText(/Select /)).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Select all matching" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Select current page" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Delete selected/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /^(Unprotect|Protect)$/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByLabelText("Requests per minute"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByTestId("selected-count")).toHaveTextContent("1");
+
+    const projectRow = screen.getByText("Project planning").closest("tr");
+    if (projectRow === null) throw new Error("Project row not found");
+    await user.click(within(projectRow).getByRole("button", { name: "Open" }));
+    expect(openConversation).toHaveBeenCalledWith("project-chat");
+  });
+
+  it("filters and sorts Project conversation metadata", async () => {
+    const user = userEvent.setup();
+    renderManager({ gatewayFixture: fixtureWithProjects() });
+    await waitForInventory();
+    await showProjectConversations(user);
+
+    await user.type(screen.getByLabelText("Search titles"), "planning");
+    expect(screen.getByText("Project planning")).toBeInTheDocument();
+    expect(screen.queryByText("Project overlap")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Reset filters" }));
+    await user.click(screen.getByRole("button", { name: "Older than 7 days" }));
+    expect(screen.getByText("Project planning")).toBeInTheDocument();
+    expect(screen.queryByText("Project overlap")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Reset filters" }));
+    await user.click(screen.getByRole("columnheader", { name: /Title/ }));
+    const rows = conversationRows();
+    expect(rows[0]).toHaveTextContent("Project overlap");
+    expect(rows[1]).toHaveTextContent("Project planning");
+  });
+
+  it("paginates Project conversations without exposing selection", async () => {
+    const user = userEvent.setup();
+    const projectConversations = Array.from({ length: 55 }, (_, index) => ({
+      id: `project-${index + 1}`,
+      title: `Project item ${String(index + 1).padStart(2, "0")}`,
+      updatedAt: 1_000 - index,
+    }));
+    renderManager({
+      gatewayFixture: fixtureWithProjects({ projectConversations }),
+    });
+    await waitForInventory();
+    await showProjectConversations(user);
+
+    expect(screen.queryByText("Project item 55")).not.toBeInTheDocument();
+    await user.click(screen.getByTitle("Next Page"));
+    expect(await screen.findByText("Project item 55")).toBeInTheDocument();
+    expect(
+      screen.queryByLabelText("Select Project item 55"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("55 conversations")).toBeInTheDocument();
+  });
+
   it("filters by title, applies an older-than preset, and resets", async () => {
     const user = userEvent.setup();
     renderManager();
@@ -130,6 +267,73 @@ describe("ManagerPage inventory controls", () => {
 
     await user.click(screen.getByRole("button", { name: "Reset filters" }));
     expect(screen.getByText("Unknown dates")).toBeInTheDocument();
+  });
+
+  it("applies calendar age presets in standalone and Project views and resets them", async () => {
+    const user = userEvent.setup();
+    const now = new Date(2026, 7, 31, 12, 0).getTime();
+    renderManager({
+      clock: new FakeClock(now),
+      gatewayFixture: {
+        standalonePages: {
+          first: {
+            conversations: [
+              {
+                id: "standalone-old",
+                title: "Standalone old",
+                updatedAt: new Date(2026, 0, 31, 12, 0).getTime(),
+              },
+              {
+                id: "standalone-recent",
+                title: "Standalone recent",
+                updatedAt: new Date(2026, 7, 1, 12, 0).getTime(),
+              },
+              { id: "standalone-null", title: "Standalone null" },
+            ],
+            nextCursor: null,
+          },
+        },
+        projects: [{ id: "project" }],
+        projectConversationPages: {
+          "project:first": {
+            conversations: [
+              {
+                id: "project-old",
+                title: "Project old",
+                updatedAt: new Date(2025, 7, 30, 12, 0).getTime(),
+              },
+              {
+                id: "project-recent",
+                title: "Project recent",
+                updatedAt: new Date(2026, 0, 1, 12, 0).getTime(),
+              },
+              { id: "project-null", title: "Project null" },
+            ],
+            nextCursor: null,
+          },
+        },
+      },
+    });
+    await waitForInventory();
+
+    await user.click(
+      screen.getByRole("button", { name: "Older than 6 months" }),
+    );
+    expect(screen.getByText("Standalone old")).toBeInTheDocument();
+    expect(screen.queryByText("Standalone recent")).not.toBeInTheDocument();
+    expect(screen.queryByText("Standalone null")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Reset filters" }));
+    expect(screen.getByText("Standalone recent")).toBeInTheDocument();
+    expect(screen.getByText("Standalone null")).toBeInTheDocument();
+
+    await showProjectConversations(user);
+    await user.click(screen.getByRole("button", { name: "Older than 1 year" }));
+    expect(screen.getByText("Project old")).toBeInTheDocument();
+    expect(screen.queryByText("Project recent")).not.toBeInTheDocument();
+    expect(screen.queryByText("Project null")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Reset filters" }));
+    expect(screen.getByText("Project recent")).toBeInTheDocument();
+    expect(screen.getByText("Project null")).toBeInTheDocument();
   });
 
   it("sorts through the Ant table while keeping null dates last", async () => {
@@ -174,6 +378,89 @@ describe("ManagerPage inventory controls", () => {
     expect(screen.getByTestId("selected-count")).toHaveTextContent("2");
   });
 
+  it("selects the eligible current page and preserves other-page selections", async () => {
+    const user = userEvent.setup();
+    const conversations = Array.from({ length: 55 }, (_, index) => ({
+      id: `item-${index + 1}`,
+      title: `Item ${String(index + 1).padStart(2, "0")}`,
+      updatedAt: 1_000 - index,
+    }));
+    renderManager({
+      gatewayFixture: fixture(conversations),
+      protectedIds: ["item-2"],
+    });
+    await waitForInventory();
+
+    await user.click(screen.getByTitle("Next Page"));
+    await selectConversation(user, "Item 55");
+    await user.click(screen.getByTitle("Previous Page"));
+    await user.click(
+      screen.getByRole("button", { name: "Select current page" }),
+    );
+
+    expect(screen.getByLabelText("Select Item 02")).toBeDisabled();
+    expect(screen.getByTestId("selected-count")).toHaveTextContent("50");
+  });
+
+  it("uses Ant native Shift selection in both directions and skips protected rows", async () => {
+    const user = userEvent.setup();
+    renderManager({
+      gatewayFixture: fixture([
+        { id: "a", title: "Alpha", updatedAt: 400 },
+        { id: "b", title: "Beta", updatedAt: 300 },
+        { id: "c", title: "Charlie", updatedAt: 200 },
+        { id: "d", title: "Delta", updatedAt: 100 },
+      ]),
+      protectedIds: ["b"],
+    });
+    await waitForInventory();
+
+    await selectConversation(user, "Alpha");
+    await user.keyboard("{Shift>}");
+    await selectConversation(user, "Delta");
+    await user.keyboard("{/Shift}");
+    expect(screen.getByTestId("selected-count")).toHaveTextContent("3");
+    expect(screen.getByLabelText("Select Beta")).toBeDisabled();
+
+    await user.keyboard("{Shift>}");
+    await selectConversation(user, "Alpha");
+    await user.keyboard("{/Shift}");
+    expect(screen.getByTestId("selected-count")).toHaveTextContent("0");
+
+    await selectConversation(user, "Delta");
+    await user.keyboard("{Shift>}");
+    await selectConversation(user, "Alpha");
+    await user.keyboard("{/Shift}");
+    expect(screen.getByTestId("selected-count")).toHaveTextContent("3");
+  });
+
+  it("limits Shift ranges to the current filtered, sorted UI page", async () => {
+    const user = userEvent.setup();
+    const conversations = Array.from({ length: 55 }, (_, index) => ({
+      id: `item-${index + 1}`,
+      title: `Item ${String(index + 1).padStart(2, "0")}`,
+      updatedAt: 1_000 - index,
+    }));
+    renderManager({ gatewayFixture: fixture(conversations) });
+    await waitForInventory();
+
+    await selectConversation(user, "Item 49");
+    await user.click(screen.getByTitle("Next Page"));
+    await user.keyboard("{Shift>}");
+    await selectConversation(user, "Item 55");
+    await user.keyboard("{/Shift}");
+    expect(screen.getByTestId("selected-count")).toHaveTextContent("2");
+
+    await user.type(screen.getByLabelText("Search titles"), "Item 5");
+    await user.click(screen.getByRole("columnheader", { name: /Title/ }));
+    await user.click(screen.getByRole("button", { name: "Clear selection" }));
+    await selectConversation(user, "Item 50");
+    await user.keyboard("{Shift>}");
+    await selectConversation(user, "Item 55");
+    await user.keyboard("{/Shift}");
+    expect(screen.getByTestId("selected-count")).toHaveTextContent("6");
+  });
+
   it("implements explicit bulk selection and skips protected rows", async () => {
     const user = userEvent.setup();
     renderManager({ protectedIds: ["beta"] });
@@ -205,12 +492,12 @@ describe("ManagerPage inventory controls", () => {
     await waitFor(() =>
       expect(screen.getByTestId("selected-count")).toHaveTextContent("0"),
     );
-    expect(within(alphaRow).getByText("User protected")).toBeInTheDocument();
+    expect(within(alphaRow).getByText("Protected")).toBeInTheDocument();
     await user.click(
       within(alphaRow).getByRole("button", { name: "Unprotect" }),
     );
     await waitFor(() =>
-      expect(within(alphaRow).getByText("Standalone")).toBeInTheDocument(),
+      expect(within(alphaRow).getByText("Unprotected")).toBeInTheDocument(),
     );
   });
 

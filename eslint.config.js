@@ -25,6 +25,13 @@ export default tseslint.config(
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
+      "no-console": "error",
+    },
+  },
+  {
+    files: ["src/infrastructure/observability/logger.ts"],
+    rules: {
+      "no-console": "off",
     },
   },
   {

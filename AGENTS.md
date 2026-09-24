@@ -180,6 +180,17 @@ Encode conversation IDs as one URL path segment.
 
 Treat browser storage and page-context data as untrusted external input.
 
+## Logging and errors
+
+- Use the centralized Infrastructure logger; do not add ad-hoc console calls.
+- Never log conversation or Project IDs, titles, content, authentication data,
+  request/response bodies, headers, or browser-storage payloads.
+- Log counts, bounded state, normalized status, and timings instead of private
+  values.
+- DEBUG increases event verbosity, never data sensitivity.
+- Normalize failures crossing Infrastructure boundaries into typed, safe
+  application errors. Never blindly log an external `Error` or unknown value.
+
 ## Dependencies
 
 Do not add without a clear requirement:

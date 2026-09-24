@@ -10,7 +10,7 @@ export interface ConversationPage {
 }
 
 export interface ProjectConversationPage {
-  readonly conversationIds: readonly string[];
+  readonly conversations: readonly Conversation[];
   readonly nextCursor: string | null;
 }
 
@@ -22,9 +22,45 @@ export type ReadFailureReason =
   | "retry-later"
   | "source-unavailable";
 
+export type ReadOperationName =
+  "standalone" | "projects" | "project-conversations";
+
+export type ReadDiagnosticCategory =
+  | "response-contract"
+  | "response-format"
+  | "pagination-contract"
+  | "pagination-non-progress";
+
+export type JsonValueType =
+  | "absent"
+  | "array"
+  | "boolean"
+  | "null"
+  | "number"
+  | "object"
+  | "string"
+  | "non-json";
+
+export interface ReadFailureDiagnostic {
+  readonly operation: ReadOperationName;
+  readonly endpointFamily: string;
+  readonly category: ReadDiagnosticCategory;
+  readonly paginationStep: number;
+  readonly httpStatus?: number;
+  readonly jsonParsed?: boolean;
+  readonly fieldPath?: string;
+  readonly expectedType?: string;
+  readonly actualType?: JsonValueType;
+  readonly missingRequiredField?: string;
+}
+
 export type ReadResult<T> =
   | { readonly kind: "success"; readonly value: T }
-  | { readonly kind: "failure"; readonly reason: ReadFailureReason };
+  | {
+      readonly kind: "failure";
+      readonly reason: ReadFailureReason;
+      readonly diagnostic?: ReadFailureDiagnostic;
+    };
 
 export type DeleteAttemptResult =
   | { readonly kind: "deleted" }
@@ -40,6 +76,8 @@ export type DeleteAttemptResult =
     };
 
 export interface ConversationGateway {
+  beginSafetyInventoryRead(): Promise<ReadResult<null>>;
+  completeStandaloneInventoryRead(committedPageCount: number): void;
   fetchStandaloneConversationPage(
     cursor: string | null,
   ): Promise<ReadResult<ConversationPage>>;
@@ -47,6 +85,7 @@ export interface ConversationGateway {
   fetchProjectConversationPage(
     projectId: string,
     cursor: string | null,
+    paginationStep?: number,
   ): Promise<ReadResult<ProjectConversationPage>>;
   deleteConversation(conversationId: string): Promise<DeleteAttemptResult>;
 }

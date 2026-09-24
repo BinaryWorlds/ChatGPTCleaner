@@ -240,7 +240,7 @@ Do not claim an atomic guarantee the client cannot provide.
 - runtime validation;
 - exact source-origin validation;
 - explicit Project enumeration;
-- source-tab revalidation before every safety-sensitive read;
+- source-tab revalidation before every high-level safety inventory operation;
 - `DeletionPlan` safety boundary;
 - fresh preflight;
 - monotonic confirmed-ID subset;
@@ -552,14 +552,35 @@ Use the existing authenticated browser session.
 
 Never ask the user to paste credentials.
 
-Prefer the least-privileged execution world that satisfies the observed request contract.
+Fixed `/backend-api/*` reads execute in the authenticated source-tab context
+with included browser credentials and an `Accept: application/json` header.
+The current backend contract requires a Bearer credential. The injected read
+function obtains it from `/api/auth/session`; in the private `ISOLATED` world it
+is cached only in page-context memory and reused across pagination requests.
+The token never crosses the page-execution boundary and is never logged or
+persisted. A backend 401 or 403 clears the memory cache and permits one session
+refresh before failing closed. The extension does not infer an account/workspace
+identity.
 
-If `MAIN` execution world is required:
+This remains a narrow operation transport, not a generic authenticated fetch
+bridge. Request URLs, methods, and allowed headers are constructed internally.
+
+Standalone reads use `ISOLATED`. Within one high-level inventory operation,
+reuse the execution world that first completed each narrow operation
+successfully. A later failure stops fail-closed rather than probing worlds on
+every page. Project operations may make the documented one-time MAIN comparison
+when their first ISOLATED result meets the fallback condition.
+
+For `MAIN` execution:
 
 - injected code stays minimal/stateless;
 - it contains no extension secrets;
 - returned data is untrusted;
 - all returned data is validated.
+- the exact page origin is rechecked;
+- URLs and GET methods are constructed inside the injected function;
+- only standalone, Project-sidebar, and Project-conversation reads exist in
+  Phase 5.
 
 Do not expose:
 
@@ -610,6 +631,7 @@ Current sanitized capture structure:
 
 ```text
 query names: offset, limit, order, is_archived, is_starred
+production query: offset=0, limit=100, order=updated, is_archived=false, is_starred=false
 response: { items, total, limit, offset }
 item safety field: id (string)
 item display fields: title, create_time, update_time
@@ -623,8 +645,27 @@ Implementation must:
 - deduplicate IDs;
 - prevent pagination loops;
 - tolerate irrelevant extra fields;
-- not rely solely on initial `total`;
+- honor a smaller positive response `limit` as the effective page size;
+- treat a non-empty page as complete only when it is shorter than that
+  effective size and the current informational `total` does not indicate more;
+- treat response `total` as a pagination hint because it may change between
+  pages, never as the sole correctness boundary;
 - enforce a generous centralized safety ceiling for pages/records.
+
+Successful read pages add no artificial delay before the next scheduling
+window. Retry-After and deterministic retry backoff apply only to retryable
+failures.
+
+Standalone inventory is the sole read path allowed bounded concurrency. It
+fetches fixed 100-record offsets in deterministic windows of at most three
+requests (`MAX_STANDALONE_READ_CONCURRENCY = 3`). Results are committed in
+ascending offset order regardless of completion order. The first page shorter
+than 100 establishes the terminal boundary; speculative results at higher
+offsets are discarded and cannot contribute inventory records. A required-page
+failure blocks the whole inventory. Because a window must settle before the
+next is scheduled, a request waiting for 429/5xx/network retry prevents
+aggressive scheduling of another window. Project discovery, Project
+conversation enumeration, and all destructive operations remain sequential.
 
 Hitting the safety ceiling means inventory is incomplete and deletion is blocked.
 
@@ -641,7 +682,8 @@ Used only for protection.
 Current sanitized capture structure:
 
 ```text
-query names: owned_only, conversations_per_gizmo, limit
+query names: owned_only, conversations_per_gizmo
+current initial query: owned_only=true, conversations_per_gizmo=0
 response: { items, cursor }
 Project ID path: items[].gizmo.gizmo.id
 ```
@@ -658,8 +700,10 @@ Current sanitized capture structure:
 
 ```text
 query names: cursor, limit, owned_only
+verified initial query: cursor=0, limit=5, owned_only=true
 response: { items, cursor }
 membership conversation ID path: items[].id
+display fields: title, create_time, update_time
 ```
 
 Build a complete set:
@@ -677,6 +721,12 @@ Deletion safety = BLOCKED
 ```
 
 Do not trust the standalone endpoint alone to exclude Project conversations.
+
+Development compatibility failures may display a privacy-safe structural
+diagnostic containing only the logical operation, sanitized endpoint family,
+HTTP status, pagination step, JSON parse result, schema field path, expected
+type, actual JSON type, and missing field name. Never include response scalar
+values or complete response bodies in diagnostics.
 
 ### Delete
 
@@ -909,9 +959,16 @@ If another manager owns the destructive lock, other manager contexts must not mu
 
 ## 21. Project conversations
 
-Project conversations do not appear as rows in the main table.
+Project conversations are available through a separate read-only Project
+conversations view. They never appear in the standalone deletion table and are
+never selectable or deletable.
 
-The main table contains standalone conversations only.
+The manager provides a lightweight selector between mutually exclusive
+Standalone conversations and Project conversations views. The standalone view
+retains selection, user protection, and deletion controls. The Project view
+retains filters, sorting, pagination, and Open, but has no selection, bulk,
+protection-mutation, rate, or deletion controls. Every Project row is labelled
+`Project protected`.
 
 Show summary counts:
 
@@ -1010,9 +1067,15 @@ Quick presets:
 Older than 7 days
 Older than 30 days
 Older than 90 days
+Older than 6 months
+Older than 1 year
 ```
 
 Quick presets use the selected date field or `Updated` by default if no date field is active.
+
+The 6-month and 1-year presets use local calendar subtraction rather than an
+approximate number of days. If the target month/year lacks the current
+day-of-month, clamp to its final local calendar day.
 
 ### Date comparison
 
@@ -1068,17 +1131,23 @@ Use explicit toolbar actions:
 
 ```text
 Select all matching
+Select current page
 Clear selection
 Invert matching
 ```
 
 `Select all matching` means all filtered eligible conversations across all UI pages.
 
+`Select current page` adds eligible unprotected rows from only the current
+filtered and sorted Ant Table page. Existing selections on other pages remain.
+
 `Clear selection` clears the complete selection.
 
 `Invert matching` only toggles currently filtered eligible rows.
 
-Shift-range selection is not required.
+Ant Table Shift-range selection is supported within the current filtered and
+sorted UI page. Protected rows are skipped, the range never crosses pages, and
+the Project conversations view has no selection behavior.
 
 Always show total selected count.
 
@@ -1120,15 +1189,20 @@ On manager load:
 
 ```text
 validate source tab
--> load standalone inventory
--> load all Project conversation IDs
+-> validate the first standalone page
+-> set Read API compatibility to OK
+-> load the remaining standalone inventory with a loaded-record count
+-> load all Project conversation IDs and set Project protection to OK
 -> validate
 -> remove Project overlaps
 -> load/validate protected IDs
 -> show READY/BLOCKED
 ```
 
-No destructive request occurs during inventory loading.
+Read API compatibility and complete safety inventory are distinct states. A
+validated first read does not make deletion READY. Deletion remains blocked
+until standalone pagination and complete Project protection both finish. No
+destructive request occurs during inventory loading.
 
 ---
 
@@ -1430,6 +1504,18 @@ Testing focuses on invariants rather than coverage percentage.
 Global test setup must fail on real network access.
 
 No automated test uses a real authenticated ChatGPT account.
+
+Manual production read smoke checks verify:
+
+- standalone conversations return successfully;
+- standalone pagination reuses one short-lived access token in private
+  ISOLATED-world memory rather than calling `/api/auth/session` per page;
+- Project reads obtain/reuse an access token only inside their fixed injected
+  operation;
+- standalone and Project reads use the existing browser session naturally;
+- 401 and 403 from an actual narrow read fail closed;
+- structured `response.detail` diagnostics are visible without credentials;
+- Project and Project-conversation pagination complete and deduplicate IDs.
 
 Required coverage categories:
 

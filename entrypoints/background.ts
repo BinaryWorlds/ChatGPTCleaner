@@ -1,31 +1,25 @@
-const CHATGPT_ORIGIN = "https://chatgpt.com";
+import { buildManagerLaunchUrl } from "../src/infrastructure/browser/managerLaunch";
+import {
+  logger,
+  summarizeUnknownError,
+} from "../src/infrastructure/observability/logger";
+import { installGlobalErrorHandlers } from "../src/infrastructure/observability/globalErrors";
 
-function isChatGptSourceTab(url: string | undefined): boolean {
-  if (url === undefined) {
-    return false;
-  }
-
-  try {
-    return new URL(url).origin === CHATGPT_ORIGIN;
-  } catch {
-    return false;
-  }
-}
-
-function reportManagerOpenFailure(): void {
-  console.error("ChatGPTCleaner could not open its manager page.");
+function reportManagerOpenFailure(error: unknown): void {
+  logger.error("application.operation.failed", summarizeUnknownError(error), {
+    operation: "manager.open",
+  });
 }
 
 export default defineBackground(() => {
+  installGlobalErrorHandlers(globalThis, logger, "background");
   browser.action.onClicked.addListener((sourceTab) => {
     const openManager = async (): Promise<void> => {
-      const managerUrl = new URL(browser.runtime.getURL("/manager.html"));
-
-      if (isChatGptSourceTab(sourceTab.url) && sourceTab.id !== undefined) {
-        managerUrl.searchParams.set("sourceTabId", String(sourceTab.id));
-      }
-
-      await browser.tabs.create({ url: managerUrl.href });
+      const managerUrl = buildManagerLaunchUrl(
+        browser.runtime.getURL("/manager.html"),
+        sourceTab,
+      );
+      await browser.tabs.create({ url: managerUrl });
     };
 
     void openManager().catch(reportManagerOpenFailure);

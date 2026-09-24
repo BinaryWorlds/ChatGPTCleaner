@@ -10,6 +10,7 @@ import {
   type FakeGatewayFixture,
 } from "../infrastructure/fake/fixtures";
 import { SystemClock } from "../infrastructure/time/SystemClock";
+import { createApplicationObservability } from "../infrastructure/observability/applicationObservability";
 import type { ManagerComposition, ManagerDependencies } from "./types";
 
 const scenarios = [
@@ -42,6 +43,7 @@ function createDependencies(scenarioId: string): ManagerDependencies {
     settingsStore: new FakeSettingsStore(60),
     clock,
     destructiveRunLock: new FakeDestructiveRunLock(),
+    observability: createApplicationObservability(),
   };
 }
 

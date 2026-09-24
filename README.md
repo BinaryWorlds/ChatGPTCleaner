@@ -107,6 +107,17 @@ production build into demo mode.
 Production source-tab, read-only inventory, Project protection, storage, retry,
 and locking boundaries are implemented.
 
+### Debug logging
+
+`pnpm dev`, `pnpm build:debug`, and `pnpm build:demo` enable detailed,
+privacy-safe local console diagnostics. `pnpm build` is production mode and
+emits warnings and errors only. Logs are never sent anywhere; there is no
+telemetry or runtime logging switch.
+
+Debug mode changes verbosity, not data sensitivity. Diagnostics must never
+contain conversation content, titles or IDs, Project IDs, authentication data,
+storage payloads, or raw API payloads.
+
 Quality gate:
 
 ```bash

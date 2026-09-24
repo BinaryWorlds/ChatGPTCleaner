@@ -10,6 +10,7 @@ import {
   SourceTabBinding,
   type SourceTabBrowser,
 } from "../infrastructure/browser/SourceTab";
+import { buildChatGptConversationUrl } from "../infrastructure/browser/openConversation";
 import {
   currentWebLockManager,
   WebLocksDestructiveRunLock,
@@ -23,6 +24,11 @@ import {
   type BrowserLocalStorage,
 } from "../infrastructure/storage/BrowserStores";
 import { SystemClock } from "../infrastructure/time/SystemClock";
+import {
+  logger,
+  summarizeUnknownError,
+} from "../infrastructure/observability/logger";
+import { createApplicationObservability } from "../infrastructure/observability/applicationObservability";
 import type { ManagerComposition, ManagerDependencies } from "./types";
 
 export interface ProductionRuntime {
@@ -39,6 +45,18 @@ function createBrowserRuntime(): ProductionRuntime {
     storage: createChromeLocalStorage(),
     locks: currentWebLockManager(),
   };
+}
+
+function reportConversationOpenFailure(error: unknown): void {
+  logger.error("application.operation.failed", summarizeUnknownError(error), {
+    operation: "conversation.open",
+  });
+}
+
+function openProductionConversation(conversationId: string): void {
+  const url = buildChatGptConversationUrl(conversationId);
+  if (url === null) return;
+  void browser.tabs.create({ url }).catch(reportConversationOpenFailure);
 }
 
 export function createManagerComposition(
@@ -74,6 +92,7 @@ export function createManagerComposition(
       ),
       clock,
       destructiveRunLock: new WebLocksDestructiveRunLock(activeRuntime.locks),
+      observability: createApplicationObservability(),
     };
   };
 
@@ -82,6 +101,6 @@ export function createManagerComposition(
     scenarios: [],
     initialScenarioId: "production",
     createDependencies,
-    openConversation: () => undefined,
+    openConversation: openProductionConversation,
   };
 }

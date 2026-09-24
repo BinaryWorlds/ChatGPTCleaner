@@ -1,25 +1,34 @@
 import type { Clock } from "../../application/ports/Clock";
 import type {
+  ReadFailureDiagnostic,
   ReadFailureReason,
   ReadResult,
 } from "../../application/ports/ConversationGateway";
+import {
+  appErrorFromHttpStatus,
+  createAppError,
+  type AppError,
+} from "../../application/AppError";
+import { logger, type Logger } from "../observability/logger";
 
 export const READ_MAX_ATTEMPTS = 4;
 export const READ_RETRY_BASE_MS = 1_000;
 export const READ_RETRY_MAX_MS = 30_000;
 export const READ_RETRY_AFTER_LIMIT_MS = 5 * 60_000;
 
-export type ReadAttemptResult =
+export type ReadAttemptResult<T = unknown> =
   | {
       readonly kind: "response";
       readonly status: number;
-      readonly body: unknown;
+      readonly body: T;
       readonly retryAfter: string | null;
     }
   | { readonly kind: "network-error" }
-  | { readonly kind: "failure"; readonly reason: ReadFailureReason };
-
-export type RawReadResult = ReadResult<unknown>;
+  | {
+      readonly kind: "failure";
+      readonly reason: ReadFailureReason;
+      readonly diagnostic?: ReadFailureDiagnostic;
+    };
 
 export function parseRetryAfter(
   value: string | null,
@@ -37,6 +46,31 @@ export function parseRetryAfter(
   return Math.max(0, dateMs - nowMs);
 }
 
+export function appErrorForReadFailure(input: {
+  readonly operation: string;
+  readonly status?: number;
+  readonly networkFailure?: boolean;
+  readonly cancelled?: boolean;
+  readonly retryAfterMs?: number;
+}): AppError {
+  if (input.cancelled === true) {
+    return createAppError("OperationCancelled", {
+      operation: input.operation,
+    });
+  }
+  if (input.networkFailure === true || input.status === undefined) {
+    return createAppError("NetworkFailure", {
+      operation: input.operation,
+      retryable: true,
+    });
+  }
+  return appErrorFromHttpStatus(
+    input.status,
+    input.operation,
+    input.retryAfterMs,
+  );
+}
+
 function fallbackDelay(attempt: number): number {
   return Math.min(
     READ_RETRY_BASE_MS * 2 ** Math.max(0, attempt - 1),
@@ -49,23 +83,48 @@ function nonRetryableFailure(status: number): ReadFailureReason {
   return "request";
 }
 
-export async function executeReadWithRetry(input: {
-  readonly attempt: () => Promise<ReadAttemptResult>;
+export async function executeReadWithRetry<T>(input: {
+  readonly attempt: () => Promise<ReadAttemptResult<T>>;
   readonly clock: Clock;
   readonly signal?: AbortSignal;
-}): Promise<RawReadResult> {
+  readonly operation?: string;
+  readonly operationId?: string;
+  readonly page?: number;
+  readonly activeLogger?: Logger;
+}): Promise<ReadResult<T>> {
   const signal = input.signal ?? new AbortController().signal;
+  const activeLogger = input.activeLogger ?? logger;
+  const operation = input.operation ?? "api.read";
 
   for (let attempt = 1; attempt <= READ_MAX_ATTEMPTS; attempt += 1) {
+    const attemptStartedAt = performance.now();
+    activeLogger.debug("api.request.started", {
+      ...(input.operationId === undefined
+        ? {}
+        : { operationId: input.operationId }),
+      operation,
+      retryAttempt: attempt,
+      ...(input.page === undefined ? {} : { page: input.page }),
+    });
     const result = await input.attempt();
     if (result.kind === "failure") {
-      return { kind: "failure", reason: result.reason };
+      return result;
     }
     if (
       result.kind === "response" &&
       result.status >= 200 &&
       result.status < 300
     ) {
+      activeLogger.debug("api.request.succeeded", {
+        ...(input.operationId === undefined
+          ? {}
+          : { operationId: input.operationId }),
+        operation,
+        retryAttempt: attempt,
+        ...(input.page === undefined ? {} : { page: input.page }),
+        status: result.status,
+        durationMs: Math.round(performance.now() - attemptStartedAt),
+      });
       return { kind: "success", value: result.body };
     }
     if (
@@ -73,9 +132,39 @@ export async function executeReadWithRetry(input: {
       result.status !== 429 &&
       (result.status < 500 || result.status >= 600)
     ) {
+      const appError = appErrorFromHttpStatus(result.status, operation);
+      activeLogger.warn("api.request.failed", {
+        ...(input.operationId === undefined
+          ? {}
+          : { operationId: input.operationId }),
+        operation,
+        status: result.status,
+        errorCode: appError.code,
+        retryable: appError.retryable,
+        durationMs: Math.round(performance.now() - attemptStartedAt),
+      });
       return { kind: "failure", reason: nonRetryableFailure(result.status) };
     }
     if (attempt === READ_MAX_ATTEMPTS) {
+      const status = result.kind === "response" ? result.status : undefined;
+      const appError = appErrorForReadFailure({
+        operation,
+        ...(status === undefined ? { networkFailure: true } : { status }),
+      });
+      activeLogger.error(
+        "api.request.failed",
+        { errorType: "error", errorName: appError.kind },
+        {
+          ...(input.operationId === undefined
+            ? {}
+            : { operationId: input.operationId }),
+          operation,
+          ...(status === undefined ? {} : { status }),
+          errorCode: appError.code,
+          retryable: appError.retryable,
+          durationMs: Math.round(performance.now() - attemptStartedAt),
+        },
+      );
       return {
         kind: "failure",
         reason:
@@ -90,12 +179,41 @@ export async function executeReadWithRetry(input: {
         ? parseRetryAfter(result.retryAfter, input.clock.now())
         : null;
     if (retryAfter !== null && retryAfter > READ_RETRY_AFTER_LIMIT_MS) {
+      activeLogger.warn("api.request.rateLimited", {
+        ...(input.operationId === undefined
+          ? {}
+          : { operationId: input.operationId }),
+        operation,
+        status: 429,
+        retryAfterMs: retryAfter,
+      });
       return { kind: "failure", reason: "retry-later" };
     }
 
     const delay = retryAfter ?? fallbackDelay(attempt);
+    const retryFields = {
+      ...(input.operationId === undefined
+        ? {}
+        : { operationId: input.operationId }),
+      operation,
+      retryAttempt: attempt,
+      ...(input.page === undefined ? {} : { page: input.page }),
+      delayMs: delay,
+      ...(result.kind === "response" ? { status: result.status } : {}),
+    };
+    if (result.kind === "response" && result.status === 429) {
+      activeLogger.warn("api.request.rateLimited", retryFields);
+    } else {
+      activeLogger.warn("api.request.retry", retryFields);
+    }
     const sleepResult = await input.clock.sleep(delay, signal);
     if (sleepResult === "cancelled") {
+      activeLogger.debug("application.operation.cancelled", {
+        ...(input.operationId === undefined
+          ? {}
+          : { operationId: input.operationId }),
+        operation,
+      });
       return { kind: "failure", reason: "network" };
     }
   }

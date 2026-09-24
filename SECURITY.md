@@ -2,6 +2,14 @@
 
 ChatGPTCleaner operates inside an authenticated browser session and performs destructive actions, so security issues should be handled privately when they could expose credentials, session behavior, or deletion-safety bypasses.
 
+## Diagnostic privacy
+
+ChatGPTCleaner diagnostics remain in the local browser console. The centralized
+logger accepts deliberately narrow metadata and defensively drops sensitive
+field names. Debug builds emit more lifecycle events but never intentionally
+include conversation data, identifiers, authentication data, storage payloads,
+or raw API payloads.
+
 ## Reporting a vulnerability
 
 Before public release, the repository owner should enable **GitHub Private Vulnerability Reporting**.

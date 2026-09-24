@@ -12,6 +12,7 @@
     "dev": "wxt",
     "dev:demo": "wxt --mode demo",
     "build": "wxt build",
+    "build:debug": "wxt build --mode debug",
     "build:demo": "wxt build --mode demo",
     "prepare": "wxt prepare",
     "format": "prettier --write .",

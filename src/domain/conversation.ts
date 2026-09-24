@@ -112,3 +112,32 @@ export function olderThanPreset(
     day: cutoff.getDate(),
   };
 }
+
+function daysInLocalMonth(year: number, monthIndex: number): number {
+  return new Date(year, monthIndex + 1, 0).getDate();
+}
+
+function calendarCutoff(
+  now: Date,
+  yearsToSubtract: number,
+  monthsToSubtract: number,
+): LocalCalendarDay {
+  const absoluteMonth =
+    now.getFullYear() * 12 +
+    now.getMonth() -
+    yearsToSubtract * 12 -
+    monthsToSubtract;
+  const year = Math.floor(absoluteMonth / 12);
+  const monthIndex = absoluteMonth - year * 12;
+  const day = Math.min(now.getDate(), daysInLocalMonth(year, monthIndex));
+  return { year, month: monthIndex + 1, day };
+}
+
+export function olderThanCalendarPreset(
+  period: "six-months" | "one-year",
+  now: Date,
+): LocalCalendarDay {
+  return period === "six-months"
+    ? calendarCutoff(now, 0, 6)
+    : calendarCutoff(now, 1, 0);
+}

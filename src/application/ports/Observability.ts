@@ -1,0 +1,12 @@
+export type ObservabilityScalar = string | number | boolean | null;
+export type ObservabilityFields = Readonly<
+  Record<string, ObservabilityScalar | readonly ObservabilityScalar[]>
+>;
+
+export interface ApplicationObservability {
+  createOperationId(): string;
+  debug(event: string, fields?: ObservabilityFields): void;
+  info(event: string, fields?: ObservabilityFields): void;
+  warn(event: string, fields?: ObservabilityFields): void;
+  error(event: string, errorCode: string, fields?: ObservabilityFields): void;
+}

@@ -25,7 +25,7 @@ export const DEMO_FIXTURE: FakeGatewayFixture = {
   standalonePages: {
     first: {
       conversations: [
-        ...standaloneRecords.slice(0, 25),
+        ...standaloneRecords,
         standaloneRecords[0],
         {
           id: "project-overlap",
@@ -34,29 +34,49 @@ export const DEMO_FIXTURE: FakeGatewayFixture = {
           updatedAt: NOW,
         },
       ],
-      nextCursor: "standalone-page-2",
-    },
-    "standalone-page-2": {
-      conversations: standaloneRecords.slice(25, 50),
-      nextCursor: "standalone-page-3",
-    },
-    "standalone-page-3": {
-      conversations: standaloneRecords.slice(50),
       nextCursor: null,
     },
   },
   projects: [{ id: "project-alpha" }, { id: "project-beta" }],
   projectConversationPages: {
     "project-alpha:first": {
-      conversationIds: ["project-overlap", "project-chat-1"],
+      conversations: [
+        {
+          id: "project-overlap",
+          title: "Project overlap",
+          createdAt: NOW - 3 * DAY_MS,
+          updatedAt: NOW - DAY_MS,
+        },
+        {
+          id: "project-chat-1",
+          title: "Project planning",
+          createdAt: NOW - 40 * DAY_MS,
+          updatedAt: NOW - 20 * DAY_MS,
+        },
+      ],
       nextCursor: "project-alpha-page-2",
     },
     "project-alpha:project-alpha-page-2": {
-      conversationIds: ["project-chat-2", "project-chat-1"],
+      conversations: [
+        { id: "project-chat-2", title: null },
+        {
+          id: "project-chat-1",
+          title: "Project planning",
+          createdAt: NOW - 40 * DAY_MS,
+          updatedAt: NOW - 20 * DAY_MS,
+        },
+      ],
       nextCursor: null,
     },
     "project-beta:first": {
-      conversationIds: ["project-chat-3"],
+      conversations: [
+        {
+          id: "project-chat-3",
+          title: "Project delivery",
+          createdAt: NOW - 10 * DAY_MS,
+          updatedAt: NOW - 2 * DAY_MS,
+        },
+      ],
       nextCursor: null,
     },
   },

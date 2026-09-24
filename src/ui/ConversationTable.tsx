@@ -6,6 +6,7 @@ import type {
 } from "../domain/conversation";
 
 export interface ConversationTableProps {
+  readonly view: "standalone" | "projects";
   readonly conversations: readonly Conversation[];
   readonly protectedConversationIds: ReadonlySet<string>;
   readonly selectedConversationIds: ReadonlySet<string>;
@@ -32,6 +33,7 @@ function formatDate(timestamp: number | null): string {
 }
 
 export function ConversationTable({
+  view,
   conversations,
   protectedConversationIds,
   selectedConversationIds,
@@ -96,12 +98,16 @@ export function ConversationTable({
     {
       title: "Protection/status",
       key: "protection",
-      render: (_, conversation) =>
-        protectedConversationIds.has(conversation.id) ? (
-          <Tag color="blue">User protected</Tag>
+      render: (_, conversation) => {
+        if (view === "projects") {
+          return <Tag color="blue">Project protected</Tag>;
+        }
+        return protectedConversationIds.has(conversation.id) ? (
+          <Tag color="blue">Protected</Tag>
         ) : (
-          <Tag>Standalone</Tag>
-        ),
+          <Tag>Unprotected</Tag>
+        );
+      },
     },
     {
       title: "Actions",
@@ -115,17 +121,19 @@ export function ConversationTable({
             <Button size="small" onClick={() => onOpen(conversation.id)}>
               Open
             </Button>
-            <Button
-              size="small"
-              disabled={protectionDisabled}
-              onClick={() =>
-                protectedConversation
-                  ? onUnprotect(conversation.id)
-                  : onProtect(conversation.id)
-              }
-            >
-              {protectedConversation ? "Unprotect" : "Protect"}
-            </Button>
+            {view === "standalone" && (
+              <Button
+                size="small"
+                disabled={protectionDisabled}
+                onClick={() =>
+                  protectedConversation
+                    ? onUnprotect(conversation.id)
+                    : onProtect(conversation.id)
+                }
+              >
+                {protectedConversation ? "Unprotect" : "Protect"}
+              </Button>
+            )}
           </Space>
         );
       },
@@ -160,30 +168,41 @@ export function ConversationTable({
   return (
     <div data-testid="conversation-table">
       <Table<Conversation>
-        aria-label="Conversations"
+        aria-label={
+          view === "standalone"
+            ? "Standalone conversations"
+            : "Project conversations"
+        }
         rowKey="id"
         dataSource={[...conversations]}
         columns={columns}
         onChange={handleChange}
-        rowSelection={{
-          type: "checkbox",
-          columnTitle: "Selection",
-          hideSelectAll: true,
-          selectedRowKeys: [...selectedConversationIds],
-          preserveSelectedRowKeys: true,
-          getCheckboxProps: (conversation) => ({
-            disabled:
-              selectionDisabled ||
-              protectedConversationIds.has(conversation.id),
-            "aria-label": `Select ${conversation.title}`,
-          }),
-          onSelect: (conversation, selected) => {
-            const nextSelection = new Set(selectedConversationIds);
-            if (selected) nextSelection.add(conversation.id);
-            if (!selected) nextSelection.delete(conversation.id);
-            onSelectionChange(nextSelection);
-          },
-        }}
+        {...(view === "standalone"
+          ? {
+              rowSelection: {
+                type: "checkbox",
+                columnTitle: "Selection",
+                hideSelectAll: true,
+                selectedRowKeys: [...selectedConversationIds],
+                preserveSelectedRowKeys: true,
+                getCheckboxProps: (conversation) => ({
+                  disabled:
+                    selectionDisabled ||
+                    protectedConversationIds.has(conversation.id),
+                  "aria-label": `Select ${conversation.title}`,
+                }),
+                onChange: (selectedRowKeys) => {
+                  onSelectionChange(
+                    new Set(
+                      selectedRowKeys.filter(
+                        (key): key is string => typeof key === "string",
+                      ),
+                    ),
+                  );
+                },
+              },
+            }
+          : {})}
         pagination={{
           current: page,
           pageSize,

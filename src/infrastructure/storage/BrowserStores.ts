@@ -4,6 +4,8 @@ import type {
   ProtectedConversationStore,
 } from "../../application/ports/ProtectedConversationStore";
 import type { SettingsStore } from "../../application/ports/SettingsStore";
+import { createAppError } from "../../application/AppError";
+import { logger, summarizeUnknownError } from "../observability/logger";
 
 const PROTECTED_IDS_KEY = "protectedConversationIds";
 const REQUESTS_PER_MINUTE_KEY = "requestsPerMinute";
@@ -38,26 +40,70 @@ export class BrowserProtectedConversationStore implements ProtectedConversationS
   ) {}
 
   public async loadProtectedConversationIds(): Promise<ProtectedConversationIdsResult> {
-    await this.trustedAccess.ensureRestricted();
-    const stored = await this.storage.get(PROTECTED_IDS_KEY);
-    const value = stored[PROTECTED_IDS_KEY] ?? [];
-    const parsed = protectedIdsSchema.safeParse(value);
-    if (!parsed.success) return { kind: "invalid" };
-    return {
-      kind: "success",
-      protectedConversationIds: new Set(parsed.data),
-    };
+    logger.debug("protectedStore.load.started");
+    try {
+      await this.trustedAccess.ensureRestricted();
+      const stored = await this.storage.get(PROTECTED_IDS_KEY);
+      const value = stored[PROTECTED_IDS_KEY] ?? [];
+      const parsed = protectedIdsSchema.safeParse(value);
+      if (!parsed.success) {
+        logger.warn("protectedStore.load.invalid", {
+          issueCount: parsed.error.issues.length,
+        });
+        return { kind: "invalid" };
+      }
+      logger.debug("protectedStore.load.succeeded", {
+        protectedCount: parsed.data.length,
+      });
+      return {
+        kind: "success",
+        protectedConversationIds: new Set(parsed.data),
+      };
+    } catch (cause) {
+      logger.error(
+        "application.operation.failed",
+        summarizeUnknownError(cause),
+        {
+          operation: "protectedStore.load",
+          errorCode: "STORAGE_FAILURE",
+        },
+      );
+      throw createAppError("StorageFailure", {
+        operation: "protectedStore.load",
+        cause,
+      });
+    }
   }
 
   public async saveProtectedConversationIds(
     protectedConversationIds: ReadonlySet<string>,
   ): Promise<void> {
-    await this.trustedAccess.ensureRestricted();
-    const parsed = protectedIdsSchema.safeParse([...protectedConversationIds]);
-    if (!parsed.success) {
-      throw new TypeError("Protected conversation IDs are invalid.");
+    try {
+      await this.trustedAccess.ensureRestricted();
+      const parsed = protectedIdsSchema.safeParse([
+        ...protectedConversationIds,
+      ]);
+      if (!parsed.success) {
+        throw new TypeError("Protected conversation IDs are invalid.");
+      }
+      await this.storage.set({ [PROTECTED_IDS_KEY]: parsed.data });
+      logger.debug("protectedStore.save.succeeded", {
+        protectedCount: parsed.data.length,
+      });
+    } catch (cause) {
+      logger.error(
+        "application.operation.failed",
+        summarizeUnknownError(cause),
+        {
+          operation: "protectedStore.save",
+          errorCode: "STORAGE_FAILURE",
+        },
+      );
+      throw createAppError("StorageFailure", {
+        operation: "protectedStore.save",
+        cause,
+      });
     }
-    await this.storage.set({ [PROTECTED_IDS_KEY]: parsed.data });
   }
 }
 
@@ -68,14 +114,30 @@ export class BrowserSettingsStore implements SettingsStore {
   ) {}
 
   public async loadRequestsPerMinute(): Promise<unknown> {
-    await this.trustedAccess.ensureRestricted();
-    const stored = await this.storage.get(REQUESTS_PER_MINUTE_KEY);
-    return stored[REQUESTS_PER_MINUTE_KEY];
+    try {
+      await this.trustedAccess.ensureRestricted();
+      const stored = await this.storage.get(REQUESTS_PER_MINUTE_KEY);
+      logger.debug("settingsStore.load.succeeded");
+      return stored[REQUESTS_PER_MINUTE_KEY];
+    } catch (cause) {
+      throw createAppError("StorageFailure", {
+        operation: "settingsStore.load",
+        cause,
+      });
+    }
   }
 
   public async saveRequestsPerMinute(requestsPerMinute: number): Promise<void> {
-    await this.trustedAccess.ensureRestricted();
-    await this.storage.set({ [REQUESTS_PER_MINUTE_KEY]: requestsPerMinute });
+    try {
+      await this.trustedAccess.ensureRestricted();
+      await this.storage.set({ [REQUESTS_PER_MINUTE_KEY]: requestsPerMinute });
+      logger.debug("settingsStore.save.succeeded");
+    } catch (cause) {
+      throw createAppError("StorageFailure", {
+        operation: "settingsStore.save",
+        cause,
+      });
+    }
   }
 }
 

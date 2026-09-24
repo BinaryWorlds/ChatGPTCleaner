@@ -2,6 +2,7 @@ import { Button, DatePicker, Input, Select, Space } from "antd";
 import dayjs, { type Dayjs } from "dayjs";
 import {
   EMPTY_CONVERSATION_FILTERS,
+  olderThanCalendarPreset,
   olderThanPreset,
   type ConversationDateField,
   type ConversationFilters,
@@ -12,6 +13,7 @@ import {
 export interface ConversationFiltersProps {
   readonly filters: ConversationFilters;
   readonly onChange: (filters: ConversationFilters) => void;
+  readonly currentDate?: () => Date;
 }
 
 function toDayjs(localDay: LocalCalendarDay | null): Dayjs | null {
@@ -26,13 +28,23 @@ function toDayjs(localDay: LocalCalendarDay | null): Dayjs | null {
 export function ConversationFiltersBar({
   filters,
   onChange,
+  currentDate = () => new Date(),
 }: ConversationFiltersProps) {
   const setPreset = (days: 7 | 30 | 90) => {
     onChange({
       ...filters,
       dateField: filters.dateField ?? "updatedAt",
       dateComparison: "before",
-      cutoffLocalDay: olderThanPreset(days, new Date()),
+      cutoffLocalDay: olderThanPreset(days, currentDate()),
+    });
+  };
+
+  const setCalendarPreset = (period: "six-months" | "one-year") => {
+    onChange({
+      ...filters,
+      dateField: filters.dateField ?? "updatedAt",
+      dateComparison: "before",
+      cutoffLocalDay: olderThanCalendarPreset(period, currentDate()),
     });
   };
 
@@ -95,6 +107,12 @@ export function ConversationFiltersBar({
         <Button onClick={() => setPreset(7)}>Older than 7 days</Button>
         <Button onClick={() => setPreset(30)}>Older than 30 days</Button>
         <Button onClick={() => setPreset(90)}>Older than 90 days</Button>
+        <Button onClick={() => setCalendarPreset("six-months")}>
+          Older than 6 months
+        </Button>
+        <Button onClick={() => setCalendarPreset("one-year")}>
+          Older than 1 year
+        </Button>
       </Space>
     </Space>
   );

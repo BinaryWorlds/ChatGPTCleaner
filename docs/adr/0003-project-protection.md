@@ -14,7 +14,8 @@ Before destructive execution, enumerate conversation IDs belonging to every disc
 
 Do not rely solely on the standalone endpoint to exclude Project chats.
 
-Project chats do not appear as deletable rows.
+Project chats do not appear as deletable rows. They may be displayed in a
+separate read-only view that has no selection or deletion path.
 
 Any incomplete Project enumeration blocks deletion.
 

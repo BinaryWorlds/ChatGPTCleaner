@@ -2,6 +2,7 @@ import type {
   DestructiveRunLock,
   LockResult,
 } from "../../application/ports/DestructiveRunLock";
+import { logger } from "../observability/logger";
 
 export const DESTRUCTIVE_RUN_LOCK_NAME = "chatgpt-cleaner:destructive-run:v1";
 
@@ -17,7 +18,9 @@ export class WebLocksDestructiveRunLock implements DestructiveRunLock {
   public constructor(private readonly locks: WebLockManager | null) {}
 
   public runExclusive<T>(work: () => Promise<T>): Promise<LockResult<T>> {
+    logger.debug("runLock.acquire.started");
     if (this.locks === null) {
+      logger.warn("runLock.acquire.unavailable");
       return Promise.resolve({ kind: "unavailable" });
     }
 
@@ -25,8 +28,16 @@ export class WebLocksDestructiveRunLock implements DestructiveRunLock {
       DESTRUCTIVE_RUN_LOCK_NAME,
       { ifAvailable: true, mode: "exclusive" },
       async (lock) => {
-        if (lock === null) return { kind: "unavailable" };
-        return { kind: "acquired", value: await work() };
+        if (lock === null) {
+          logger.warn("runLock.acquire.unavailable");
+          return { kind: "unavailable" };
+        }
+        logger.debug("runLock.acquire.succeeded");
+        try {
+          return { kind: "acquired", value: await work() };
+        } finally {
+          logger.debug("runLock.released");
+        }
       },
     );
   }

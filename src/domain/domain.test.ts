@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   EMPTY_CONVERSATION_FILTERS,
   filterConversations,
+  olderThanCalendarPreset,
   sortConversations,
   startOfLocalDay,
   type Conversation,
@@ -86,6 +87,18 @@ describe("conversation filtering and sorting", () => {
         ({ id }) => id,
       ),
     ).toEqual(["a", "z"]);
+  });
+
+  it("uses clamped calendar-month semantics for the six-month preset", () => {
+    expect(
+      olderThanCalendarPreset("six-months", new Date(2026, 7, 31, 15, 30)),
+    ).toEqual({ year: 2026, month: 2, day: 28 });
+  });
+
+  it("uses calendar-year semantics across a leap-day boundary", () => {
+    expect(
+      olderThanCalendarPreset("one-year", new Date(2024, 1, 29, 8, 0)),
+    ).toEqual({ year: 2023, month: 2, day: 28 });
   });
 });
 

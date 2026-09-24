@@ -39,7 +39,12 @@ describe("App", () => {
               ]),
           },
           pageReadExecutor: {
-            execute: () => Promise.resolve([{ result: { malformed: true } }]),
+            fetchStandalonePage: () =>
+              Promise.resolve([{ result: { malformed: true } }]),
+            fetchProjectsPage: () =>
+              Promise.resolve([{ result: { malformed: true } }]),
+            fetchProjectConversationsPage: () =>
+              Promise.resolve([{ result: { malformed: true } }]),
           },
           storage: {
             get: () => Promise.resolve({}),
@@ -52,6 +57,9 @@ describe("App", () => {
 
     expect(
       await screen.findByText("Read API compatibility failed"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Standalone conversations.*executionResult/),
     ).toBeInTheDocument();
   });
 
