@@ -13,9 +13,11 @@ describe("fake infrastructure", () => {
       kind: "retryable",
       reason: "rate-limit",
       retryAfterMs: 2_000,
+      status: 429,
     });
     expect(await gateway.deleteConversation("standalone-004")).toEqual({
       kind: "deleted",
+      status: 204,
     });
     expect(clock.now()).toBe(50);
   });

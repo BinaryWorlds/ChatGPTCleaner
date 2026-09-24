@@ -1,4 +1,5 @@
 import type { Conversation } from "../../domain/conversation";
+import type { AppError } from "../AppError";
 
 export interface ProjectReference {
   readonly id: string;
@@ -63,16 +64,25 @@ export type ReadResult<T> =
     };
 
 export type DeleteAttemptResult =
-  | { readonly kind: "deleted" }
+  | { readonly kind: "deleted"; readonly status?: number }
   | { readonly kind: "skipped"; readonly status: 404 | 410 }
   | {
       readonly kind: "retryable";
       readonly reason: "rate-limit" | "server" | "network";
       readonly retryAfterMs?: number;
+      readonly status?: number;
     }
   | {
       readonly kind: "fatal";
-      readonly reason: "authentication" | "client" | "response-anomaly";
+      readonly reason:
+        | "authentication"
+        | "authorization"
+        | "client"
+        | "response-anomaly"
+        | "retry-later"
+        | "source-unavailable";
+      readonly error?: AppError;
+      readonly status?: number;
     };
 
 export interface ConversationGateway {

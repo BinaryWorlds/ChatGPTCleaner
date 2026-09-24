@@ -27,8 +27,8 @@ export interface Logger {
 }
 
 const forbiddenFieldName =
-  /(authorization|cookie|token|session|email|title|content|message|conversationids?|projectids?|body|request|response|headers)/iu;
-const validEventName = /^[a-z][a-z0-9]*(?:\.[a-z][a-zA-Z0-9]*)+$/u;
+  /(authorization|cookie|token|session|email|title|content|message|conversationids?|projectids?|body|headers)/iu;
+const validEventName = /^[a-z][a-zA-Z0-9]*(?:\.[a-z][a-zA-Z0-9]*)+$/u;
 const levels: readonly LogLevel[] = ["debug", "info", "warn", "error"];
 
 function minimumLevelForMode(mode: string): LogLevel {
@@ -50,7 +50,16 @@ export function sanitizeLogFields(fields?: SafeLogFields): SafeLogFields {
   if (fields === undefined) return {};
   const safeEntries: [string, SafeLogValue][] = [];
   for (const [key, value] of Object.entries(fields)) {
-    if (forbiddenFieldName.test(key)) continue;
+    const normalizedKey = key.replaceAll(/[-_]/gu, "").toLowerCase();
+    if (
+      forbiddenFieldName.test(normalizedKey) ||
+      normalizedKey === "request" ||
+      normalizedKey === "response" ||
+      normalizedKey === "rawrequest" ||
+      normalizedKey === "rawresponse"
+    ) {
+      continue;
+    }
     if (isSafeScalar(value)) {
       safeEntries.push([key, value]);
       continue;

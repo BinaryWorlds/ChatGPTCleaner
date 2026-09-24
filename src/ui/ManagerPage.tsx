@@ -12,7 +12,7 @@ import {
   Statistic,
   Typography,
 } from "antd";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { DeletionRun, type DeletionRunState } from "../application/deletionRun";
 import {
   loadInventory,
@@ -137,7 +137,6 @@ export function ManagerPage({ composition }: ManagerPageProps) {
   const [runState, setRunState] = useState<DeletionRunState | null>(null);
   const [safetyOverride, setSafetyOverride] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const runOperationId = useRef<string | null>(null);
 
   useEffect(() => {
     let current = true;
@@ -413,40 +412,6 @@ export function ManagerPage({ composition }: ManagerPageProps) {
 
   const handleRunStateChange = (nextState: DeletionRunState) => {
     setRunState(nextState);
-    if (
-      nextState.kind === "finished" ||
-      nextState.kind === "stopped" ||
-      nextState.kind === "blocked" ||
-      nextState.kind === "fatal"
-    ) {
-      const fields = {
-        ...(runOperationId.current === null
-          ? {}
-          : { operationId: runOperationId.current }),
-        state: nextState.kind,
-        total: nextState.progress.total,
-        processedCount: nextState.progress.processed,
-        deletedCount: nextState.progress.deleted,
-        failedCount: nextState.progress.failed,
-        skippedCount: nextState.progress.skipped,
-        retryCount: nextState.progress.retries,
-      };
-      if (nextState.kind === "fatal") {
-        dependencies?.observability?.error(
-          "deletion.operation.failed",
-          "SAFETY_BLOCKED",
-          fields,
-        );
-      } else if (nextState.kind === "blocked") {
-        dependencies?.observability?.warn("deletion.operation.blocked", fields);
-      } else {
-        dependencies?.observability?.info(
-          "deletion.operation.completed",
-          fields,
-        );
-      }
-      runOperationId.current = null;
-    }
     if (nextState.kind === "blocked" || nextState.kind === "fatal") {
       setSafetyOverride(nextState.reason);
     }
@@ -478,18 +443,12 @@ export function ManagerPage({ composition }: ManagerPageProps) {
       protectedConversationStore: dependencies.protectedConversationStore,
       clock: dependencies.clock,
       destructiveRunLock: dependencies.destructiveRunLock,
+      ...(dependencies.observability === undefined
+        ? {}
+        : { observability: dependencies.observability }),
       onStateChange: handleRunStateChange,
     });
     setCurrentRun(deletionRun);
-    runOperationId.current =
-      dependencies.observability?.createOperationId() ?? null;
-    dependencies.observability?.info("deletion.operation.started", {
-      ...(runOperationId.current === null
-        ? {}
-        : { operationId: runOperationId.current }),
-      total: confirmation.plan.confirmedConversationIds.length,
-      configuredRate: requestsPerMinute,
-    });
     setPreflightPlan(null);
     setConfirmationText("");
     deletionRun
@@ -498,16 +457,6 @@ export function ManagerPage({ composition }: ManagerPageProps) {
   };
 
   const retryFailed = () => {
-    if (dependencies !== null) {
-      runOperationId.current =
-        dependencies.observability?.createOperationId() ?? null;
-      dependencies.observability?.info("deletion.retry.started", {
-        ...(runOperationId.current === null
-          ? {}
-          : { operationId: runOperationId.current }),
-        failedCount: runState?.progress.failedConversationIds.length ?? 0,
-      });
-    }
     currentRun
       ?.retryFailedDeletion()
       .catch(() => setSafetyOverride("unexpected-run-error"));
@@ -515,23 +464,10 @@ export function ManagerPage({ composition }: ManagerPageProps) {
 
   const resumeRun = () => {
     if (dependencies === null || currentRun === null) return;
-    runOperationId.current =
-      dependencies.observability?.createOperationId() ?? null;
-    dependencies.observability?.info("deletion.resume.started", {
-      ...(runOperationId.current === null
-        ? {}
-        : { operationId: runOperationId.current }),
-      remainingCount: runState?.progress.remaining ?? 0,
-    });
     currentRun.resumeDeletion();
   };
 
   const stopRun = () => {
-    dependencies?.observability?.info("deletion.operation.stopRequested", {
-      ...(runOperationId.current === null
-        ? {}
-        : { operationId: runOperationId.current }),
-    });
     currentRun?.stopDeletion();
   };
 

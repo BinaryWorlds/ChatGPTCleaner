@@ -51,8 +51,11 @@ Important rules:
 - Closing/reloading the manager prevents new DELETE requests from starting.
 - An already-dispatched request may still complete remotely.
 - There is no persisted deletion queue and no automatic resume.
+- DELETE attempts are strictly sequential and use the configured rate limit;
+  retries count as attempts.
 
 Because ChatGPT does not provide the extension an atomic "delete only if still outside Project" operation, do not move conversations into or out of Projects while a deletion run is active.
+Do not switch the relevant ChatGPT account or workspace during an active run.
 
 ## Privacy
 
@@ -105,7 +108,9 @@ in-memory fake data. Query parameters and browser storage cannot switch a
 production build into demo mode.
 
 Production source-tab, read-only inventory, Project protection, storage, retry,
-and locking boundaries are implemented.
+locking, and the narrow production DELETE transport are implemented. The
+production DELETE contract still requires the documented one-conversation
+manual smoke test against a disposable standalone conversation.
 
 ### Debug logging
 

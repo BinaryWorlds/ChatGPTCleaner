@@ -20,6 +20,7 @@ interface SafetyIndicators {
 
 const blockedReasonLabels: Readonly<Record<string, string>> = {
   authentication: "Authentication unavailable",
+  authorization: "Authorization denied",
   compatibility: "Read API compatibility failed",
   network: "Network unavailable",
   request: "ChatGPT rejected an inventory request",

@@ -9,7 +9,16 @@ export interface FakeGatewayFixture {
 }
 
 export type FakeDeleteOutcome =
-  "success" | 404 | 410 | 429 | 500 | 403 | "network";
+  | "success"
+  | "long-rate-limit"
+  | 401
+  | 403
+  | 404
+  | 410
+  | 422
+  | 429
+  | 500
+  | "network";
 
 const DAY_MS = 86_400_000;
 const NOW = Date.UTC(2026, 8, 21);

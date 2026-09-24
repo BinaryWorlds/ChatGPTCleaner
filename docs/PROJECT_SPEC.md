@@ -1846,7 +1846,11 @@ Before uncertain real schemas are coded, inspect current browser Network behavio
 
 ### Phase 6 — Production DELETE integration
 
-Implement observed DELETE through narrow gateway.
+**Implementation status:** Stage A implemented with synthetic automated tests.
+
+The production composition uses the observed fixed DELETE through a narrow
+ISOLATED-world gateway. Its live response contract is not considered verified
+until the one-disposable-conversation manual smoke test succeeds.
 
 Do not perform automated live deletion.
 

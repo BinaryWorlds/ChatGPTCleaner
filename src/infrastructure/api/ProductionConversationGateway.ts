@@ -23,6 +23,7 @@ import type {
   ReadPageTiming,
   ReadTransportPayload,
 } from "./PageContextReadTransport";
+import type { PageContextDeleteTransport } from "./PageContextDeleteTransport";
 import { STANDALONE_PAGE_LIMIT } from "./readLimits";
 import {
   createReadDiagnostic,
@@ -117,7 +118,13 @@ export class ProductionConversationGateway implements ConversationGateway {
   private activeStandaloneReads = 0;
   private maxObservedStandaloneReadConcurrency = 0;
 
-  public constructor(private readonly transport: PageContextReadTransport) {}
+  public constructor(
+    private readonly transport: PageContextReadTransport,
+    private readonly deleteTransport?: Pick<
+      PageContextDeleteTransport,
+      "deleteConversation"
+    >,
+  ) {}
 
   public beginSafetyInventoryRead(): Promise<ReadResult<null>> {
     this.inventoryOperationId = createOperationId();
@@ -592,7 +599,9 @@ export class ProductionConversationGateway implements ConversationGateway {
   public deleteConversation(
     conversationId: string,
   ): Promise<DeleteAttemptResult> {
-    void conversationId;
-    return Promise.resolve({ kind: "fatal", reason: "response-anomaly" });
+    if (this.deleteTransport === undefined) {
+      return Promise.resolve({ kind: "fatal", reason: "response-anomaly" });
+    }
+    return this.deleteTransport.deleteConversation(conversationId);
   }
 }

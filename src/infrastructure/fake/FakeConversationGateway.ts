@@ -39,15 +39,38 @@ function displayTimestamp(value: unknown): number | null {
 }
 
 function deleteResult(outcome: FakeDeleteOutcome): DeleteAttemptResult {
-  if (outcome === "success") return { kind: "deleted" };
+  if (outcome === "success") return { kind: "deleted", status: 204 };
   if (outcome === 404 || outcome === 410) {
     return { kind: "skipped", status: outcome };
   }
-  if (outcome === 403) return { kind: "fatal", reason: "authentication" };
-  if (outcome === 429) {
-    return { kind: "retryable", reason: "rate-limit", retryAfterMs: 2_000 };
+  if (outcome === 401) {
+    return { kind: "fatal", reason: "authentication", status: 401 };
   }
-  if (outcome === 500) return { kind: "retryable", reason: "server" };
+  if (outcome === 403) {
+    return { kind: "fatal", reason: "authorization", status: 403 };
+  }
+  if (outcome === 422) {
+    return { kind: "fatal", reason: "client", status: 422 };
+  }
+  if (outcome === 429) {
+    return {
+      kind: "retryable",
+      reason: "rate-limit",
+      retryAfterMs: 2_000,
+      status: 429,
+    };
+  }
+  if (outcome === "long-rate-limit") {
+    return {
+      kind: "retryable",
+      reason: "rate-limit",
+      retryAfterMs: 120_000,
+      status: 429,
+    };
+  }
+  if (outcome === 500) {
+    return { kind: "retryable", reason: "server", status: 500 };
+  }
   return { kind: "retryable", reason: "network" };
 }
 

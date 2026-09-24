@@ -612,7 +612,7 @@ describe("ManagerPage destructive flow", () => {
     expect(
       await screen.findByText("Deletion stopped for safety"),
     ).toBeInTheDocument();
-    expect(screen.getByText("Authentication unavailable")).toBeInTheDocument();
+    expect(screen.getByText("Authorization denied")).toBeInTheDocument();
   });
 
   it("shows BLOCKED for malformed inventory", async () => {

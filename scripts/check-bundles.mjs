@@ -52,10 +52,17 @@ for (const readPath of [
   );
 }
 
-for (const bundle of [productionBundle, demoBundle]) {
+for (const destructiveMarker of [
+  "/backend-api/conversation/id/",
+  "delete-conversation",
+]) {
   assert(
-    !bundle.includes("/backend-api/conversation/id/"),
-    "A production DELETE endpoint was bundled before Phase 6.",
+    productionBundle.includes(destructiveMarker),
+    `Production bundle is missing the narrow DELETE transport: ${destructiveMarker}`,
+  );
+  assert(
+    !demoBundle.includes(destructiveMarker),
+    `Demo bundle contains production destructive transport: ${destructiveMarker}`,
   );
 }
 

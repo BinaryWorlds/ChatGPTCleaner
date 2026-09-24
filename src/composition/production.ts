@@ -5,6 +5,11 @@ import {
   type PageContextReadExecutor,
 } from "../infrastructure/api/PageContextReadTransport";
 import {
+  createChromePageContextDeleteExecutor,
+  PageContextDeleteTransport,
+  type PageContextDeleteExecutor,
+} from "../infrastructure/api/PageContextDeleteTransport";
+import {
   createChromeSourceTabBrowser,
   parseSourceTabId,
   SourceTabBinding,
@@ -34,6 +39,7 @@ import type { ManagerComposition, ManagerDependencies } from "./types";
 export interface ProductionRuntime {
   readonly sourceTabBrowser: SourceTabBrowser;
   readonly pageReadExecutor?: PageContextReadExecutor;
+  readonly pageDeleteExecutor?: PageContextDeleteExecutor;
   readonly storage: BrowserLocalStorage;
   readonly locks: WebLockManager | null;
 }
@@ -42,6 +48,7 @@ function createBrowserRuntime(): ProductionRuntime {
   return {
     sourceTabBrowser: createChromeSourceTabBrowser(),
     pageReadExecutor: createChromePageContextReadExecutor(),
+    pageDeleteExecutor: createChromePageContextDeleteExecutor(),
     storage: createChromeLocalStorage(),
     locks: currentWebLockManager(),
   };
@@ -81,7 +88,15 @@ export function createManagerComposition(
       clock,
     );
     return {
-      gateway: new ProductionConversationGateway(transport),
+      gateway: new ProductionConversationGateway(
+        transport,
+        new PageContextDeleteTransport(
+          sourceTab,
+          activeRuntime.pageDeleteExecutor ??
+            createChromePageContextDeleteExecutor(),
+          clock,
+        ),
+      ),
       protectedConversationStore: new BrowserProtectedConversationStore(
         activeRuntime.storage,
         trustedStorage,

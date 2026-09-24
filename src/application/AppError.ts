@@ -28,7 +28,7 @@ const errorDetails: Record<
   },
   AuthorizationDenied: {
     code: "AUTHORIZATION_DENIED",
-    safeMessage: "ChatGPT did not authorize this read operation.",
+    safeMessage: "ChatGPT did not authorize this operation.",
   },
   SourceTabUnavailable: {
     code: "SOURCE_TAB_UNAVAILABLE",

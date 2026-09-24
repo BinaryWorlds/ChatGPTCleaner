@@ -71,8 +71,18 @@ describe("privacy-safe logger", () => {
 
   it("retains explicitly safe metadata", () => {
     expect(
-      sanitizeLogFields({ page: 2, itemCount: 100, retryable: true }),
-    ).toEqual({ page: 2, itemCount: 100, retryable: true });
+      sanitizeLogFields({
+        page: 2,
+        itemCount: 100,
+        retryable: true,
+        requestsPerMinute: 60,
+      }),
+    ).toEqual({
+      page: 2,
+      itemCount: 100,
+      retryable: true,
+      requestsPerMinute: 60,
+    });
   });
 
   it.each(["authorization", "TOKEN", "cookieValue", "sessionKey"])(
@@ -120,6 +130,36 @@ describe("privacy-safe logger", () => {
     const capture = capturingSink();
     createLogger("debug", capture.sink).debug("PRIVATE_TITLE_SENTINEL");
     expect(capture.entries[0]?.message).toContain("logger.invalidEvent");
+  });
+
+  it.each([
+    "sourceTab.validation.started",
+    "protectedStore.load.started",
+    "settingsStore.load.succeeded",
+    "runLock.acquire.started",
+    "runLock.acquire.succeeded",
+    "runLock.released",
+    "deletion.run.started",
+    "api.request.started",
+    "api.request.succeeded",
+  ])("accepts the intended camel-case event contract: %s", (event) => {
+    const capture = capturingSink();
+    createLogger("debug", capture.sink).debug(event, {
+      operation: "conversation.delete",
+      ordinal: 1,
+      attempt: 1,
+      status: 204,
+      durationMs: 25,
+    });
+    expect(capture.entries[0]?.message).toContain(event);
+    expect(capture.entries[0]?.message).not.toContain("logger.invalidEvent");
+    expect(capture.entries[0]?.fields).toEqual({
+      operation: "conversation.delete",
+      ordinal: 1,
+      attempt: 1,
+      status: 204,
+      durationMs: 25,
+    });
   });
 
   it("never emits privacy sentinel values", () => {

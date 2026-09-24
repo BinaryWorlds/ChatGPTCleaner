@@ -29,10 +29,20 @@ fallback condition.
 
 MAIN is necessary because it shares the host page's JavaScript execution
 environment, while ISOLATED has an extension-private JavaScript environment.
-The MAIN-world function is minimal and stateless, verifies the exact page
+The MAIN-world read function is minimal and stateless, verifies the exact page
 origin, constructs its URL internally, and supports only the three Phase 5 GET
-operations. It cannot accept a URL or HTTP method from callers and contains no
-DELETE path.
+operations. It cannot accept a URL or HTTP method from callers.
+
+Phase 6 adds a separate destructive operation in ISOLATED world. It accepts
+only a validated conversation ID and internally fixes the origin, path shape,
+method, credentials mode, and headers for one conversation DELETE. Its bearer
+credential is obtained and retained only inside page-context memory, as with
+the read transport. It returns no credential, URL, headers, body, or raw error.
+
+The destructive operation does not fall back from ISOLATED to MAIN. Retrying a
+destructive request in another execution world after an ambiguous transport
+result could duplicate an already-dispatched DELETE. Any such ambiguity is
+therefore classified conservatively by the existing bounded executor policy.
 
 Expose only narrow fixed ChatGPT operations. Do not implement a generic authenticated `fetch(url)` proxy.
 
