@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FakeClock } from "../fake/FakeClock";
+import { MAX_SAFETY_CRITICAL_IDENTIFIER_LENGTH } from "../../domain/identifier";
 import {
-  DELETE_CONVERSATION_PATH,
   PageContextDeleteTransport,
   classifyDeleteResponse,
   createChromePageContextDeleteExecutor,
@@ -289,7 +289,7 @@ describe("narrow injected DELETE operation", () => {
       "https://chatgpt.com",
     );
     expect(new URL(destructiveRequest?.url ?? "").pathname).toBe(
-      `${DELETE_CONVERSATION_PATH}conversation-123`,
+      "/backend-api/conversation/id/conversation-123",
     );
     expect(destructiveRequest?.init).toMatchObject({
       method: "DELETE",
@@ -303,7 +303,17 @@ describe("narrow injected DELETE operation", () => {
   });
 
   it("rejects malformed/arbitrary operations and wrong origin before fetch", async () => {
-    const fetchMock = vi.fn();
+    const fetchMock = vi.fn((url: string) => {
+      const session = new URL(url).pathname === "/api/auth/session";
+      return Promise.resolve({
+        status: session ? 200 : 204,
+        ok: true,
+        redirected: false,
+        type: "basic",
+        headers: { get: () => null },
+        json: () => Promise.resolve({ accessToken: "test-token" }),
+      });
+    });
     vi.stubGlobal("fetch", fetchMock);
     vi.stubGlobal("window", { location: { origin: "https://chatgpt.com" } });
     const capturedDetails: ScriptDetails[] = [];
@@ -327,6 +337,23 @@ describe("narrow injected DELETE operation", () => {
         { kind: "delete-conversation", conversationId: "bad/id" },
       ]),
     ).resolves.toEqual({ kind: "failure", reason: "compatibility" });
+    expect(fetchMock).not.toHaveBeenCalled();
+    const maximumLengthId = "a".repeat(MAX_SAFETY_CRITICAL_IDENTIFIER_LENGTH);
+    expect(createDeleteConversationOperation(maximumLengthId)).not.toBeNull();
+    await expect(
+      Reflect.apply(injected, undefined, [
+        { kind: "delete-conversation", conversationId: maximumLengthId },
+      ]),
+    ).resolves.toMatchObject({ kind: "response", status: 204 });
+    const requestCountAfterValidId = fetchMock.mock.calls.length;
+    const oversizedId = `${maximumLengthId}a`;
+    expect(createDeleteConversationOperation(oversizedId)).toBeNull();
+    await expect(
+      Reflect.apply(injected, undefined, [
+        { kind: "delete-conversation", conversationId: oversizedId },
+      ]),
+    ).resolves.toEqual({ kind: "failure", reason: "compatibility" });
+    expect(fetchMock).toHaveBeenCalledTimes(requestCountAfterValidId);
     await expect(
       Reflect.apply(injected, undefined, [
         {
@@ -342,6 +369,6 @@ describe("narrow injected DELETE operation", () => {
       kind: "failure",
       reason: "source-unavailable",
     });
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(requestCountAfterValidId);
   });
 });

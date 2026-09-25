@@ -109,8 +109,10 @@ production build into demo mode.
 
 Production source-tab, read-only inventory, Project protection, storage, retry,
 locking, and the narrow production DELETE transport are implemented. The
-production DELETE contract still requires the documented one-conversation
-manual smoke test against a disposable standalone conversation.
+production DELETE contract completed its documented manual smoke test against
+one disposable standalone conversation: fresh preflight selected one eligible
+ID, exactly one DELETE attempt succeeded, and the run completed with no failed
+or skipped items. Automated tests and demo mode still never issue real DELETE.
 
 ### Debug logging
 

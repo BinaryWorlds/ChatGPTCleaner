@@ -1,9 +1,12 @@
-export type LogLevel = "debug" | "info" | "warn" | "error";
-export type SafeLogScalar = string | number | boolean | null;
-export type SafeLogValue = SafeLogScalar | readonly SafeLogScalar[];
+const levels = ["debug", "info", "warn", "error"] as const;
+const MAX_SAFE_LOG_ARRAY_ITEMS = 20;
+
+type LogLevel = (typeof levels)[number];
+type SafeLogScalar = string | number | boolean | null;
+type SafeLogValue = SafeLogScalar | readonly SafeLogScalar[];
 export type SafeLogFields = Readonly<Record<string, SafeLogValue>>;
 
-export interface SafeErrorSummary {
+interface SafeErrorSummary {
   readonly errorType: "error" | "non-error";
   readonly errorName?: string;
 }
@@ -29,8 +32,6 @@ export interface Logger {
 const forbiddenFieldName =
   /(authorization|cookie|token|session|email|title|content|message|conversationids?|projectids?|body|headers)/iu;
 const validEventName = /^[a-z][a-zA-Z0-9]*(?:\.[a-z][a-zA-Z0-9]*)+$/u;
-const levels: readonly LogLevel[] = ["debug", "info", "warn", "error"];
-
 function minimumLevelForMode(mode: string): LogLevel {
   return mode === "development" || mode === "debug" || mode === "demo"
     ? "debug"
@@ -65,7 +66,7 @@ export function sanitizeLogFields(fields?: SafeLogFields): SafeLogFields {
       continue;
     }
     if (Array.isArray(value) && value.every(isSafeScalar)) {
-      safeEntries.push([key, value.slice(0, 20)]);
+      safeEntries.push([key, value.slice(0, MAX_SAFE_LOG_ARRAY_ITEMS)]);
     }
   }
   return Object.fromEntries(safeEntries);

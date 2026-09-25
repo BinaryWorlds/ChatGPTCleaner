@@ -1,11 +1,14 @@
 import { Alert, Button, Card, Descriptions, Progress, Space, Tag } from "antd";
 import type { DeletionRunState } from "../application/deletionRun";
 
-export interface DeletionProgressPanelProps {
+const FAILED_CONVERSATION_PREVIEW_LIMIT = 20;
+
+interface DeletionProgressPanelProps {
   readonly state: DeletionRunState;
   readonly currentConversationLabel: string;
   readonly onPause: () => void;
   readonly onResume: () => void;
+  readonly resumeDisabled: boolean;
   readonly onStop: () => void;
   readonly onRetryFailed: () => void;
 }
@@ -22,6 +25,7 @@ export function DeletionProgressPanel({
   currentConversationLabel,
   onPause,
   onResume,
+  resumeDisabled,
   onStop,
   onRetryFailed,
 }: DeletionProgressPanelProps) {
@@ -39,6 +43,12 @@ export function DeletionProgressPanel({
     (state.kind === "finished" ||
       state.kind === "stopped" ||
       state.kind === "fatal");
+  const failedConversationPreview = progress.failedConversationIds.slice(
+    0,
+    FAILED_CONVERSATION_PREVIEW_LIMIT,
+  );
+  const hiddenFailedConversationCount =
+    progress.failedConversationIds.length - failedConversationPreview.length;
 
   return (
     <Card title="Current deletion run" size="small">
@@ -63,7 +73,15 @@ export function DeletionProgressPanel({
           type="warning"
           showIcon
           title="Failed conversations"
-          description={progress.failedConversationIds.join(", ")}
+          description={
+            <Space orientation="vertical" size={0}>
+              <span>{progress.failedConversationIds.length} failed</span>
+              <span>{failedConversationPreview.join(", ")}</span>
+              {hiddenFailedConversationCount > 0 && (
+                <span>+{hiddenFailedConversationCount} more</span>
+              )}
+            </Space>
+          }
         />
       )}
       <Progress
@@ -110,7 +128,7 @@ export function DeletionProgressPanel({
       <Space wrap>
         {state.kind === "running" && <Button onClick={onPause}>Pause</Button>}
         {state.kind === "paused" && (
-          <Button type="primary" onClick={onResume}>
+          <Button type="primary" disabled={resumeDisabled} onClick={onResume}>
             Resume
           </Button>
         )}

@@ -1,4 +1,5 @@
 import { FakeConversationGateway } from "../infrastructure/fake/FakeConversationGateway";
+import { AppConfig } from "../config";
 import { FakeDestructiveRunLock } from "../infrastructure/fake/FakeDestructiveRunLock";
 import {
   FakeProtectedConversationStore,
@@ -40,7 +41,9 @@ function createDependencies(scenarioId: string): ManagerDependencies {
       "standalone-010",
       "standalone-011",
     ]),
-    settingsStore: new FakeSettingsStore(60),
+    settingsStore: new FakeSettingsStore(
+      AppConfig.deletion.requestsPerMinute.default,
+    ),
     clock,
     destructiveRunLock: new FakeDestructiveRunLock(),
     observability: createApplicationObservability(),
@@ -50,6 +53,7 @@ function createDependencies(scenarioId: string): ManagerDependencies {
 export function createManagerComposition(): ManagerComposition {
   return {
     mode: "demo",
+    sourceAvailable: true,
     scenarios,
     initialScenarioId: "standard",
     createDependencies,

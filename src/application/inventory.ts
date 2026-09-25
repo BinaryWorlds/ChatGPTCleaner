@@ -1,19 +1,18 @@
 import type { Conversation } from "../domain/conversation";
+import { AppConfig } from "../config";
 import { excludeProjectConversations } from "../domain/selection";
 import type {
   ConversationGateway,
+  ConversationPage,
   ReadFailureDiagnostic,
   ReadFailureReason,
+  ReadResult,
 } from "./ports/ConversationGateway";
+import { STANDALONE_CONVERSATION_PAGE_LIMIT } from "./ports/ConversationGateway";
 import type { ProtectedConversationStore } from "./ports/ProtectedConversationStore";
 import type { SettingsStore } from "./ports/SettingsStore";
 import { loadRequestsPerMinute } from "./settings";
-import {
-  INVENTORY_MAX_PAGES,
-  INVENTORY_MAX_RECORDS,
-  MAX_STANDALONE_READ_CONCURRENCY,
-  STANDALONE_PAGE_LIMIT,
-} from "./paginationLimits";
+import type { SafetyBlockReason } from "./SafetyBlockReason";
 
 export interface SafetyInventory {
   readonly standaloneConversations: readonly Conversation[];
@@ -25,7 +24,10 @@ export type SafetyInventoryResult =
   | { readonly kind: "ready"; readonly inventory: SafetyInventory }
   | {
       readonly kind: "blocked";
-      readonly reason: ReadFailureReason | "pagination";
+      readonly reason: Extract<
+        SafetyBlockReason,
+        ReadFailureReason | "pagination"
+      >;
       readonly diagnostic?: ReadFailureDiagnostic;
     };
 
@@ -38,7 +40,10 @@ export type InventoryLoadResult =
     }
   | {
       readonly kind: "blocked";
-      readonly reason: ReadFailureReason | "pagination" | "protected-storage";
+      readonly reason: Extract<
+        SafetyBlockReason,
+        ReadFailureReason | "pagination" | "protected-storage"
+      >;
       readonly diagnostic?: ReadFailureDiagnostic;
     };
 
@@ -72,13 +77,88 @@ async function loadStandaloneConversations(
     }
 > {
   const conversationsById = new Map<string, Conversation>();
-  let nextPageIndex = 0;
   let committedPageCount = 0;
+  const visitedCursors = new Set<string>();
 
-  while (nextPageIndex < INVENTORY_MAX_PAGES) {
-    const remainingPageCapacity = INVENTORY_MAX_PAGES - nextPageIndex;
+  const commitPage = (
+    pageResult: ReadResult<ConversationPage>,
+  ):
+    | { readonly kind: "complete" }
+    | { readonly kind: "continue"; readonly nextCursor: string }
+    | {
+        readonly kind: "failure";
+        readonly reason: ReadFailureReason | "pagination";
+        readonly diagnostic?: ReadFailureDiagnostic;
+      } => {
+    if (pageResult.kind === "failure") return pageResult;
+
+    const previousConversationCount = conversationsById.size;
+    for (const conversation of pageResult.value.conversations) {
+      conversationsById.set(conversation.id, conversation);
+      if (conversationsById.size > AppConfig.inventory.maxRecords) {
+        return { kind: "failure", reason: "pagination" };
+      }
+    }
+
+    committedPageCount += 1;
+    onProgress?.({
+      kind: "standalone-progress",
+      loadedConversationCount: conversationsById.size,
+    });
+
+    const nextCursor = pageResult.value.nextCursor;
+    if (nextCursor === null) {
+      gateway.completeStandaloneInventoryRead(committedPageCount);
+      return { kind: "complete" };
+    }
+    if (
+      conversationsById.size === previousConversationCount ||
+      visitedCursors.has(nextCursor)
+    ) {
+      return { kind: "failure", reason: "pagination" };
+    }
+    visitedCursors.add(nextCursor);
+    return { kind: "continue", nextCursor };
+  };
+
+  const firstPageResult = await gateway.fetchStandaloneConversationPage(null);
+  if (firstPageResult.kind === "success") {
+    onProgress?.({ kind: "read-compatible" });
+  }
+  const firstPage = commitPage(firstPageResult);
+  if (firstPage.kind === "failure") return firstPage;
+  if (firstPage.kind === "complete") {
+    return {
+      kind: "success",
+      conversations: [...conversationsById.values()],
+    };
+  }
+
+  let nextCursor = firstPage.nextCursor;
+  let fixedOffsetMode =
+    nextCursor === String(STANDALONE_CONVERSATION_PAGE_LIMIT);
+
+  while (committedPageCount < AppConfig.inventory.maxPages) {
+    if (!fixedOffsetMode) {
+      const pageResult =
+        await gateway.fetchStandaloneConversationPage(nextCursor);
+      const committedPage = commitPage(pageResult);
+      if (committedPage.kind === "failure") return committedPage;
+      if (committedPage.kind === "complete") {
+        return {
+          kind: "success",
+          conversations: [...conversationsById.values()],
+        };
+      }
+      nextCursor = committedPage.nextCursor;
+      continue;
+    }
+
+    const nextPageIndex = committedPageCount;
+    const remainingPageCapacity =
+      AppConfig.inventory.maxPages - committedPageCount;
     const windowSize = Math.min(
-      MAX_STANDALONE_READ_CONCURRENCY,
+      AppConfig.inventory.standaloneReadConcurrency,
       remainingPageCapacity,
     );
     const pageIndexes = Array.from(
@@ -86,15 +166,11 @@ async function loadStandaloneConversations(
       (_, index) => nextPageIndex + index,
     );
     const pageResults = await Promise.all(
-      pageIndexes.map(async (pageIndex) => {
-        const pageResult = await gateway.fetchStandaloneConversationPage(
-          pageIndex === 0 ? null : String(pageIndex * STANDALONE_PAGE_LIMIT),
-        );
-        if (pageIndex === 0 && pageResult.kind === "success") {
-          onProgress?.({ kind: "read-compatible" });
-        }
-        return pageResult;
-      }),
+      pageIndexes.map((pageIndex) =>
+        gateway.fetchStandaloneConversationPage(
+          String(pageIndex * STANDALONE_CONVERSATION_PAGE_LIMIT),
+        ),
+      ),
     );
 
     for (let index = 0; index < pageResults.length; index += 1) {
@@ -103,26 +179,9 @@ async function loadStandaloneConversations(
       if (pageResult === undefined || pageIndex === undefined) {
         return { kind: "failure", reason: "pagination" };
       }
-      if (pageResult.kind === "failure") return pageResult;
-
-      const previousConversationCount = conversationsById.size;
-      for (const conversation of pageResult.value.conversations) {
-        conversationsById.set(conversation.id, conversation);
-        if (conversationsById.size > INVENTORY_MAX_RECORDS) {
-          return { kind: "failure", reason: "pagination" };
-        }
-      }
-
-      committedPageCount += 1;
-      onProgress?.({
-        kind: "standalone-progress",
-        loadedConversationCount: conversationsById.size,
-      });
-
-      const pageIsTerminal =
-        pageResult.value.conversations.length < STANDALONE_PAGE_LIMIT;
-      if (pageIsTerminal) {
-        gateway.completeStandaloneInventoryRead(committedPageCount);
+      const committedPage = commitPage(pageResult);
+      if (committedPage.kind === "failure") return committedPage;
+      if (committedPage.kind === "complete") {
         return {
           kind: "success",
           conversations: [...conversationsById.values()],
@@ -130,17 +189,14 @@ async function loadStandaloneConversations(
       }
 
       const expectedNextCursor = String(
-        (pageIndex + 1) * STANDALONE_PAGE_LIMIT,
+        (pageIndex + 1) * STANDALONE_CONVERSATION_PAGE_LIMIT,
       );
-      if (pageResult.value.nextCursor !== expectedNextCursor) {
-        return { kind: "failure", reason: "pagination" };
-      }
-      if (conversationsById.size === previousConversationCount) {
-        return { kind: "failure", reason: "pagination" };
+      nextCursor = committedPage.nextCursor;
+      if (nextCursor !== expectedNextCursor) {
+        fixedOffsetMode = false;
+        break;
       }
     }
-
-    nextPageIndex += windowSize;
   }
 
   return { kind: "failure", reason: "pagination" };
@@ -172,7 +228,7 @@ async function loadProjectConversationIds(
     let cursor: string | null = null;
     let projectPage = 1;
 
-    while (totalPages < INVENTORY_MAX_PAGES) {
+    while (totalPages < AppConfig.inventory.maxPages) {
       const pageResult = await gateway.fetchProjectConversationPage(
         project.id,
         cursor,
@@ -185,7 +241,7 @@ async function loadProjectConversationIds(
       for (const conversation of pageResult.value.conversations) {
         conversationIds.add(conversation.id);
         conversationsById.set(conversation.id, conversation);
-        if (conversationIds.size > INVENTORY_MAX_RECORDS) {
+        if (conversationIds.size > AppConfig.inventory.maxRecords) {
           return { kind: "failure", reason: "pagination" };
         }
       }
@@ -199,7 +255,7 @@ async function loadProjectConversationIds(
       cursor = nextCursor;
     }
 
-    if (cursor !== null && totalPages >= INVENTORY_MAX_PAGES) {
+    if (cursor !== null && totalPages >= AppConfig.inventory.maxPages) {
       return { kind: "failure", reason: "pagination" };
     }
   }

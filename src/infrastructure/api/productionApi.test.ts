@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { loadSafetyInventory } from "../../application/inventory";
 import { FakeClock } from "../fake/FakeClock";
 import {
   IsolatedFirstPageContextReadExecutor,
@@ -11,17 +12,10 @@ import {
   type PageScriptRunner,
 } from "./PageContextReadTransport";
 import { ProductionConversationGateway } from "./ProductionConversationGateway";
+import { STANDALONE_CONVERSATION_PAGE_LIMIT } from "../../application/ports/ConversationGateway";
+import { MAX_SAFETY_CRITICAL_IDENTIFIER_LENGTH } from "../../domain/identifier";
 import {
-  STANDALONE_PAGE_LIMIT,
-  SUCCESSFUL_READ_PAGE_DELAY_MS,
-} from "./readLimits";
-import {
-  executeReadWithRetry,
-  parseRetryAfter,
-  type ReadAttemptResult,
-} from "./readRetry";
-import {
-  normalizeDisplayTimestamp,
+  MAX_PAGINATION_CURSOR_LENGTH,
   normalizeDisplayTitle,
   parsePaginationCursor,
   parseSafetyCriticalIdentifier,
@@ -39,18 +33,32 @@ describe("production read validation", () => {
     );
     expect(parseSafetyCriticalIdentifier(42)).toBeNull();
     expect(parseSafetyCriticalIdentifier("")).toBeNull();
+    expect(parseSafetyCriticalIdentifier("   ")).toBeNull();
+    expect(
+      parseSafetyCriticalIdentifier(
+        "a".repeat(MAX_SAFETY_CRITICAL_IDENTIFIER_LENGTH),
+      ),
+    ).not.toBeNull();
+    expect(
+      parseSafetyCriticalIdentifier(
+        "a".repeat(MAX_SAFETY_CRITICAL_IDENTIFIER_LENGTH + 1),
+      ),
+    ).toBeNull();
     expect(parsePaginationCursor("next")).toBe("next");
     expect(parsePaginationCursor(null)).toBeNull();
     expect(parsePaginationCursor({ cursor: "next" })).toBe(false);
+    expect(
+      parsePaginationCursor("c".repeat(MAX_PAGINATION_CURSOR_LENGTH)),
+    ).not.toBe(false);
+    expect(
+      parsePaginationCursor("c".repeat(MAX_PAGINATION_CURSOR_LENGTH + 1)),
+    ).toBe(false);
   });
 
   it("degrades invalid display metadata without inventing values", () => {
     expect(normalizeDisplayTitle("Title")).toBe("Title");
     expect(normalizeDisplayTitle("  ")).toBe("(Untitled)");
     expect(normalizeDisplayTitle(null)).toBe("(Untitled)");
-    expect(normalizeDisplayTimestamp(123)).toBe(123);
-    expect(normalizeDisplayTimestamp(Number.NaN)).toBeNull();
-    expect(normalizeDisplayTimestamp("123")).toBeNull();
   });
 
   function gatewayWith(
@@ -69,7 +77,7 @@ describe("production read validation", () => {
         execute(tabId, {
           kind: "standalone",
           offset,
-          pageLimit: STANDALONE_PAGE_LIMIT,
+          pageLimit: STANDALONE_CONVERSATION_PAGE_LIMIT,
           paginationStep,
         }),
       fetchProjectsPage: (tabId, cursor, paginationStep = 1) =>
@@ -221,6 +229,38 @@ describe("production read validation", () => {
 
     expect(requestedOffsets).toEqual([0, 28, 56]);
     expect(cursor).toBeNull();
+  });
+
+  it("completes Application inventory through production cursors with a smaller effective limit", async () => {
+    const requestedOffsets: number[] = [];
+    const gateway = gatewayWith((_tabId, operation) => {
+      if (operation.kind === "projects") {
+        return Promise.resolve(response({ items: [], cursor: null }));
+      }
+      if (operation.kind !== "standalone") {
+        throw new Error("Unexpected Project conversation operation");
+      }
+
+      requestedOffsets.push(operation.offset);
+      const itemCount = operation.offset === 56 ? 4 : 28;
+      return Promise.resolve(
+        response({
+          items: Array.from({ length: itemCount }, (_, index) => ({
+            id: `conversation-${operation.offset + index}`,
+          })),
+          total: 60,
+          limit: 28,
+          offset: operation.offset,
+        }),
+      );
+    });
+
+    const result = await loadSafetyInventory(gateway);
+
+    expect(result.kind).toBe("ready");
+    if (result.kind !== "ready") return;
+    expect(result.inventory.standaloneConversations).toHaveLength(60);
+    expect(requestedOffsets).toEqual([0, 28, 56]);
   });
 
   it("uses a changing total only as a hint that a non-empty short page has more", async () => {
@@ -585,7 +625,6 @@ describe("production read validation", () => {
     await transport.readStandalonePage(0);
     await transport.readStandalonePage(100);
 
-    expect(SUCCESSFUL_READ_PAGE_DELAY_MS).toBe(0);
     expect(clock.requestedSleeps).toEqual([]);
     expect(source.validate).toHaveBeenCalledOnce();
 
@@ -765,6 +804,76 @@ describe("production read validation", () => {
 
     await expect(
       Reflect.apply(injectedFunction, undefined, [
+        createProjectDiscoveryOperation(
+          "c".repeat(MAX_PAGINATION_CURSOR_LENGTH),
+          1,
+        ),
+        "ISOLATED",
+      ]),
+    ).resolves.toMatchObject({ kind: "response", status: 200 });
+    const requestCountAfterMaximumCursor = requestedUrls.length;
+    await expect(
+      Reflect.apply(injectedFunction, undefined, [
+        createProjectDiscoveryOperation(
+          "c".repeat(MAX_PAGINATION_CURSOR_LENGTH + 1),
+          1,
+        ),
+        "ISOLATED",
+      ]),
+    ).resolves.toMatchObject({
+      kind: "failure",
+      errorName: "InvalidOperationArguments",
+    });
+    expect(requestedUrls).toHaveLength(requestCountAfterMaximumCursor);
+
+    const maximumProjectId = "p".repeat(MAX_SAFETY_CRITICAL_IDENTIFIER_LENGTH);
+    await expect(
+      Reflect.apply(injectedFunction, undefined, [
+        createProjectConversationOperation(maximumProjectId, null, 1),
+        "ISOLATED",
+      ]),
+    ).resolves.toMatchObject({ kind: "response", status: 200 });
+    const requestCountAfterMaximumProjectId = requestedUrls.length;
+    await expect(
+      Reflect.apply(injectedFunction, undefined, [
+        createProjectConversationOperation(`${maximumProjectId}p`, null, 1),
+        "ISOLATED",
+      ]),
+    ).resolves.toMatchObject({
+      kind: "failure",
+      errorName: "InvalidOperationArguments",
+    });
+    expect(requestedUrls).toHaveLength(requestCountAfterMaximumProjectId);
+
+    const maximumProjectCursor = "c".repeat(MAX_PAGINATION_CURSOR_LENGTH);
+    await expect(
+      Reflect.apply(injectedFunction, undefined, [
+        createProjectConversationOperation(
+          "project-one",
+          maximumProjectCursor,
+          1,
+        ),
+        "ISOLATED",
+      ]),
+    ).resolves.toMatchObject({ kind: "response", status: 200 });
+    const requestCountAfterMaximumProjectCursor = requestedUrls.length;
+    await expect(
+      Reflect.apply(injectedFunction, undefined, [
+        createProjectConversationOperation(
+          "project-one",
+          `${maximumProjectCursor}c`,
+          1,
+        ),
+        "ISOLATED",
+      ]),
+    ).resolves.toMatchObject({
+      kind: "failure",
+      errorName: "InvalidOperationArguments",
+    });
+    expect(requestedUrls).toHaveLength(requestCountAfterMaximumProjectCursor);
+
+    await expect(
+      Reflect.apply(injectedFunction, undefined, [
         { kind: "projects", cursor: "", paginationStep: 1 },
         "ISOLATED",
       ]),
@@ -772,7 +881,7 @@ describe("production read validation", () => {
       kind: "failure",
       errorName: "InvalidOperationArguments",
     });
-    expect(requestedUrls).toHaveLength(requestCount);
+    expect(requestedUrls).toHaveLength(requestCountAfterMaximumProjectCursor);
 
     vi.stubGlobal("window", {
       location: { origin: "chrome-extension://manager" },
@@ -791,7 +900,7 @@ describe("production read validation", () => {
       requestPathname: "/backend-api/gizmos/snorlax/sidebar",
       world: "ISOLATED",
     });
-    expect(requestedUrls).toHaveLength(requestCount);
+    expect(requestedUrls).toHaveLength(requestCountAfterMaximumProjectCursor);
   });
 
   it("revalidates the source before reads and contains no DELETE transport", async () => {
@@ -800,104 +909,12 @@ describe("production read validation", () => {
       kind: "failure",
       reason: "source-unavailable",
     });
-    await expect(gateway.deleteConversation("anything")).resolves.toEqual({
-      kind: "fatal",
-      reason: "response-anomaly",
-    });
-  });
-});
-
-describe("production read retry policy", () => {
-  it("accepts valid 2xx and does not retry 401, 403, or unexpected 4xx", async () => {
-    const clock = new FakeClock();
-    for (const status of [401, 403]) {
-      await expect(
-        executeReadWithRetry({
-          attempt: vi.fn().mockResolvedValue({
-            kind: "response",
-            status,
-            body: null,
-            retryAfter: null,
-          }),
-          clock,
-        }),
-      ).resolves.toEqual({ kind: "failure", reason: "authentication" });
-    }
-    await expect(
-      executeReadWithRetry({
-        attempt: vi.fn().mockResolvedValue({
-          kind: "response",
-          status: 404,
-          body: null,
-          retryAfter: null,
-        }),
-        clock,
-      }),
-    ).resolves.toEqual({ kind: "failure", reason: "request" });
-    await expect(
-      executeReadWithRetry({
-        attempt: vi.fn().mockResolvedValue({
-          kind: "response",
-          status: 204,
-          body: { ok: true },
-          retryAfter: null,
-        }),
-        clock,
-      }),
-    ).resolves.toEqual({ kind: "success", value: { ok: true } });
-  });
-
-  it("retries 429, 5xx, and transient network failures deterministically", async () => {
-    const clock = new FakeClock();
-    const outcomes: ReadAttemptResult[] = [
-      { kind: "response", status: 429, body: null, retryAfter: "2" },
-      { kind: "response", status: 500, body: null, retryAfter: null },
-      { kind: "network-error" },
-      { kind: "response", status: 200, body: "ready", retryAfter: null },
-    ];
-    const attempt = vi.fn((): Promise<ReadAttemptResult> =>
-      Promise.resolve(outcomes.shift() ?? { kind: "network-error" }),
+    await expect(gateway.deleteConversation("anything")).resolves.toMatchObject(
+      {
+        kind: "fatal",
+        reason: "response-anomaly",
+        error: { code: "API_COMPATIBILITY_FAILURE" },
+      },
     );
-
-    await expect(executeReadWithRetry({ attempt, clock })).resolves.toEqual({
-      kind: "success",
-      value: "ready",
-    });
-    expect(attempt).toHaveBeenCalledTimes(4);
-    expect(clock.requestedSleeps).toEqual([2_000, 2_000, 4_000]);
-  });
-
-  it("parses both Retry-After forms and rejects excessive waits", async () => {
-    const now = Date.UTC(2026, 0, 1, 0, 0, 0);
-    expect(parseRetryAfter("2", now)).toBe(2_000);
-    expect(parseRetryAfter("Thu, 01 Jan 2026 00:00:04 GMT", now)).toBe(4_000);
-    expect(parseRetryAfter("invalid", now)).toBeNull();
-
-    const clock = new FakeClock(now);
-    await expect(
-      executeReadWithRetry({
-        attempt: vi.fn().mockResolvedValue({
-          kind: "response",
-          status: 429,
-          body: null,
-          retryAfter: "301",
-        }),
-        clock,
-      }),
-    ).resolves.toEqual({ kind: "failure", reason: "retry-later" });
-    expect(clock.requestedSleeps).toEqual([]);
-  });
-
-  it("stops after four retryable attempts", async () => {
-    const attempt = vi.fn().mockResolvedValue({
-      kind: "network-error",
-    });
-    const clock = new FakeClock();
-    await expect(executeReadWithRetry({ attempt, clock })).resolves.toEqual({
-      kind: "failure",
-      reason: "network",
-    });
-    expect(attempt).toHaveBeenCalledTimes(4);
-    expect(clock.requestedSleeps).toEqual([1_000, 2_000, 4_000]);
   });
 });

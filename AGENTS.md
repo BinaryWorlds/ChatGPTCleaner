@@ -46,6 +46,13 @@ Infrastructure -> Application ports
 - Only a validated `DeletionPlan` reaches destructive execution.
 - A new destructive batch requires fresh preflight + typed `DELETE N`.
 - Resume/Retry may only shrink the already-confirmed ID set.
+- Protection mutations must be serialized. Resume must not begin while a
+  protection write is pending.
+- After acquiring the destructive run lock, freshly revalidate the confirmed
+  remaining set before the first DELETE. Revalidation may only shrink it.
+- Standalone pagination has one canonical progress contract. Application must
+  follow the gateway cursor and must not infer completion from a hard-coded page
+  size when the backend reports a different effective limit.
 - Incomplete Project protection blocks deletion.
 - API incompatibility blocks deletion.
 - Source-tab instability blocks or stops deletion.
@@ -141,6 +148,23 @@ when a better semantic name exists.
 - Do not use string matching on arbitrary `Error.message` values for business logic.
 - Do not bypass API/storage validation with `as SomeExternalType`.
 - Avoid non-null assertions in safety-critical code unless the invariant is locally proven and obvious.
+
+## Types, constants, and configuration
+
+- Keep types with the layer or feature that owns their meaning.
+- Do not create global type or constants dumping grounds.
+- One semantic concept has one canonical type and one canonical runtime value definition.
+- Keep component-private props and presentation types colocated. Export them only when another module consumes them.
+- Prefer literal unions, discriminated unions, and `as const` objects. Use a TypeScript enum only when its runtime behavior provides concrete value.
+- External API, browser-storage, and page-context data begins as `unknown` and is runtime-validated.
+- Derive validated external DTO types from their Zod schemas. Do not maintain parallel manual DTO interfaces.
+- Do not add Zod schemas for trusted internal values without a boundary reason.
+- Stable product-tunable settings belong in `src/config.ts` and expose units in names such as `retryBaseDelayMs`.
+- Protocol paths, storage keys, lock names, log events, domain discriminants, and UI labels remain with their semantic owners.
+- Extract meaningful contractual or configurable literals, not ordinary UI text or obvious local arithmetic.
+- Self-contained page-context functions may repeat validation constants when required by script serialization. Treat those copies as explicit security boundaries and cover their alignment with regression tests.
+- Use public React, Ant Design, DOM, WXT, and browser API types. Do not duplicate them locally without a narrow test-seam reason.
+- ChatGPT private API Zod contracts are the source of truth. Do not add third-party ChatGPT API type packages.
 
 ## Async hygiene
 

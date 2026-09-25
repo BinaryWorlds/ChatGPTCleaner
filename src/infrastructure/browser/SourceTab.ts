@@ -1,6 +1,5 @@
 import { z } from "zod";
-
-const CHATGPT_ORIGIN = "https://chatgpt.com";
+import { CHATGPT_ORIGIN } from "../api/chatGptApiContract";
 
 const tabSchema = z.object({
   id: z.number().int().positive(),
@@ -29,6 +28,10 @@ export type SourceTabValidationResult =
   | { readonly kind: "valid"; readonly tabId: number }
   | { readonly kind: "invalid" };
 
+export interface SourceTabValidator {
+  validate(): Promise<SourceTabValidationResult>;
+}
+
 export function parseSourceTabId(value: string | null): number | null {
   if (value === null || !/^\d+$/.test(value)) return null;
   const tabId = Number(value);
@@ -43,7 +46,7 @@ export function hasExactChatGptOrigin(url: string): boolean {
   }
 }
 
-export class SourceTabBinding {
+export class SourceTabBinding implements SourceTabValidator {
   public constructor(
     private readonly tabId: number,
     private readonly browser: SourceTabBrowser,

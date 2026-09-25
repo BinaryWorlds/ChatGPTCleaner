@@ -14,6 +14,11 @@ Typed confirmation creates an in-memory maximum set of `confirmedConversationIds
 
 Resume and Retry Failed may revalidate and **remove** IDs from that set, but may never add IDs.
 
+After acquiring the destructive run lock, a new batch or Retry Failed execution
+revalidates the remaining confirmed IDs again before the first DELETE. This
+post-lock check also may only remove IDs and does not require another typed
+confirmation.
+
 Example:
 
 ```text
@@ -40,4 +45,5 @@ The chosen model preserves explicit user approval while keeping Resume/Retry usa
 
 ## Consequences
 
-Revalidation is monotonic: safety checks can only reduce the destructive set.
+Revalidation is monotonic: safety checks can only reduce the destructive set,
+including the check performed after lock acquisition.

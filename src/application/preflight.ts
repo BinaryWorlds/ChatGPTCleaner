@@ -5,12 +5,16 @@ import type {
   ReadFailureReason,
 } from "./ports/ConversationGateway";
 import type { ProtectedConversationStore } from "./ports/ProtectedConversationStore";
+import type { SafetyBlockReason } from "./SafetyBlockReason";
 
 export type PreflightResult =
   | { readonly kind: "ready"; readonly plan: DeletionPlan }
   | {
       readonly kind: "blocked";
-      readonly reason: ReadFailureReason | "pagination" | "protected-storage";
+      readonly reason: Extract<
+        SafetyBlockReason,
+        ReadFailureReason | "pagination" | "protected-storage"
+      >;
     };
 
 export async function runPreflight(input: {

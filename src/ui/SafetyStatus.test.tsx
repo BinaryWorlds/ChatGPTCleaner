@@ -1,16 +1,26 @@
 import { render, screen } from "@testing-library/react";
+import { safetyBlockReasons } from "../application/SafetyBlockReason";
 import { describe, expect, it } from "vitest";
-import { SafetyStatus } from "./SafetyStatus";
+import { SafetyStatus, safetyBlockReasonLabel } from "./SafetyStatus";
 
 describe("SafetyStatus", () => {
-  it("marks read compatibility OK while inventory is still loading", () => {
-    render(
-      <SafetyStatus
-        status="loading"
-        blockedReason={undefined}
-        loadingStage="inventory"
-      />,
+  it("has a safe user-facing label for every safety block reason", () => {
+    for (const reason of safetyBlockReasons) {
+      expect(safetyBlockReasonLabel(reason).trim()).not.toBe("");
+    }
+  });
+
+  it("does not claim the destructive lock is available before acquisition", () => {
+    render(<SafetyStatus state={{ kind: "ready" }} />);
+
+    expect(screen.getByTestId("safety-run-lock")).toHaveTextContent(
+      "NOT CHECKED",
     );
+    expect(screen.getByTestId("safety-deletion")).toHaveTextContent("READY");
+  });
+
+  it("marks read compatibility OK while inventory is still loading", () => {
+    render(<SafetyStatus state={{ kind: "loading", stage: "inventory" }} />);
 
     expect(screen.getByTestId("safety-read-compatibility")).toHaveTextContent(
       "OK",
@@ -22,13 +32,7 @@ describe("SafetyStatus", () => {
   });
 
   it("keeps deletion blocked while complete Project protection is loading", () => {
-    render(
-      <SafetyStatus
-        status="loading"
-        blockedReason={undefined}
-        loadingStage="projects"
-      />,
-    );
+    render(<SafetyStatus state={{ kind: "loading", stage: "projects" }} />);
 
     expect(screen.getByTestId("safety-project-protection")).toHaveTextContent(
       "CHECKING",
@@ -39,9 +43,11 @@ describe("SafetyStatus", () => {
   it("keeps validated standalone compatibility OK when Project protection fails", () => {
     render(
       <SafetyStatus
-        status="blocked"
-        blockedReason="compatibility"
-        readCompatibilityConfirmed
+        state={{
+          kind: "blocked",
+          reason: "compatibility",
+          readCompatibilityConfirmed: true,
+        }}
       />,
     );
 
@@ -55,7 +61,15 @@ describe("SafetyStatus", () => {
   });
 
   it("does not misreport a validated source tab as blocked after auth failure", () => {
-    render(<SafetyStatus status="blocked" blockedReason="authentication" />);
+    render(
+      <SafetyStatus
+        state={{
+          kind: "blocked",
+          reason: "authentication",
+          readCompatibilityConfirmed: false,
+        }}
+      />,
+    );
 
     expect(screen.getByTestId("safety-source-tab")).toHaveTextContent("OK");
     expect(screen.getByText("Authentication unavailable")).toBeInTheDocument();
@@ -63,7 +77,13 @@ describe("SafetyStatus", () => {
 
   it("reports a genuine source-tab failure separately", () => {
     render(
-      <SafetyStatus status="blocked" blockedReason="source-unavailable" />,
+      <SafetyStatus
+        state={{
+          kind: "blocked",
+          reason: "source-unavailable",
+          readCompatibilityConfirmed: false,
+        }}
+      />,
     );
 
     expect(screen.getByTestId("safety-source-tab")).toHaveTextContent(
@@ -77,19 +97,22 @@ describe("SafetyStatus", () => {
   it("shows structural diagnostics without scalar response values", () => {
     render(
       <SafetyStatus
-        status="blocked"
-        blockedReason="compatibility"
-        diagnostic={{
-          operation: "projects",
-          endpointFamily: "/backend-api/gizmos/snorlax/sidebar",
-          category: "response-contract",
-          paginationStep: 1,
-          httpStatus: 200,
-          jsonParsed: true,
-          fieldPath: "items[0].gizmo.gizmo.id",
-          expectedType: "string",
-          actualType: "absent",
-          missingRequiredField: "id",
+        state={{
+          kind: "blocked",
+          reason: "compatibility",
+          readCompatibilityConfirmed: false,
+          diagnostic: {
+            operation: "projects",
+            endpointFamily: "/backend-api/gizmos/snorlax/sidebar",
+            category: "response-contract",
+            paginationStep: 1,
+            httpStatus: 200,
+            jsonParsed: true,
+            fieldPath: "items[0].gizmo.gizmo.id",
+            expectedType: "string",
+            actualType: "absent",
+            missingRequiredField: "id",
+          },
         }}
       />,
     );

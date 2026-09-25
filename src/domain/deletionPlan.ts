@@ -1,10 +1,10 @@
 import type { Conversation } from "./conversation";
+import { isSafetyCriticalIdentifier } from "./identifier";
 
 const deletionPlanBrand: unique symbol = Symbol("DeletionPlan");
 const confirmedDeletionPlanBrand: unique symbol = Symbol(
   "ConfirmedDeletionPlan",
 );
-const MAX_CONVERSATION_ID_LENGTH = 512;
 
 export interface DeletionPlan {
   readonly [deletionPlanBrand]: true;
@@ -25,14 +25,6 @@ export type ConfirmationResult =
   | { readonly kind: "confirmed"; readonly plan: ConfirmedDeletionPlan }
   | { readonly kind: "rejected"; readonly expectedText: string };
 
-function isConversationId(value: unknown): value is string {
-  return (
-    typeof value === "string" &&
-    value.length > 0 &&
-    value.length <= MAX_CONVERSATION_ID_LENGTH
-  );
-}
-
 export function buildDeletionPlan(input: {
   readonly selectedConversationIds: readonly unknown[];
   readonly standaloneConversations: readonly Conversation[];
@@ -46,7 +38,7 @@ export function buildDeletionPlan(input: {
   let invalidSelectionCount = 0;
 
   for (const selectedId of input.selectedConversationIds) {
-    if (!isConversationId(selectedId)) {
+    if (!isSafetyCriticalIdentifier(selectedId)) {
       invalidSelectionCount += 1;
       continue;
     }

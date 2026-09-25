@@ -9,6 +9,9 @@ export interface DeletionProgressInput {
   readonly paused: boolean;
 }
 
+const MILLISECONDS_PER_MINUTE = 60_000;
+const MINIMUM_PROCESSED_ITEMS_FOR_MEASURED_THROUGHPUT = 3;
+
 export interface DeletionProgress extends DeletionProgressInput {
   readonly processed: number;
   readonly remaining: number;
@@ -26,9 +29,10 @@ export function calculateDeletionProgress(
   }
 
   const millisecondsPerItem =
-    processed >= 3 && input.activeElapsedMs > 0
+    processed >= MINIMUM_PROCESSED_ITEMS_FOR_MEASURED_THROUGHPUT &&
+    input.activeElapsedMs > 0
       ? input.activeElapsedMs / processed
-      : 60_000 / input.requestsPerMinute;
+      : MILLISECONDS_PER_MINUTE / input.requestsPerMinute;
 
   return {
     ...input,

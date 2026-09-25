@@ -2,20 +2,16 @@ import type {
   ProtectedConversationIdsResult,
   ProtectedConversationStore,
 } from "../../application/ports/ProtectedConversationStore";
+import { AppConfig } from "../../config";
+import { isSafetyCriticalIdentifier } from "../../domain/identifier";
 import type { SettingsStore } from "../../application/ports/SettingsStore";
-
-const MAX_CONVERSATION_ID_LENGTH = 512;
 
 function parseProtectedIds(value: unknown): ReadonlySet<string> | null {
   if (!Array.isArray(value)) return null;
   const protectedIds = new Set<string>();
 
   for (const item of value) {
-    if (
-      typeof item !== "string" ||
-      item.length === 0 ||
-      item.length > MAX_CONVERSATION_ID_LENGTH
-    ) {
+    if (!isSafetyCriticalIdentifier(item)) {
       return null;
     }
     protectedIds.add(item);
@@ -46,7 +42,9 @@ export class FakeProtectedConversationStore implements ProtectedConversationStor
 export class FakeSettingsStore implements SettingsStore {
   public savedValues: number[] = [];
 
-  public constructor(private storedValue: unknown = 60) {}
+  public constructor(
+    private storedValue: unknown = AppConfig.deletion.requestsPerMinute.default,
+  ) {}
 
   public loadRequestsPerMinute(): Promise<unknown> {
     return Promise.resolve(this.storedValue);

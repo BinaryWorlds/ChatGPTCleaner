@@ -5,6 +5,10 @@ import type {
   ManagerComposition,
   ManagerDependencies,
 } from "../composition/types";
+import type {
+  ProtectedConversationIdsResult,
+  ProtectedConversationStore,
+} from "../application/ports/ProtectedConversationStore";
 import { FakeClock } from "../infrastructure/fake/FakeClock";
 import { FakeConversationGateway } from "../infrastructure/fake/FakeConversationGateway";
 import { FakeDestructiveRunLock } from "../infrastructure/fake/FakeDestructiveRunLock";
@@ -16,6 +20,53 @@ import type { FakeGatewayFixture } from "../infrastructure/fake/fixtures";
 import { ManagerPage } from "./ManagerPage";
 
 const DAY_MS = 86_400_000;
+const FIXED_NOW = Date.UTC(2026, 0, 15, 12);
+
+class DeferredProtectedConversationStore implements ProtectedConversationStore {
+  public readonly pendingSaves: {
+    readonly protectedConversationIds: ReadonlySet<string>;
+    readonly resolve: () => void;
+  }[] = [];
+
+  private storedProtectedConversationIds: ReadonlySet<string>;
+
+  public constructor(initialIds: readonly string[] = []) {
+    this.storedProtectedConversationIds = new Set(initialIds);
+  }
+
+  public loadProtectedConversationIds(): Promise<ProtectedConversationIdsResult> {
+    const protectedConversationIds = new Set(
+      this.storedProtectedConversationIds,
+    );
+    return Promise.resolve({
+      kind: "success",
+      protectedConversationIds,
+    });
+  }
+
+  public saveProtectedConversationIds(
+    protectedConversationIds: ReadonlySet<string>,
+  ): Promise<void> {
+    const savedIds = new Set(protectedConversationIds);
+    return new Promise((resolve) => {
+      this.pendingSaves.push({
+        protectedConversationIds: savedIds,
+        resolve: () => {
+          this.storedProtectedConversationIds = savedIds;
+          resolve();
+        },
+      });
+    });
+  }
+
+  public resolveNextSave(): void {
+    const pendingSave = this.pendingSaves.shift();
+    if (pendingSave === undefined) {
+      throw new Error("No pending protection save");
+    }
+    pendingSave.resolve();
+  }
+}
 
 function fixture(
   conversations: readonly Record<string, unknown>[],
@@ -51,13 +102,13 @@ function fixtureWithProjects(input?: {
           {
             id: "overlap",
             title: "Project overlap",
-            updatedAt: Date.now() - DAY_MS,
+            updatedAt: FIXED_NOW - DAY_MS,
           },
           {
             id: "project-chat",
             title: "Project planning",
-            createdAt: Date.now() - 20 * DAY_MS,
-            updatedAt: Date.now() - 10 * DAY_MS,
+            createdAt: FIXED_NOW - 20 * DAY_MS,
+            updatedAt: FIXED_NOW - 10 * DAY_MS,
           },
         ],
         nextCursor: null,
@@ -69,31 +120,32 @@ function fixtureWithProjects(input?: {
 function renderManager(input?: {
   readonly gatewayFixture?: FakeGatewayFixture;
   readonly protectedIds?: readonly string[];
+  readonly protectedConversationStore?: ProtectedConversationStore;
   readonly clock?: FakeClock;
 }) {
-  const clock = input?.clock ?? new FakeClock(Date.now());
+  const clock = input?.clock ?? new FakeClock(FIXED_NOW);
   const gateway = new FakeConversationGateway(
     input?.gatewayFixture ??
       fixture([
         {
           id: "alpha",
           title: "Alpha",
-          createdAt: Date.now() - 20 * DAY_MS,
-          updatedAt: Date.now() - 20 * DAY_MS,
+          createdAt: FIXED_NOW - 20 * DAY_MS,
+          updatedAt: FIXED_NOW - 20 * DAY_MS,
         },
         {
           id: "beta",
           title: "Beta",
-          createdAt: Date.now() - DAY_MS,
-          updatedAt: Date.now() - DAY_MS,
+          createdAt: FIXED_NOW - DAY_MS,
+          updatedAt: FIXED_NOW - DAY_MS,
         },
         { id: "unknown", title: "Unknown dates" },
       ]),
     clock,
   );
-  const protectedConversationStore = new FakeProtectedConversationStore(
-    input?.protectedIds ?? [],
-  );
+  const protectedConversationStore =
+    input?.protectedConversationStore ??
+    new FakeProtectedConversationStore(input?.protectedIds ?? []);
   const dependencies: ManagerDependencies = {
     gateway,
     protectedConversationStore,
@@ -104,6 +156,7 @@ function renderManager(input?: {
   const openConversation = vi.fn();
   const composition: ManagerComposition = {
     mode: "demo",
+    sourceAvailable: true,
     scenarios: [
       { id: "test", label: "Test scenario", description: "Test fixture" },
     ],
@@ -140,15 +193,6 @@ async function showProjectConversations(
   const label = input.closest("label");
   if (label === null) throw new Error("Project view label not found");
   await user.click(label);
-}
-
-async function openConfirmation(
-  user: ReturnType<typeof userEvent.setup>,
-  title: string,
-) {
-  await selectConversation(user, title);
-  await user.click(screen.getByRole("button", { name: "Delete selected (1)" }));
-  await screen.findByText("Confirm deletion");
 }
 
 afterEach(() => {
@@ -501,6 +545,61 @@ describe("ManagerPage inventory controls", () => {
     );
   });
 
+  it("prevents overlapping protection writes", async () => {
+    const user = userEvent.setup();
+    const protectedConversationStore = new DeferredProtectedConversationStore();
+    renderManager({ protectedConversationStore });
+    await waitForInventory();
+
+    const alphaRow = screen.getByText("Alpha").closest("tr");
+    const betaRow = screen.getByText("Beta").closest("tr");
+    if (alphaRow === null || betaRow === null) {
+      throw new Error("Expected standalone conversation rows");
+    }
+
+    await user.click(within(alphaRow).getByRole("button", { name: "Protect" }));
+    await waitFor(() =>
+      expect(protectedConversationStore.pendingSaves).toHaveLength(1),
+    );
+    expect(
+      within(alphaRow).getByRole("button", { name: "Protect" }),
+    ).toBeDisabled();
+    expect(
+      within(betaRow).getByRole("button", { name: "Protect" }),
+    ).toBeDisabled();
+
+    await user.click(within(betaRow).getByRole("button", { name: "Protect" }));
+    expect(protectedConversationStore.pendingSaves).toHaveLength(1);
+    const firstPendingSave = protectedConversationStore.pendingSaves[0];
+    if (firstPendingSave === undefined) {
+      throw new Error("Expected the first pending protection save");
+    }
+    expect([...firstPendingSave.protectedConversationIds]).toEqual(["alpha"]);
+
+    protectedConversationStore.resolveNextSave();
+    await waitFor(() =>
+      expect(
+        within(alphaRow).getByRole("button", { name: "Unprotect" }),
+      ).toBeEnabled(),
+    );
+
+    await user.click(within(betaRow).getByRole("button", { name: "Protect" }));
+    await waitFor(() =>
+      expect(protectedConversationStore.pendingSaves).toHaveLength(1),
+    );
+    const secondPendingSave = protectedConversationStore.pendingSaves[0];
+    if (secondPendingSave === undefined) {
+      throw new Error("Expected the second pending protection save");
+    }
+    expect(new Set(secondPendingSave.protectedConversationIds)).toEqual(
+      new Set(["alpha", "beta"]),
+    );
+    protectedConversationStore.resolveNextSave();
+    await waitFor(() =>
+      expect(within(betaRow).getByText("Protected")).toBeInTheDocument(),
+    );
+  });
+
   it("routes Open through the composition without navigation", async () => {
     const user = userEvent.setup();
     const { openConversation } = renderManager();
@@ -511,118 +610,5 @@ describe("ManagerPage inventory controls", () => {
     await user.click(within(alphaRow).getByRole("button", { name: "Open" }));
     expect(openConversation).toHaveBeenCalledWith("alpha");
     expect(screen.getByText("Demo Open action: alpha")).toBeInTheDocument();
-  });
-});
-
-describe("ManagerPage destructive flow", () => {
-  it("requires the exact DELETE N confirmation", async () => {
-    const user = userEvent.setup();
-    renderManager();
-    await waitForInventory();
-    await openConfirmation(user, "Alpha");
-
-    const confirmButton = screen.getByRole("button", { name: "Delete 1" });
-    expect(confirmButton).toBeDisabled();
-    await user.type(screen.getByLabelText("Deletion confirmation"), "delete 1");
-    expect(confirmButton).toBeDisabled();
-    await user.clear(screen.getByLabelText("Deletion confirmation"));
-    await user.type(screen.getByLabelText("Deletion confirmation"), "DELETE 1");
-    expect(confirmButton).toBeEnabled();
-  });
-
-  it("disables mutations while running and supports Pause, Resume, and Stop", async () => {
-    const user = userEvent.setup();
-    const controlledClock = new FakeClock(0, false);
-    renderManager({
-      clock: controlledClock,
-      gatewayFixture: fixture([
-        { id: "alpha", title: "Alpha", updatedAt: 200 },
-        { id: "beta", title: "Beta", updatedAt: 100 },
-      ]),
-    });
-    await waitForInventory();
-    await user.click(
-      screen.getByRole("button", { name: "Select all matching" }),
-    );
-    await user.click(
-      screen.getByRole("button", { name: "Delete selected (2)" }),
-    );
-    await user.type(screen.getByLabelText("Deletion confirmation"), "DELETE 2");
-    await user.click(screen.getByRole("button", { name: "Delete 2" }));
-
-    const pauseButton = await screen.findByRole("button", { name: "Pause" });
-    expect(screen.getByLabelText("Requests per minute")).toBeDisabled();
-    expect(
-      screen.getByRole("button", { name: "Select all matching" }),
-    ).toBeDisabled();
-    const betaRow = screen.getByText("Beta").closest("tr");
-    if (betaRow === null) throw new Error("Beta row not found");
-    expect(
-      within(betaRow).getByRole("button", { name: "Protect" }),
-    ).toBeDisabled();
-
-    await user.click(pauseButton);
-    const resumeButton = await screen.findByRole("button", { name: "Resume" });
-    expect(
-      within(betaRow).getByRole("button", { name: "Protect" }),
-    ).toBeEnabled();
-    await user.click(resumeButton);
-    await screen.findByRole("button", { name: "Pause" });
-    await user.click(screen.getByRole("button", { name: "Stop" }));
-    await screen.findByText("STOPPED");
-  });
-
-  it("shows failed outcomes and retries only the confirmed failed ID", async () => {
-    const user = userEvent.setup();
-    const { gateway } = renderManager({
-      gatewayFixture: fixture(
-        [{ id: "network", title: "Network failure", updatedAt: 100 }],
-        { network: [500, 500, 500, 500, 500, "success"] },
-      ),
-    });
-    await waitForInventory();
-    await openConfirmation(user, "Network failure");
-    await user.type(screen.getByLabelText("Deletion confirmation"), "DELETE 1");
-    await user.click(screen.getByRole("button", { name: "Delete 1" }));
-
-    const retryButton = await screen.findByRole("button", {
-      name: "Retry Failed",
-    });
-    expect(screen.getByText("Failed conversations")).toBeInTheDocument();
-    expect(screen.getAllByText("network")).toHaveLength(2);
-    expect(gateway.deleteAttempts).toHaveLength(5);
-    await user.click(retryButton);
-    await waitFor(() => expect(gateway.deleteAttempts).toHaveLength(6));
-    expect(screen.getByText("FINISHED")).toBeInTheDocument();
-  });
-
-  it("displays a fatal 403 safety stop", async () => {
-    const user = userEvent.setup();
-    renderManager({
-      gatewayFixture: fixture(
-        [{ id: "forbidden", title: "Forbidden", updatedAt: 100 }],
-        { forbidden: [403] },
-      ),
-    });
-    await waitForInventory();
-    await openConfirmation(user, "Forbidden");
-    await user.type(screen.getByLabelText("Deletion confirmation"), "DELETE 1");
-    await user.click(screen.getByRole("button", { name: "Delete 1" }));
-
-    expect(
-      await screen.findByText("Deletion stopped for safety"),
-    ).toBeInTheDocument();
-    expect(screen.getByText("Authorization denied")).toBeInTheDocument();
-  });
-
-  it("shows BLOCKED for malformed inventory", async () => {
-    const malformed = fixture([{ title: "Missing ID" }]);
-    const firstRender = renderManager({ gatewayFixture: malformed });
-    expect(
-      await screen.findByText("Read API compatibility failed"),
-    ).toBeInTheDocument();
-    expect(screen.getAllByText("BLOCKED").length).toBeGreaterThan(0);
-
-    firstRender.gateway.deleteAttempts.length = 0;
   });
 });

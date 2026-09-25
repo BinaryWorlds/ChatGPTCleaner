@@ -1,26 +1,4 @@
-export const appErrorKinds = [
-  "AuthenticationUnavailable",
-  "AuthorizationDenied",
-  "SourceTabUnavailable",
-  "SourceTabInvalidOrigin",
-  "NetworkFailure",
-  "RateLimited",
-  "ServerFailure",
-  "ApiCompatibilityFailure",
-  "InvalidApiData",
-  "StorageFailure",
-  "LockUnavailable",
-  "OperationCancelled",
-  "SafetyBlocked",
-  "UnexpectedFailure",
-] as const;
-
-export type AppErrorKind = (typeof appErrorKinds)[number];
-
-const errorDetails: Record<
-  AppErrorKind,
-  { readonly code: string; readonly safeMessage: string }
-> = {
+const errorDetails = {
   AuthenticationUnavailable: {
     code: "AUTHENTICATION_UNAVAILABLE",
     safeMessage:
@@ -56,43 +34,39 @@ const errorDetails: Record<
     safeMessage:
       "ChatGPT's internal API response is not compatible with this version of ChatGPTCleaner.",
   },
-  InvalidApiData: {
-    code: "INVALID_API_DATA",
-    safeMessage:
-      "ChatGPT returned invalid data. Safety checks stopped without starting deletion.",
-  },
   StorageFailure: {
     code: "STORAGE_FAILURE",
     safeMessage:
       "ChatGPTCleaner could not safely read local protection settings.",
   },
-  LockUnavailable: {
-    code: "LOCK_UNAVAILABLE",
-    safeMessage: "Another destructive operation may already be running.",
-  },
   OperationCancelled: {
     code: "OPERATION_CANCELLED",
     safeMessage: "The operation was cancelled.",
-  },
-  SafetyBlocked: {
-    code: "SAFETY_BLOCKED",
-    safeMessage:
-      "Deletion safety checks did not complete. No deletion was started.",
   },
   UnexpectedFailure: {
     code: "UNEXPECTED_FAILURE",
     safeMessage:
       "An unexpected error occurred. No new destructive operation was started.",
   },
-};
+} as const satisfies Record<
+  string,
+  { readonly code: string; readonly safeMessage: string }
+>;
+
+export type AppErrorKind = keyof typeof errorDetails;
+export type AppErrorCode = (typeof errorDetails)[AppErrorKind]["code"];
+
+export function appErrorCode(kind: AppErrorKind): AppErrorCode {
+  return errorDetails[kind].code;
+}
 
 export class AppError extends Error {
   public override readonly name = "AppError";
+  public readonly code: AppErrorCode;
+  public readonly safeMessage: string;
 
   public constructor(
     public readonly kind: AppErrorKind,
-    public readonly code: string,
-    public readonly safeMessage: string,
     public readonly operation: string,
     public readonly retryable: boolean,
     options: {
@@ -101,10 +75,13 @@ export class AppError extends Error {
       readonly cause?: unknown;
     } = {},
   ) {
+    const detail = errorDetails[kind];
     super(
-      safeMessage,
+      detail.safeMessage,
       options.cause === undefined ? undefined : { cause: options.cause },
     );
+    this.code = detail.code;
+    this.safeMessage = detail.safeMessage;
     if (options.httpStatus !== undefined) this.httpStatus = options.httpStatus;
     if (options.retryAfterMs !== undefined) {
       this.retryAfterMs = options.retryAfterMs;
@@ -125,23 +102,13 @@ export function createAppError(
     readonly cause?: unknown;
   },
 ): AppError {
-  const detail = errorDetails[kind];
-  return new AppError(
-    kind,
-    detail.code,
-    detail.safeMessage,
-    input.operation,
-    input.retryable ?? false,
-    {
-      ...(input.httpStatus === undefined
-        ? {}
-        : { httpStatus: input.httpStatus }),
-      ...(input.retryAfterMs === undefined
-        ? {}
-        : { retryAfterMs: input.retryAfterMs }),
-      ...(input.cause === undefined ? {} : { cause: input.cause }),
-    },
-  );
+  return new AppError(kind, input.operation, input.retryable ?? false, {
+    ...(input.httpStatus === undefined ? {} : { httpStatus: input.httpStatus }),
+    ...(input.retryAfterMs === undefined
+      ? {}
+      : { retryAfterMs: input.retryAfterMs }),
+    ...(input.cause === undefined ? {} : { cause: input.cause }),
+  });
 }
 
 export function appErrorFromHttpStatus(

@@ -1,12 +1,41 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import {
+  AppError,
+  type AppErrorKind,
   appErrorFromHttpStatus,
   createAppError,
   userMessageForAppError,
 } from "./AppError";
+import type { DeleteAttemptResult } from "./ports/ConversationGateway";
 import { appErrorForReadFailure } from "../infrastructure/api/readRetry";
 
 describe("AppError taxonomy", () => {
+  it.each<readonly [AppErrorKind, string]>([
+    ["AuthenticationUnavailable", "AUTHENTICATION_UNAVAILABLE"],
+    ["AuthorizationDenied", "AUTHORIZATION_DENIED"],
+    ["SourceTabUnavailable", "SOURCE_TAB_UNAVAILABLE"],
+    ["SourceTabInvalidOrigin", "SOURCE_TAB_INVALID_ORIGIN"],
+    ["NetworkFailure", "NETWORK_FAILURE"],
+    ["RateLimited", "RATE_LIMITED"],
+    ["ServerFailure", "SERVER_FAILURE"],
+    ["ApiCompatibilityFailure", "API_COMPATIBILITY_FAILURE"],
+    ["StorageFailure", "STORAGE_FAILURE"],
+    ["OperationCancelled", "OPERATION_CANCELLED"],
+    ["UnexpectedFailure", "UNEXPECTED_FAILURE"],
+  ])("derives the canonical code and message for %s", (kind, code) => {
+    const error = new AppError(kind, "test.operation", false);
+    const factoryError = createAppError(kind, { operation: "test.operation" });
+    expect(error.code).toBe(code);
+    expect(error.safeMessage).toBe(factoryError.safeMessage);
+    expect(error.message).toBe(factoryError.message);
+  });
+
+  it("requires normalized error information on fatal gateway results", () => {
+    expectTypeOf<
+      Extract<DeleteAttemptResult, { readonly kind: "fatal" }>
+    >().toMatchTypeOf<{ readonly error: AppError }>();
+  });
+
   it("maps 401 to authentication unavailable", () => {
     expect(appErrorFromHttpStatus(401, "inventory").kind).toBe(
       "AuthenticationUnavailable",

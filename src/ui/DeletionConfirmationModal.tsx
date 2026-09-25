@@ -1,7 +1,7 @@
 import { Descriptions, Input, Modal, Typography } from "antd";
 import type { DeletionPlan } from "../domain/deletionPlan";
 
-export interface DeletionConfirmationModalProps {
+interface DeletionConfirmationModalProps {
   readonly plan: DeletionPlan | null;
   readonly confirmationText: string;
   readonly onConfirmationTextChange: (value: string) => void;

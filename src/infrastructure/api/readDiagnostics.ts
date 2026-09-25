@@ -5,11 +5,12 @@ import type {
   ReadFailureDiagnostic,
   ReadOperationName,
 } from "../../application/ports/ConversationGateway";
+import { ChatGptApiPath } from "./chatGptApiContract";
 
 const endpointFamilies: Readonly<Record<ReadOperationName, string>> = {
-  standalone: "/backend-api/conversations",
-  projects: "/backend-api/gizmos/snorlax/sidebar",
-  "project-conversations": "/backend-api/gizmos/{project-id}/conversations",
+  standalone: ChatGptApiPath.StandaloneConversations,
+  projects: ChatGptApiPath.Projects,
+  "project-conversations": ChatGptApiPath.ProjectConversations,
 };
 
 function jsonType(value: unknown, exists = true): JsonValueType {

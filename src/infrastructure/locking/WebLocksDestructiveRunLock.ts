@@ -4,7 +4,7 @@ import type {
 } from "../../application/ports/DestructiveRunLock";
 import { logger } from "../observability/logger";
 
-export const DESTRUCTIVE_RUN_LOCK_NAME = "chatgpt-cleaner:destructive-run:v1";
+const DESTRUCTIVE_RUN_LOCK_NAME = "chatgpt-cleaner:destructive-run:v1";
 
 export interface WebLockManager {
   request<T>(

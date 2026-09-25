@@ -1,5 +1,17 @@
 import type { Conversation } from "../../domain/conversation";
 import type { AppError } from "../AppError";
+import type { ReadFailureReason } from "../SafetyBlockReason";
+
+export type { ReadFailureReason } from "../SafetyBlockReason";
+
+export const ChatGptOperation = {
+  StandaloneConversationsList: "standaloneConversations.list",
+  ProjectsList: "projects.list",
+  ProjectConversationsList: "projectConversations.list",
+  ConversationDelete: "conversation.delete",
+} as const;
+
+export const STANDALONE_CONVERSATION_PAGE_LIMIT = 100;
 
 export interface ProjectReference {
   readonly id: string;
@@ -14,14 +26,6 @@ export interface ProjectConversationPage {
   readonly conversations: readonly Conversation[];
   readonly nextCursor: string | null;
 }
-
-export type ReadFailureReason =
-  | "authentication"
-  | "compatibility"
-  | "network"
-  | "request"
-  | "retry-later"
-  | "source-unavailable";
 
 export type ReadOperationName =
   "standalone" | "projects" | "project-conversations";
@@ -81,7 +85,7 @@ export type DeleteAttemptResult =
         | "response-anomaly"
         | "retry-later"
         | "source-unavailable";
-      readonly error?: AppError;
+      readonly error: AppError;
       readonly status?: number;
     };
 

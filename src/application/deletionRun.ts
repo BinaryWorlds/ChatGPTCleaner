@@ -6,19 +6,23 @@ import {
   calculateDeletionProgress,
   type DeletionProgress,
 } from "../domain/progress";
+import { AppConfig } from "../config";
 import type { Clock } from "./ports/Clock";
 import type {
   ConversationGateway,
   DeleteAttemptResult,
 } from "./ports/ConversationGateway";
+import { ChatGptOperation } from "./ports/ConversationGateway";
+import { appErrorCode, type AppErrorCode } from "./AppError";
 import type { DestructiveRunLock } from "./ports/DestructiveRunLock";
 import type { ProtectedConversationStore } from "./ports/ProtectedConversationStore";
 import type { ApplicationObservability } from "./ports/Observability";
+import { ApiRequestLifecycleEvent } from "./ports/Observability";
 import { runPreflight } from "./preflight";
+import { isValidRequestsPerMinute } from "./settings";
+import type { SafetyBlockReason } from "./SafetyBlockReason";
 
-const MAX_ATTEMPTS_PER_CONVERSATION = 5;
-const BASE_RETRY_DELAY_MS = 1_000;
-const MAX_RETRY_DELAY_MS = 60_000;
+const MILLISECONDS_PER_MINUTE = 60_000;
 
 export interface DeletionRunProgress extends DeletionProgress {
   readonly currentConversationId: string | null;
@@ -36,17 +40,20 @@ export type DeletionRunState =
   | { readonly kind: "finished"; readonly progress: DeletionRunProgress }
   | {
       readonly kind: "blocked";
-      readonly reason: string;
+      readonly reason: SafetyBlockReason;
       readonly progress: DeletionRunProgress;
     }
   | {
       readonly kind: "fatal";
-      readonly reason: string;
+      readonly reason: SafetyBlockReason;
       readonly progress: DeletionRunProgress;
     };
 
 type ControlCommand = "run" | "pause" | "stop";
 type ResumeDecision = "resume" | "stop";
+type RemainingRevalidationResult =
+  | { readonly kind: "ready" | "empty" }
+  | { readonly kind: "blocked"; readonly reason: SafetyBlockReason };
 
 interface MutableRunCounts {
   deleted: number;
@@ -88,6 +95,11 @@ export class DeletionRun {
       readonly onStateChange?: (state: DeletionRunState) => void;
     },
   ) {
+    if (!isValidRequestsPerMinute(input.requestsPerMinute)) {
+      throw new RangeError(
+        `requestsPerMinute must be an integer from ${AppConfig.deletion.requestsPerMinute.min} to ${AppConfig.deletion.requestsPerMinute.max}`,
+      );
+    }
     this.confirmedPlan = input.confirmedPlan;
     this.remainingConversationIds = [
       ...input.confirmedPlan.confirmedConversationIds,
@@ -173,17 +185,34 @@ export class DeletionRun {
   }
 
   private async runWithLock(): Promise<DeletionRunState> {
-    const lockResult = await this.input.destructiveRunLock.runExclusive(() =>
-      this.executeRemainingConversations(),
+    const lockResult = await this.input.destructiveRunLock.runExclusive(
+      async () => {
+        this.beginExecution();
+        const revalidation = await this.revalidateRemainingConfirmedIds();
+        if (revalidation.kind === "blocked") {
+          this.finishActivePeriod();
+          this.logWarn("deletion.run.revalidationBlocked", {
+            reason: revalidation.reason,
+          });
+          this.publish("blocked", null, revalidation.reason);
+          return;
+        }
+        if (revalidation.kind === "empty") {
+          this.finishActivePeriod();
+          this.completeRun();
+          return;
+        }
+        await this.executeRemainingConversations();
+      },
     );
     if (lockResult.kind === "unavailable") {
-      this.logWarn("deletion.run.blocked", { errorCode: "LOCK_UNAVAILABLE" });
+      this.logWarn("deletion.run.blocked", { lockReason: "unavailable" });
       this.publish("blocked", null, "destructive-run-lock");
     }
     return this.state;
   }
 
-  private async executeRemainingConversations(): Promise<void> {
+  private beginExecution(): void {
     this.operationId =
       this.input.observability?.createOperationId() ?? this.operationId;
     this.command = "run";
@@ -193,7 +222,36 @@ export class DeletionRun {
       total: this.remainingConversationIds.length,
       requestsPerMinute: this.input.requestsPerMinute,
     });
+    this.logInfo("deletion.run.revalidationStarted", {
+      remainingCount: this.remainingConversationIds.length,
+    });
+  }
 
+  private async revalidateRemainingConfirmedIds(): Promise<RemainingRevalidationResult> {
+    const preflightResult = await runPreflight({
+      selectedConversationIds: this.remainingConversationIds,
+      gateway: this.input.gateway,
+      protectedConversationStore: this.input.protectedConversationStore,
+    });
+    if (preflightResult.kind === "blocked") {
+      return { kind: "blocked", reason: preflightResult.reason };
+    }
+
+    const revalidatedPlan = shrinkConfirmedDeletionPlan(
+      this.confirmedPlan,
+      preflightResult.plan,
+    );
+    const remainingIds = new Set(this.remainingConversationIds);
+    this.remainingConversationIds =
+      revalidatedPlan.confirmedConversationIds.filter((conversationId) =>
+        remainingIds.has(conversationId),
+      );
+    return {
+      kind: this.remainingConversationIds.length === 0 ? "empty" : "ready",
+    };
+  }
+
+  private async executeRemainingConversations(): Promise<void> {
     while (this.remainingConversationIds.length > 0) {
       const mayContinue = await this.waitForRunnableState();
       if (!mayContinue) break;
@@ -203,6 +261,7 @@ export class DeletionRun {
 
       const outcome = await this.deleteWithRetries(conversationId);
       if (outcome === "stopped") break;
+      if (outcome === "excluded") continue;
       if (outcome.kind === "fatal") {
         this.finishActivePeriod();
         this.publish("fatal", conversationId, outcome.reason);
@@ -243,6 +302,10 @@ export class DeletionRun {
       });
       return;
     }
+    this.completeRun();
+  }
+
+  private completeRun(): void {
     this.publish("finished", null);
     const finalProgress = this.progress(null, false);
     this.logInfo("deletion.run.completed", {
@@ -258,23 +321,33 @@ export class DeletionRun {
     | { readonly kind: "deleted" | "skipped" | "failed" }
     | {
         readonly kind: "fatal";
-        readonly reason: string;
-        readonly errorCode: string;
+        readonly reason: Extract<
+          DeleteAttemptResult,
+          { readonly kind: "fatal" }
+        >["reason"];
+        readonly errorCode: AppErrorCode;
       }
+    | "excluded"
     | "stopped"
   > {
     for (
       let attempt = 1;
-      attempt <= MAX_ATTEMPTS_PER_CONVERSATION;
+      attempt <= AppConfig.deletion.maxAttemptsPerConversation;
       attempt += 1
     ) {
       if (!(await this.waitForRunnableState())) return "stopped";
+      if (!this.remainingConversationIds.includes(conversationId)) {
+        return "excluded";
+      }
       if (!(await this.waitForAttemptSpacing())) {
         if (this.command === "stop") return "stopped";
         attempt -= 1;
         continue;
       }
       if (!(await this.waitForRunnableState())) return "stopped";
+      if (!this.remainingConversationIds.includes(conversationId)) {
+        return "excluded";
+      }
 
       this.lastAttemptStartedAt = this.input.clock.now();
       this.publish("running", conversationId);
@@ -286,8 +359,8 @@ export class DeletionRun {
         total: progressBeforeAttempt.total,
         attempt,
       });
-      this.logDebug("api.request.started", {
-        operation: "conversation.delete",
+      this.logDebug(ApiRequestLifecycleEvent.Started, {
+        operation: ChatGptOperation.ConversationDelete,
         ordinal,
         attempt,
       });
@@ -295,8 +368,8 @@ export class DeletionRun {
         await this.input.gateway.deleteConversation(conversationId);
       const requestDurationMs = this.input.clock.now() - attemptStartedAt;
       if (result.status !== undefined) {
-        this.logDebug("api.request.succeeded", {
-          operation: "conversation.delete",
+        this.logDebug(ApiRequestLifecycleEvent.Succeeded, {
+          operation: ChatGptOperation.ConversationDelete,
           status: result.status,
           durationMs: requestDurationMs,
           ordinal,
@@ -327,14 +400,14 @@ export class DeletionRun {
           ordinal,
           total: progressBeforeAttempt.total,
           attempt,
-          errorCode: result.error?.code ?? fatalErrorCode(result.reason),
+          errorCode: result.error.code,
         });
         return {
           ...result,
-          errorCode: result.error?.code ?? fatalErrorCode(result.reason),
+          errorCode: result.error.code,
         };
       }
-      if (attempt === MAX_ATTEMPTS_PER_CONVERSATION) {
+      if (attempt === AppConfig.deletion.maxAttemptsPerConversation) {
         this.logWarn("deletion.attempt.failed", {
           ordinal,
           total: progressBeforeAttempt.total,
@@ -366,8 +439,8 @@ export class DeletionRun {
     attempt: number,
   ): number {
     const fallbackDelay = Math.min(
-      BASE_RETRY_DELAY_MS * 2 ** (attempt - 1),
-      MAX_RETRY_DELAY_MS,
+      AppConfig.deletion.retryBaseDelayMs * 2 ** (attempt - 1),
+      AppConfig.deletion.retryMaxDelayMs,
     );
     return result.retryAfterMs ?? fallbackDelay;
   }
@@ -375,7 +448,7 @@ export class DeletionRun {
   private async waitForAttemptSpacing(): Promise<boolean> {
     if (this.lastAttemptStartedAt === null) return true;
 
-    const interval = 60_000 / this.input.requestsPerMinute;
+    const interval = MILLISECONDS_PER_MINUTE / this.input.requestsPerMinute;
     const remaining =
       this.lastAttemptStartedAt + interval - this.input.clock.now();
     if (remaining <= 0) return true;
@@ -415,32 +488,18 @@ export class DeletionRun {
       remainingCount: this.remainingConversationIds.length,
     });
 
-    const preflightResult = await runPreflight({
-      selectedConversationIds: this.remainingConversationIds,
-      gateway: this.input.gateway,
-      protectedConversationStore: this.input.protectedConversationStore,
-    });
-    if (preflightResult.kind === "blocked") {
+    const revalidation = await this.revalidateRemainingConfirmedIds();
+    if (revalidation.kind === "blocked") {
       this.command = "stop";
       this.input.observability?.warn("deletion.run.revalidationBlocked", {
         ...(resumeOperationId === undefined
           ? {}
           : { operationId: resumeOperationId }),
-        reason: preflightResult.reason,
+        reason: revalidation.reason,
       });
-      this.publish("blocked", null, preflightResult.reason);
+      this.publish("blocked", null, revalidation.reason);
       return false;
     }
-
-    const revalidatedPlan = shrinkConfirmedDeletionPlan(
-      this.confirmedPlan,
-      preflightResult.plan,
-    );
-    const remainingIds = new Set(this.remainingConversationIds);
-    this.remainingConversationIds =
-      revalidatedPlan.confirmedConversationIds.filter((conversationId) =>
-        remainingIds.has(conversationId),
-      );
     this.command = "run";
     this.activeStartedAt = this.input.clock.now();
     this.publish("running", null);
@@ -502,12 +561,12 @@ export class DeletionRun {
   private publish(
     kind: DeletionRunState["kind"],
     currentConversationId: string | null,
-    reason?: string,
+    reason?: SafetyBlockReason,
   ): void {
     const progress = this.progress(currentConversationId, kind === "paused");
     this.state =
       kind === "blocked" || kind === "fatal"
-        ? { kind, reason: reason ?? "unknown", progress }
+        ? { kind, reason: reason ?? "unexpected-run-error", progress }
         : { kind, progress };
     this.input.onStateChange?.(this.state);
   }
@@ -543,23 +602,13 @@ export class DeletionRun {
   }
 }
 
-function fatalErrorCode(
-  reason: Extract<DeleteAttemptResult, { readonly kind: "fatal" }>["reason"],
-): string {
-  if (reason === "authentication") return "AUTHENTICATION_UNAVAILABLE";
-  if (reason === "authorization") return "AUTHORIZATION_DENIED";
-  if (reason === "source-unavailable") return "SOURCE_TAB_UNAVAILABLE";
-  if (reason === "retry-later") return "RATE_LIMITED";
-  return "API_COMPATIBILITY_FAILURE";
-}
-
 function exhaustedRetryErrorCode(
   reason: Extract<
     DeleteAttemptResult,
     { readonly kind: "retryable" }
   >["reason"],
-): string {
-  if (reason === "rate-limit") return "RATE_LIMITED";
-  if (reason === "server") return "SERVER_FAILURE";
-  return "NETWORK_FAILURE";
+): AppErrorCode {
+  if (reason === "rate-limit") return appErrorCode("RateLimited");
+  if (reason === "server") return appErrorCode("ServerFailure");
+  return appErrorCode("NetworkFailure");
 }

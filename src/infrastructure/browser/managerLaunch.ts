@@ -1,6 +1,6 @@
-const CHATGPT_ORIGIN = "https://chatgpt.com";
+import { CHATGPT_ORIGIN } from "../api/chatGptApiContract";
 
-export interface ActionSourceTab {
+interface ActionSourceTab {
   readonly id?: number | undefined;
   readonly url?: string | undefined;
 }

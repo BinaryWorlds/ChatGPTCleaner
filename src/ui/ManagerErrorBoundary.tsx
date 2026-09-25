@@ -1,7 +1,8 @@
 import { Alert } from "antd";
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import { appErrorCode } from "../application/AppError";
 
-export interface ManagerErrorBoundaryProps {
+interface ManagerErrorBoundaryProps {
   readonly children: ReactNode;
   readonly onError: (error: unknown, info: ErrorInfo) => void;
 }
@@ -31,7 +32,7 @@ export class ManagerErrorBoundary extends Component<
           type="error"
           showIcon
           title="ChatGPTCleaner could not display the manager. No new destructive operation was started."
-          description="Error code: UNEXPECTED_FAILURE"
+          description={`Error code: ${appErrorCode("UnexpectedFailure")}`}
         />
       );
     }

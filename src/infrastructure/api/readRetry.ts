@@ -1,4 +1,6 @@
 import type { Clock } from "../../application/ports/Clock";
+import { ApiRequestLifecycleEvent } from "../../application/ports/Observability";
+import { AppConfig } from "../../config";
 import type {
   ReadFailureDiagnostic,
   ReadFailureReason,
@@ -10,11 +12,6 @@ import {
   type AppError,
 } from "../../application/AppError";
 import { logger, type Logger } from "../observability/logger";
-
-export const READ_MAX_ATTEMPTS = 4;
-export const READ_RETRY_BASE_MS = 1_000;
-export const READ_RETRY_MAX_MS = 30_000;
-export const READ_RETRY_AFTER_LIMIT_MS = 5 * 60_000;
 
 export type ReadAttemptResult<T = unknown> =
   | {
@@ -73,8 +70,8 @@ export function appErrorForReadFailure(input: {
 
 function fallbackDelay(attempt: number): number {
   return Math.min(
-    READ_RETRY_BASE_MS * 2 ** Math.max(0, attempt - 1),
-    READ_RETRY_MAX_MS,
+    AppConfig.readRetry.retryBaseDelayMs * 2 ** Math.max(0, attempt - 1),
+    AppConfig.readRetry.retryMaxDelayMs,
   );
 }
 
@@ -96,9 +93,13 @@ export async function executeReadWithRetry<T>(input: {
   const activeLogger = input.activeLogger ?? logger;
   const operation = input.operation ?? "api.read";
 
-  for (let attempt = 1; attempt <= READ_MAX_ATTEMPTS; attempt += 1) {
+  for (
+    let attempt = 1;
+    attempt <= AppConfig.readRetry.maxAttempts;
+    attempt += 1
+  ) {
     const attemptStartedAt = performance.now();
-    activeLogger.debug("api.request.started", {
+    activeLogger.debug(ApiRequestLifecycleEvent.Started, {
       ...(input.operationId === undefined
         ? {}
         : { operationId: input.operationId }),
@@ -115,7 +116,7 @@ export async function executeReadWithRetry<T>(input: {
       result.status >= 200 &&
       result.status < 300
     ) {
-      activeLogger.debug("api.request.succeeded", {
+      activeLogger.debug(ApiRequestLifecycleEvent.Succeeded, {
         ...(input.operationId === undefined
           ? {}
           : { operationId: input.operationId }),
@@ -133,7 +134,7 @@ export async function executeReadWithRetry<T>(input: {
       (result.status < 500 || result.status >= 600)
     ) {
       const appError = appErrorFromHttpStatus(result.status, operation);
-      activeLogger.warn("api.request.failed", {
+      activeLogger.warn(ApiRequestLifecycleEvent.Failed, {
         ...(input.operationId === undefined
           ? {}
           : { operationId: input.operationId }),
@@ -145,14 +146,14 @@ export async function executeReadWithRetry<T>(input: {
       });
       return { kind: "failure", reason: nonRetryableFailure(result.status) };
     }
-    if (attempt === READ_MAX_ATTEMPTS) {
+    if (attempt === AppConfig.readRetry.maxAttempts) {
       const status = result.kind === "response" ? result.status : undefined;
       const appError = appErrorForReadFailure({
         operation,
         ...(status === undefined ? { networkFailure: true } : { status }),
       });
       activeLogger.error(
-        "api.request.failed",
+        ApiRequestLifecycleEvent.Failed,
         { errorType: "error", errorName: appError.kind },
         {
           ...(input.operationId === undefined
@@ -170,7 +171,9 @@ export async function executeReadWithRetry<T>(input: {
         reason:
           result.kind === "response" && result.status === 429
             ? "retry-later"
-            : "network",
+            : result.kind === "response"
+              ? "server"
+              : "network",
       };
     }
 
@@ -178,7 +181,7 @@ export async function executeReadWithRetry<T>(input: {
       result.kind === "response"
         ? parseRetryAfter(result.retryAfter, input.clock.now())
         : null;
-    if (retryAfter !== null && retryAfter > READ_RETRY_AFTER_LIMIT_MS) {
+    if (retryAfter !== null && retryAfter > AppConfig.api.maxRetryAfterMs) {
       activeLogger.warn("api.request.rateLimited", {
         ...(input.operationId === undefined
           ? {}
@@ -204,7 +207,7 @@ export async function executeReadWithRetry<T>(input: {
     if (result.kind === "response" && result.status === 429) {
       activeLogger.warn("api.request.rateLimited", retryFields);
     } else {
-      activeLogger.warn("api.request.retry", retryFields);
+      activeLogger.warn(ApiRequestLifecycleEvent.Retry, retryFields);
     }
     const sleepResult = await input.clock.sleep(delay, signal);
     if (sleepResult === "cancelled") {

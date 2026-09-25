@@ -10,7 +10,7 @@ import {
   type LocalCalendarDay,
 } from "../domain/conversation";
 
-export interface ConversationFiltersProps {
+interface ConversationFiltersProps {
   readonly filters: ConversationFilters;
   readonly onChange: (filters: ConversationFilters) => void;
   readonly currentDate?: () => Date;

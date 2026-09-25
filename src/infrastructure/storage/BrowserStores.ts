@@ -1,16 +1,26 @@
 import { z } from "zod";
+import {
+  isSafetyCriticalIdentifier,
+  MAX_SAFETY_CRITICAL_IDENTIFIER_LENGTH,
+} from "../../domain/identifier";
 import type {
   ProtectedConversationIdsResult,
   ProtectedConversationStore,
 } from "../../application/ports/ProtectedConversationStore";
 import type { SettingsStore } from "../../application/ports/SettingsStore";
-import { createAppError } from "../../application/AppError";
+import { appErrorCode, createAppError } from "../../application/AppError";
 import { logger, summarizeUnknownError } from "../observability/logger";
 
 const PROTECTED_IDS_KEY = "protectedConversationIds";
 const REQUESTS_PER_MINUTE_KEY = "requestsPerMinute";
 
-const protectedIdsSchema = z.array(z.string().min(1).max(512));
+const protectedIdsSchema = z.array(
+  z
+    .string()
+    .min(1)
+    .max(MAX_SAFETY_CRITICAL_IDENTIFIER_LENGTH)
+    .refine(isSafetyCriticalIdentifier),
+);
 
 export interface BrowserLocalStorage {
   get(key: string): Promise<Record<string, unknown>>;
@@ -65,7 +75,7 @@ export class BrowserProtectedConversationStore implements ProtectedConversationS
         summarizeUnknownError(cause),
         {
           operation: "protectedStore.load",
-          errorCode: "STORAGE_FAILURE",
+          errorCode: appErrorCode("StorageFailure"),
         },
       );
       throw createAppError("StorageFailure", {
@@ -96,7 +106,7 @@ export class BrowserProtectedConversationStore implements ProtectedConversationS
         summarizeUnknownError(cause),
         {
           operation: "protectedStore.save",
-          errorCode: "STORAGE_FAILURE",
+          errorCode: appErrorCode("StorageFailure"),
         },
       );
       throw createAppError("StorageFailure", {

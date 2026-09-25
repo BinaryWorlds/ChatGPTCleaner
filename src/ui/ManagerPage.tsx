@@ -12,16 +12,10 @@ import {
   Statistic,
   Typography,
 } from "antd";
-import { useEffect, useMemo, useState } from "react";
-import { DeletionRun, type DeletionRunState } from "../application/deletionRun";
-import {
-  loadInventory,
-  type InventoryLoadProgress,
-} from "../application/inventory";
-import type { ReadFailureDiagnostic } from "../application/ports/ConversationGateway";
-import { runPreflight } from "../application/preflight";
+import { useMemo, useRef, useState } from "react";
+import { AppConfig } from "../config";
 import { saveProtectedConversationIds } from "../application/protection";
-import { saveRequestsPerMinute } from "../application/settings";
+import { SerializedRequestsPerMinuteWriter } from "../application/settings";
 import type {
   ManagerComposition,
   ManagerDependencies,
@@ -30,88 +24,55 @@ import {
   EMPTY_CONVERSATION_FILTERS,
   filterConversations,
   sortConversations,
-  type Conversation,
   type ConversationFilters,
   type ConversationSortField,
   type SortDirection,
 } from "../domain/conversation";
-import { confirmDeletionPlan, type DeletionPlan } from "../domain/deletionPlan";
 import {
   invertMatchingSelection,
   protectConversation,
   selectAllMatching,
 } from "../domain/selection";
 import { ConversationFiltersBar } from "./ConversationFilters";
-import { ConversationTable } from "./ConversationTable";
+import {
+  CONVERSATION_TABLE_PAGINATION,
+  clampTablePage,
+  ConversationTable,
+  type ConversationView,
+} from "./ConversationTable";
 import { DeletionConfirmationModal } from "./DeletionConfirmationModal";
 import { DeletionProgressPanel } from "./DeletionProgressPanel";
-import { SafetyStatus } from "./SafetyStatus";
+import { SafetyStatus, type SafetyStatusState } from "./SafetyStatus";
+import { useDeletionWorkflow } from "./useDeletionWorkflow";
+import { useManagerInventory } from "./useManagerInventory";
 
-type InventoryState =
-  | {
-      readonly kind: "loading";
-      readonly stage: "compatibility" | "inventory" | "projects";
-      readonly loadedConversationCount: number;
-    }
-  | {
-      readonly kind: "blocked";
-      readonly reason: string;
-      readonly diagnostic?: ReadFailureDiagnostic;
-      readonly readCompatibilityConfirmed: boolean;
-    }
-  | { readonly kind: "ready" };
-
-function isRunActive(state: DeletionRunState | null): boolean {
-  return (
-    state?.kind === "running" ||
-    state?.kind === "pausing" ||
-    state?.kind === "paused" ||
-    state?.kind === "stopping"
-  );
-}
-
-function isProtectionLocked(state: DeletionRunState | null): boolean {
-  return (
-    state?.kind === "running" ||
-    state?.kind === "pausing" ||
-    state?.kind === "stopping"
-  );
-}
-
-export interface ManagerPageProps {
+interface ManagerPageProps {
   readonly composition: ManagerComposition;
 }
 
 export function ManagerPage({ composition }: ManagerPageProps) {
-  const [conversationView, setConversationView] = useState<
-    "standalone" | "projects"
-  >("standalone");
+  const [conversationView, setConversationView] =
+    useState<ConversationView>("standalone");
   const [scenarioId, setScenarioId] = useState(composition.initialScenarioId);
   const [dependencies, setDependencies] = useState<ManagerDependencies | null>(
     () => composition.createDependencies(composition.initialScenarioId),
   );
-  const [inventoryState, setInventoryState] = useState<InventoryState>({
-    kind: "loading",
-    stage: "compatibility",
-    loadedConversationCount: 0,
-  });
-  const [conversations, setConversations] = useState<readonly Conversation[]>(
-    [],
-  );
-  const [projectConversations, setProjectConversations] = useState<
-    readonly Conversation[]
-  >([]);
-  const [conversationTitles, setConversationTitles] = useState<
-    ReadonlyMap<string, string>
-  >(new Map());
-  const [projectConversationCount, setProjectConversationCount] = useState(0);
-  const [protectedConversationIds, setProtectedConversationIds] = useState<
-    ReadonlySet<string>
-  >(new Set());
+  const {
+    inventoryState,
+    conversations,
+    projectConversations,
+    conversationTitles,
+    projectConversationCount,
+    protectedConversationIds,
+    requestsPerMinute,
+    resetInventory,
+    removeConversations,
+    setProtectedConversationIds,
+    setRequestsPerMinute,
+  } = useManagerInventory(dependencies);
   const [selectedConversationIds, setSelectedConversationIds] = useState<
     ReadonlySet<string>
   >(new Set());
-  const [requestsPerMinute, setRequestsPerMinute] = useState(60);
   const [filters, setFilters] = useState<ConversationFilters>(
     EMPTY_CONVERSATION_FILTERS,
   );
@@ -127,92 +88,62 @@ export function ManagerPage({ composition }: ManagerPageProps) {
   const [projectSortDirection, setProjectSortDirection] =
     useState<SortDirection>("descending");
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(50);
+  const [pageSize, setPageSize] = useState<number>(
+    CONVERSATION_TABLE_PAGINATION.defaultPageSize,
+  );
   const [projectPage, setProjectPage] = useState(1);
-  const [projectPageSize, setProjectPageSize] = useState(50);
-  const [preflightRunning, setPreflightRunning] = useState(false);
-  const [preflightPlan, setPreflightPlan] = useState<DeletionPlan | null>(null);
-  const [confirmationText, setConfirmationText] = useState("");
-  const [currentRun, setCurrentRun] = useState<DeletionRun | null>(null);
-  const [runState, setRunState] = useState<DeletionRunState | null>(null);
-  const [safetyOverride, setSafetyOverride] = useState<string | null>(null);
+  const [projectPageSize, setProjectPageSize] = useState<number>(
+    CONVERSATION_TABLE_PAGINATION.defaultPageSize,
+  );
   const [notice, setNotice] = useState<string | null>(null);
-
-  useEffect(() => {
-    let current = true;
-    let readCompatibilityConfirmed = false;
-    if (dependencies === null) {
-      return () => {
-        current = false;
-      };
-    }
-
-    const updateInventoryProgress = (progress: InventoryLoadProgress) => {
-      if (!current) return;
-      if (progress.kind === "read-compatible") {
-        readCompatibilityConfirmed = true;
-        setInventoryState({
-          kind: "loading",
-          stage: "inventory",
-          loadedConversationCount: 0,
-        });
-        return;
-      }
-      setInventoryState({
-        kind: "loading",
-        stage:
-          progress.kind === "project-protection-started"
-            ? "projects"
-            : "inventory",
-        loadedConversationCount: progress.loadedConversationCount,
-      });
-    };
-
-    loadInventory({ ...dependencies, onProgress: updateInventoryProgress })
-      .then((result) => {
-        if (!current) return;
-        if (result.kind === "blocked") {
-          setInventoryState({
-            kind: "blocked",
-            reason: result.reason,
-            readCompatibilityConfirmed,
-            ...(result.diagnostic === undefined
-              ? {}
-              : { diagnostic: result.diagnostic }),
-          });
-          return;
-        }
-        setConversations(result.inventory.standaloneConversations);
-        setProjectConversations(result.inventory.projectConversations);
-        setConversationTitles(
-          new Map(
-            result.inventory.standaloneConversations.map(({ id, title }) => [
-              id,
-              title,
-            ]),
+  const [protectionMutationPending, setProtectionMutationPending] =
+    useState(false);
+  const protectionMutationPendingRef = useRef(false);
+  const settingsWriter = useMemo(
+    () =>
+      dependencies === null
+        ? null
+        : new SerializedRequestsPerMinuteWriter(dependencies.settingsStore),
+    [dependencies],
+  );
+  const {
+    preflightRunning,
+    preflightPlan,
+    confirmationText,
+    runState,
+    runActive,
+    protectionLocked: protectionLockedByRun,
+    safetyOverride,
+    currentConversationId,
+    setConfirmationText,
+    beginPreflight,
+    confirmAndStartDeletion,
+    retryFailed,
+    resumeRun,
+    pauseRun,
+    stopRun,
+    cancelConfirmation,
+    resetWorkflow,
+    blockSafety,
+  } = useDeletionWorkflow({
+    dependencies,
+    inventoryReady: inventoryState.kind === "ready",
+    selectedConversationIds,
+    requestsPerMinute,
+    isProtectionMutationPending: () => protectionMutationPendingRef.current,
+    onConversationIdsRemoved: (removedIds) => {
+      removeConversations(removedIds);
+      setSelectedConversationIds(
+        (currentSelection) =>
+          new Set(
+            [...currentSelection].filter(
+              (conversationId) => !removedIds.has(conversationId),
+            ),
           ),
-        );
-        setProjectConversationCount(
-          result.inventory.projectConversationIds.size,
-        );
-        setProtectedConversationIds(result.protectedConversationIds);
-        setRequestsPerMinute(result.requestsPerMinute);
-        setInventoryState({ kind: "ready" });
-      })
-      .catch(() => {
-        if (current) {
-          setInventoryState({
-            kind: "blocked",
-            reason: "network",
-            readCompatibilityConfirmed,
-          });
-        }
-      });
-
-    return () => {
-      current = false;
-    };
-  }, [dependencies]);
+      );
+    },
+    onNotice: setNotice,
+  });
 
   const filteredConversations = useMemo(
     () => filterConversations(conversations, filters),
@@ -222,9 +153,18 @@ export function ManagerPage({ composition }: ManagerPageProps) {
     () => sortConversations(filteredConversations, sortField, sortDirection),
     [filteredConversations, sortDirection, sortField],
   );
+  const visibleStandalonePage = clampTablePage(
+    page,
+    visibleConversations.length,
+    pageSize,
+  );
   const currentStandalonePageConversations = useMemo(
-    () => visibleConversations.slice((page - 1) * pageSize, page * pageSize),
-    [page, pageSize, visibleConversations],
+    () =>
+      visibleConversations.slice(
+        (visibleStandalonePage - 1) * pageSize,
+        visibleStandalonePage * pageSize,
+      ),
+    [pageSize, visibleConversations, visibleStandalonePage],
   );
   const filteredProjectConversations = useMemo(
     () => filterConversations(projectConversations, projectFilters),
@@ -239,18 +179,36 @@ export function ManagerPage({ composition }: ManagerPageProps) {
       ),
     [filteredProjectConversations, projectSortDirection, projectSortField],
   );
-  const runActive = isRunActive(runState);
+  const visibleProjectPage = clampTablePage(
+    projectPage,
+    visibleProjectConversations.length,
+    projectPageSize,
+  );
   const selectionLocked = runActive;
-  const protectionLocked = isProtectionLocked(runState);
-  const safetyStatus =
-    inventoryState.kind === "loading"
-      ? "loading"
-      : inventoryState.kind === "blocked" || safetyOverride !== null
-        ? "blocked"
-        : "ready";
-  const blockedReason =
-    safetyOverride ??
-    (inventoryState.kind === "blocked" ? inventoryState.reason : undefined);
+  const protectionLocked = protectionLockedByRun || protectionMutationPending;
+  const safetyState: SafetyStatusState = (() => {
+    if (inventoryState.kind === "loading") {
+      return { kind: "loading", stage: inventoryState.stage };
+    }
+    if (safetyOverride !== null) {
+      return {
+        kind: "blocked",
+        reason: safetyOverride,
+        readCompatibilityConfirmed: inventoryState.kind === "ready",
+      };
+    }
+    if (inventoryState.kind === "blocked") {
+      return {
+        kind: "blocked",
+        reason: inventoryState.reason,
+        readCompatibilityConfirmed: inventoryState.readCompatibilityConfirmed,
+        ...(inventoryState.diagnostic === undefined
+          ? {}
+          : { diagnostic: inventoryState.diagnostic }),
+      };
+    }
+    return { kind: "ready" };
+  })();
 
   const updateFilters = (nextFilters: ConversationFilters) => {
     if (conversationView === "projects") {
@@ -263,31 +221,20 @@ export function ManagerPage({ composition }: ManagerPageProps) {
   };
 
   const changeScenario = (nextScenarioId: string) => {
-    if (runActive || preflightRunning || preflightPlan !== null) return;
+    if (
+      runActive ||
+      preflightRunning ||
+      preflightPlan !== null ||
+      protectionMutationPendingRef.current
+    ) {
+      return;
+    }
     const nextDependencies = composition.createDependencies(nextScenarioId);
     setScenarioId(nextScenarioId);
     setDependencies(nextDependencies);
-    setInventoryState(
-      nextDependencies === null
-        ? {
-            kind: "blocked",
-            reason: "source-unavailable",
-            readCompatibilityConfirmed: false,
-          }
-        : {
-            kind: "loading",
-            stage: "compatibility",
-            loadedConversationCount: 0,
-          },
-    );
-    setConversations([]);
-    setProjectConversations([]);
-    setConversationTitles(new Map());
+    resetInventory(nextDependencies !== null);
     setSelectedConversationIds(new Set());
-    setProtectedConversationIds(new Set());
-    setRunState(null);
-    setCurrentRun(null);
-    setSafetyOverride(null);
+    resetWorkflow();
     setNotice(null);
     setFilters(EMPTY_CONVERSATION_FILTERS);
     setProjectFilters(EMPTY_CONVERSATION_FILTERS);
@@ -300,7 +247,9 @@ export function ManagerPage({ composition }: ManagerPageProps) {
     nextProtectedIds: ReadonlySet<string>,
     nextSelection: ReadonlySet<string>,
   ) => {
-    if (dependencies === null) return;
+    if (dependencies === null || protectionMutationPendingRef.current) return;
+    protectionMutationPendingRef.current = true;
+    setProtectionMutationPending(true);
     saveProtectedConversationIds({
       protectedConversationIds: nextProtectedIds,
       protectedConversationStore: dependencies.protectedConversationStore,
@@ -309,17 +258,21 @@ export function ManagerPage({ composition }: ManagerPageProps) {
     })
       .then((result) => {
         if (result === "locked") {
-          setSafetyOverride("destructive-run-lock");
+          blockSafety("destructive-run-lock");
           return;
         }
         setProtectedConversationIds(nextProtectedIds);
         setSelectedConversationIds(nextSelection);
       })
-      .catch(() => setSafetyOverride("protected-storage"));
+      .catch(() => blockSafety("protected-storage"))
+      .finally(() => {
+        protectionMutationPendingRef.current = false;
+        setProtectionMutationPending(false);
+      });
   };
 
   const handleProtect = (conversationId: string) => {
-    if (protectionLocked) return;
+    if (protectionLocked || protectionMutationPendingRef.current) return;
     const result = protectConversation(
       protectedConversationIds,
       selectedConversationIds,
@@ -332,147 +285,22 @@ export function ManagerPage({ composition }: ManagerPageProps) {
   };
 
   const handleUnprotect = (conversationId: string) => {
-    if (protectionLocked) return;
+    if (protectionLocked || protectionMutationPendingRef.current) return;
     const nextProtectedIds = new Set(protectedConversationIds);
     nextProtectedIds.delete(conversationId);
     persistProtection(nextProtectedIds, selectedConversationIds);
   };
 
   const handleRateChange = (value: number | null) => {
-    if (dependencies === null || value === null || runActive) return;
-    saveRequestsPerMinute(dependencies.settingsStore, value)
+    if (settingsWriter === null || value === null || runActive) return;
+    settingsWriter
+      .save(value)
       .then((saved) => {
         if (saved) setRequestsPerMinute(value);
       })
       .catch(() => setNotice("Could not save the deletion rate."));
   };
 
-  const beginPreflight = () => {
-    if (
-      dependencies === null ||
-      inventoryState.kind !== "ready" ||
-      selectedConversationIds.size === 0 ||
-      runActive
-    ) {
-      return;
-    }
-
-    const operationId = dependencies.observability?.createOperationId();
-    dependencies.observability?.info("preflight.started", {
-      ...(operationId === undefined ? {} : { operationId }),
-      selectedCount: selectedConversationIds.size,
-    });
-    setPreflightRunning(true);
-    setSafetyOverride(null);
-    runPreflight({
-      selectedConversationIds: [...selectedConversationIds],
-      gateway: dependencies.gateway,
-      protectedConversationStore: dependencies.protectedConversationStore,
-    })
-      .then((result) => {
-        setPreflightRunning(false);
-        if (result.kind === "blocked") {
-          dependencies.observability?.warn("preflight.blocked", {
-            ...(operationId === undefined ? {} : { operationId }),
-            reason: result.reason,
-          });
-          setSafetyOverride(result.reason);
-          return;
-        }
-        dependencies.observability?.info("preflight.completed", {
-          ...(operationId === undefined ? {} : { operationId }),
-          selectedCount: result.plan.originallySelectedCount,
-          eligibleCount: result.plan.eligibleConversationIds.length,
-          excludedProjectCount: result.plan.excludedProjectIds.length,
-          excludedProtectedCount: result.plan.excludedProtectedIds.length,
-          missingCount:
-            result.plan.missingConversationIds.length +
-            result.plan.invalidSelectionCount,
-        });
-        if (result.plan.eligibleConversationIds.length === 0) {
-          setNotice("No selected conversations remain eligible for deletion.");
-          return;
-        }
-        setConfirmationText("");
-        setPreflightPlan(result.plan);
-      })
-      .catch(() => {
-        dependencies.observability?.error(
-          "application.operation.failed",
-          "UNEXPECTED_FAILURE",
-          {
-            ...(operationId === undefined ? {} : { operationId }),
-            operation: "preflight",
-          },
-        );
-        setPreflightRunning(false);
-        setSafetyOverride("network");
-      });
-  };
-
-  const handleRunStateChange = (nextState: DeletionRunState) => {
-    setRunState(nextState);
-    if (nextState.kind === "blocked" || nextState.kind === "fatal") {
-      setSafetyOverride(nextState.reason);
-    }
-    if (nextState.progress.removedConversationIds.length === 0) return;
-
-    const removedIds = new Set(nextState.progress.removedConversationIds);
-    setConversations((currentConversations) =>
-      currentConversations.filter(({ id }) => !removedIds.has(id)),
-    );
-    setSelectedConversationIds(
-      (currentSelection) =>
-        new Set(
-          [...currentSelection].filter(
-            (conversationId) => !removedIds.has(conversationId),
-          ),
-        ),
-    );
-  };
-
-  const confirmAndStartDeletion = () => {
-    if (dependencies === null || preflightPlan === null) return;
-    const confirmation = confirmDeletionPlan(preflightPlan, confirmationText);
-    if (confirmation.kind !== "confirmed") return;
-
-    const deletionRun = new DeletionRun({
-      confirmedPlan: confirmation.plan,
-      requestsPerMinute,
-      gateway: dependencies.gateway,
-      protectedConversationStore: dependencies.protectedConversationStore,
-      clock: dependencies.clock,
-      destructiveRunLock: dependencies.destructiveRunLock,
-      ...(dependencies.observability === undefined
-        ? {}
-        : { observability: dependencies.observability }),
-      onStateChange: handleRunStateChange,
-    });
-    setCurrentRun(deletionRun);
-    setPreflightPlan(null);
-    setConfirmationText("");
-    deletionRun
-      .startDeletion()
-      .catch(() => setSafetyOverride("unexpected-run-error"));
-  };
-
-  const retryFailed = () => {
-    currentRun
-      ?.retryFailedDeletion()
-      .catch(() => setSafetyOverride("unexpected-run-error"));
-  };
-
-  const resumeRun = () => {
-    if (dependencies === null || currentRun === null) return;
-    currentRun.resumeDeletion();
-  };
-
-  const stopRun = () => {
-    currentRun?.stopDeletion();
-  };
-
-  const currentConversationId =
-    runState?.progress.currentConversationId ?? null;
   const currentConversationLabel =
     currentConversationId === null
       ? "None"
@@ -494,7 +322,10 @@ export function ManagerPage({ composition }: ManagerPageProps) {
                 aria-label="Demo scenario"
                 value={scenarioId}
                 disabled={
-                  runActive || preflightRunning || preflightPlan !== null
+                  runActive ||
+                  preflightRunning ||
+                  preflightPlan !== null ||
+                  protectionMutationPending
                 }
                 options={composition.scenarios.map((scenario) => ({
                   value: scenario.id,
@@ -513,24 +344,7 @@ export function ManagerPage({ composition }: ManagerPageProps) {
         </>
       )}
 
-      <SafetyStatus
-        status={safetyStatus}
-        blockedReason={blockedReason}
-        {...(inventoryState.kind === "loading"
-          ? { loadingStage: inventoryState.stage }
-          : {})}
-        {...(inventoryState.kind === "blocked"
-          ? {
-              readCompatibilityConfirmed:
-                inventoryState.readCompatibilityConfirmed,
-            }
-          : {})}
-        {...(safetyOverride === null &&
-        inventoryState.kind === "blocked" &&
-        inventoryState.diagnostic !== undefined
-          ? { diagnostic: inventoryState.diagnostic }
-          : {})}
-      />
+      <SafetyStatus state={safetyState} />
 
       {notice !== null && (
         <Alert
@@ -608,9 +422,11 @@ export function ManagerPage({ composition }: ManagerPageProps) {
                       value: "projects",
                     },
                   ]}
-                  onChange={(value) =>
-                    setConversationView(value as "standalone" | "projects")
-                  }
+                  onChange={(value) => {
+                    if (value === "standalone" || value === "projects") {
+                      setConversationView(value);
+                    }
+                  }}
                 />
               </Space>
               <ConversationFiltersBar
@@ -627,8 +443,8 @@ export function ManagerPage({ composition }: ManagerPageProps) {
                   <Typography.Text>Requests per minute</Typography.Text>
                   <InputNumber
                     aria-label="Requests per minute"
-                    min={1}
-                    max={120}
+                    min={AppConfig.deletion.requestsPerMinute.min}
+                    max={AppConfig.deletion.requestsPerMinute.max}
                     precision={0}
                     value={requestsPerMinute}
                     disabled={runActive}
@@ -696,7 +512,7 @@ export function ManagerPage({ composition }: ManagerPageProps) {
                   disabled={
                     selectionLocked ||
                     selectedConversationIds.size === 0 ||
-                    safetyStatus !== "ready" ||
+                    safetyState.kind !== "ready" ||
                     preflightRunning
                   }
                   onClick={beginPreflight}
@@ -707,7 +523,7 @@ export function ManagerPage({ composition }: ManagerPageProps) {
                   <Space>
                     <Spin size="small" />
                     <Typography.Text>
-                      Running fresh safety preflightâ€¦
+                      Running fresh safety preflight...
                     </Typography.Text>
                   </Space>
                 )}
@@ -719,68 +535,74 @@ export function ManagerPage({ composition }: ManagerPageProps) {
             <DeletionProgressPanel
               state={runState}
               currentConversationLabel={currentConversationLabel}
-              onPause={() => currentRun?.pauseDeletion()}
+              onPause={pauseRun}
               onResume={resumeRun}
+              resumeDisabled={protectionMutationPending}
               onStop={stopRun}
               onRetryFailed={retryFailed}
             />
           )}
 
-          <ConversationTable
-            view={conversationView}
-            conversations={
-              conversationView === "standalone"
-                ? visibleConversations
-                : visibleProjectConversations
-            }
-            protectedConversationIds={protectedConversationIds}
-            selectedConversationIds={selectedConversationIds}
-            selectionDisabled={selectionLocked}
-            protectionDisabled={protectionLocked}
-            sortField={
-              conversationView === "standalone" ? sortField : projectSortField
-            }
-            sortDirection={
-              conversationView === "standalone"
-                ? sortDirection
-                : projectSortDirection
-            }
-            page={conversationView === "standalone" ? page : projectPage}
-            pageSize={
-              conversationView === "standalone" ? pageSize : projectPageSize
-            }
-            onSelectionChange={setSelectedConversationIds}
-            onProtect={handleProtect}
-            onUnprotect={handleUnprotect}
-            onOpen={(conversationId) => {
-              composition.openConversation(conversationId);
-              setNotice(
-                composition.mode === "demo"
-                  ? `Demo Open action: ${conversationId}`
-                  : null,
-              );
-            }}
-            onSort={(field, direction) => {
-              if (conversationView === "projects") {
+          {conversationView === "standalone" ? (
+            <ConversationTable
+              view="standalone"
+              conversations={visibleConversations}
+              protectedConversationIds={protectedConversationIds}
+              selectedConversationIds={selectedConversationIds}
+              selectionDisabled={selectionLocked}
+              protectionDisabled={protectionLocked}
+              sortField={sortField}
+              sortDirection={sortDirection}
+              page={visibleStandalonePage}
+              pageSize={pageSize}
+              onSelectionChange={setSelectedConversationIds}
+              onProtect={handleProtect}
+              onUnprotect={handleUnprotect}
+              onOpen={(conversationId) => {
+                composition.openConversation(conversationId);
+                setNotice(
+                  composition.mode === "demo"
+                    ? `Demo Open action: ${conversationId}`
+                    : null,
+                );
+              }}
+              onSort={(field, direction) => {
+                setSortField(field);
+                setSortDirection(direction);
+                setPage(1);
+              }}
+              onPageChange={(nextPage, nextPageSize) => {
+                setPage(nextPageSize === pageSize ? nextPage : 1);
+                setPageSize(nextPageSize);
+              }}
+            />
+          ) : (
+            <ConversationTable
+              view="projects"
+              conversations={visibleProjectConversations}
+              sortField={projectSortField}
+              sortDirection={projectSortDirection}
+              page={visibleProjectPage}
+              pageSize={projectPageSize}
+              onOpen={(conversationId) => {
+                composition.openConversation(conversationId);
+                setNotice(
+                  composition.mode === "demo"
+                    ? `Demo Open action: ${conversationId}`
+                    : null,
+                );
+              }}
+              onSort={(field, direction) => {
                 setProjectSortField(field);
                 setProjectSortDirection(direction);
                 setProjectPage(1);
-                return;
-              }
-              setSortField(field);
-              setSortDirection(direction);
-              setPage(1);
-            }}
-            onPageChange={(nextPage, nextPageSize) => {
-              if (conversationView === "projects") {
+              }}
+              onPageChange={(nextPage, nextPageSize) => {
                 setProjectPage(nextPageSize === projectPageSize ? nextPage : 1);
                 setProjectPageSize(nextPageSize);
-                return;
-              }
-              setPage(nextPageSize === pageSize ? nextPage : 1);
-              setPageSize(nextPageSize);
-            }}
-          />
+              }}
+            />
+          )}
         </>
       )}
 
@@ -788,10 +610,7 @@ export function ManagerPage({ composition }: ManagerPageProps) {
         plan={preflightPlan}
         confirmationText={confirmationText}
         onConfirmationTextChange={setConfirmationText}
-        onCancel={() => {
-          setPreflightPlan(null);
-          setConfirmationText("");
-        }}
+        onCancel={cancelConfirmation}
         onConfirm={confirmAndStartDeletion}
       />
     </Space>

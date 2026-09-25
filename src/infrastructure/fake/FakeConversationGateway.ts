@@ -1,4 +1,9 @@
 import { z } from "zod";
+import {
+  isSafetyCriticalIdentifier,
+  MAX_SAFETY_CRITICAL_IDENTIFIER_LENGTH,
+} from "../../domain/identifier";
+import { createAppError } from "../../application/AppError";
 import type { Clock } from "../../application/ports/Clock";
 import type {
   ConversationGateway,
@@ -8,11 +13,16 @@ import type {
   ProjectReference,
   ReadResult,
 } from "../../application/ports/ConversationGateway";
+import { ChatGptOperation } from "../../application/ports/ConversationGateway";
 import type { Conversation } from "../../domain/conversation";
 import type { FakeDeleteOutcome, FakeGatewayFixture } from "./fixtures";
 
 const rawConversationSchema = z.object({
-  id: z.string().min(1).max(512),
+  id: z
+    .string()
+    .min(1)
+    .max(MAX_SAFETY_CRITICAL_IDENTIFIER_LENGTH)
+    .refine(isSafetyCriticalIdentifier),
   title: z.unknown().optional(),
   createdAt: z.unknown().optional(),
   updatedAt: z.unknown().optional(),
@@ -21,7 +31,13 @@ const rawConversationPageSchema = z.object({
   conversations: z.array(rawConversationSchema),
   nextCursor: z.string().min(1).nullable(),
 });
-const projectSchema = z.object({ id: z.string().min(1).max(512) });
+const projectSchema = z.object({
+  id: z
+    .string()
+    .min(1)
+    .max(MAX_SAFETY_CRITICAL_IDENTIFIER_LENGTH)
+    .refine(isSafetyCriticalIdentifier),
+});
 const projectsSchema = z.array(projectSchema);
 const projectConversationPageSchema = z.object({
   conversations: z.array(rawConversationSchema),
@@ -44,13 +60,37 @@ function deleteResult(outcome: FakeDeleteOutcome): DeleteAttemptResult {
     return { kind: "skipped", status: outcome };
   }
   if (outcome === 401) {
-    return { kind: "fatal", reason: "authentication", status: 401 };
+    return {
+      kind: "fatal",
+      reason: "authentication",
+      error: createAppError("AuthenticationUnavailable", {
+        operation: ChatGptOperation.ConversationDelete,
+        httpStatus: 401,
+      }),
+      status: 401,
+    };
   }
   if (outcome === 403) {
-    return { kind: "fatal", reason: "authorization", status: 403 };
+    return {
+      kind: "fatal",
+      reason: "authorization",
+      error: createAppError("AuthorizationDenied", {
+        operation: ChatGptOperation.ConversationDelete,
+        httpStatus: 403,
+      }),
+      status: 403,
+    };
   }
   if (outcome === 422) {
-    return { kind: "fatal", reason: "client", status: 422 };
+    return {
+      kind: "fatal",
+      reason: "client",
+      error: createAppError("ApiCompatibilityFailure", {
+        operation: ChatGptOperation.ConversationDelete,
+        httpStatus: 422,
+      }),
+      status: 422,
+    };
   }
   if (outcome === 429) {
     return {

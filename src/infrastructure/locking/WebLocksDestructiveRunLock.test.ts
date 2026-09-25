@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  DESTRUCTIVE_RUN_LOCK_NAME,
   WebLocksDestructiveRunLock,
   type WebLockManager,
 } from "./WebLocksDestructiveRunLock";
@@ -50,11 +49,11 @@ describe("WebLocksDestructiveRunLock", () => {
     ).resolves.toEqual({ kind: "unavailable" });
     expect(locks.calls).toEqual([
       {
-        name: DESTRUCTIVE_RUN_LOCK_NAME,
+        name: "chatgpt-cleaner:destructive-run:v1",
         options: { ifAvailable: true, mode: "exclusive" },
       },
       {
-        name: DESTRUCTIVE_RUN_LOCK_NAME,
+        name: "chatgpt-cleaner:destructive-run:v1",
         options: { ifAvailable: true, mode: "exclusive" },
       },
     ]);

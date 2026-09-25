@@ -5,20 +5,19 @@ import type {
   SortDirection,
 } from "../domain/conversation";
 
-export interface ConversationTableProps {
-  readonly view: "standalone" | "projects";
+export type ConversationView = "standalone" | "projects";
+
+export const CONVERSATION_TABLE_PAGINATION = {
+  defaultPageSize: 50,
+  pageSizeOptions: [25, 50, 100],
+} as const;
+
+interface CommonConversationTableProps {
   readonly conversations: readonly Conversation[];
-  readonly protectedConversationIds: ReadonlySet<string>;
-  readonly selectedConversationIds: ReadonlySet<string>;
-  readonly selectionDisabled: boolean;
-  readonly protectionDisabled: boolean;
   readonly sortField: ConversationSortField;
   readonly sortDirection: SortDirection;
   readonly page: number;
   readonly pageSize: number;
-  readonly onSelectionChange: (ids: ReadonlySet<string>) => void;
-  readonly onProtect: (conversationId: string) => void;
-  readonly onUnprotect: (conversationId: string) => void;
   readonly onOpen: (conversationId: string) => void;
   readonly onSort: (
     field: ConversationSortField,
@@ -27,29 +26,57 @@ export interface ConversationTableProps {
   readonly onPageChange: (page: number, pageSize: number) => void;
 }
 
+interface StandaloneConversationTableProps extends CommonConversationTableProps {
+  readonly view: Extract<ConversationView, "standalone">;
+  readonly protectedConversationIds: ReadonlySet<string>;
+  readonly selectedConversationIds: ReadonlySet<string>;
+  readonly selectionDisabled: boolean;
+  readonly protectionDisabled: boolean;
+  readonly onSelectionChange: (ids: ReadonlySet<string>) => void;
+  readonly onProtect: (conversationId: string) => void;
+  readonly onUnprotect: (conversationId: string) => void;
+}
+
+interface ProjectConversationTableProps extends CommonConversationTableProps {
+  readonly view: Extract<ConversationView, "projects">;
+  readonly protectedConversationIds?: never;
+  readonly selectedConversationIds?: never;
+  readonly selectionDisabled?: never;
+  readonly protectionDisabled?: never;
+  readonly onSelectionChange?: never;
+  readonly onProtect?: never;
+  readonly onUnprotect?: never;
+}
+
+type ConversationTableProps =
+  StandaloneConversationTableProps | ProjectConversationTableProps;
+
 function formatDate(timestamp: number | null): string {
   if (timestamp === null) return "Unknown";
   return new Date(timestamp).toLocaleString();
 }
 
-export function ConversationTable({
-  view,
-  conversations,
-  protectedConversationIds,
-  selectedConversationIds,
-  selectionDisabled,
-  protectionDisabled,
-  sortField,
-  sortDirection,
-  page,
-  pageSize,
-  onSelectionChange,
-  onProtect,
-  onUnprotect,
-  onOpen,
-  onSort,
-  onPageChange,
-}: ConversationTableProps) {
+export function clampTablePage(
+  requestedPage: number,
+  recordCount: number,
+  pageSize: number,
+): number {
+  const lastPage = Math.max(1, Math.ceil(recordCount / pageSize));
+  return Math.min(Math.max(1, requestedPage), lastPage);
+}
+
+export function ConversationTable(props: ConversationTableProps) {
+  const {
+    view,
+    conversations,
+    sortField,
+    sortDirection,
+    page,
+    pageSize,
+    onOpen,
+    onSort,
+    onPageChange,
+  } = props;
   const columns: TableProps<Conversation>["columns"] = [
     {
       title: "Title",
@@ -102,7 +129,7 @@ export function ConversationTable({
         if (view === "projects") {
           return <Tag color="blue">Project protected</Tag>;
         }
-        return protectedConversationIds.has(conversation.id) ? (
+        return props.protectedConversationIds.has(conversation.id) ? (
           <Tag color="blue">Protected</Tag>
         ) : (
           <Tag>Unprotected</Tag>
@@ -113,9 +140,9 @@ export function ConversationTable({
       title: "Actions",
       key: "actions",
       render: (_, conversation) => {
-        const protectedConversation = protectedConversationIds.has(
-          conversation.id,
-        );
+        const protectedConversation =
+          view === "standalone" &&
+          props.protectedConversationIds.has(conversation.id);
         return (
           <Space>
             <Button size="small" onClick={() => onOpen(conversation.id)}>
@@ -124,11 +151,11 @@ export function ConversationTable({
             {view === "standalone" && (
               <Button
                 size="small"
-                disabled={protectionDisabled}
+                disabled={props.protectionDisabled}
                 onClick={() =>
                   protectedConversation
-                    ? onUnprotect(conversation.id)
-                    : onProtect(conversation.id)
+                    ? props.onUnprotect(conversation.id)
+                    : props.onProtect(conversation.id)
                 }
               >
                 {protectedConversation ? "Unprotect" : "Protect"}
@@ -183,16 +210,16 @@ export function ConversationTable({
                 type: "checkbox",
                 columnTitle: "Selection",
                 hideSelectAll: true,
-                selectedRowKeys: [...selectedConversationIds],
+                selectedRowKeys: [...props.selectedConversationIds],
                 preserveSelectedRowKeys: true,
                 getCheckboxProps: (conversation) => ({
                   disabled:
-                    selectionDisabled ||
-                    protectedConversationIds.has(conversation.id),
+                    props.selectionDisabled ||
+                    props.protectedConversationIds.has(conversation.id),
                   "aria-label": `Select ${conversation.title}`,
                 }),
                 onChange: (selectedRowKeys) => {
-                  onSelectionChange(
+                  props.onSelectionChange(
                     new Set(
                       selectedRowKeys.filter(
                         (key): key is string => typeof key === "string",
@@ -206,8 +233,8 @@ export function ConversationTable({
         pagination={{
           current: page,
           pageSize,
-          defaultPageSize: 50,
-          pageSizeOptions: [25, 50, 100],
+          defaultPageSize: CONVERSATION_TABLE_PAGINATION.defaultPageSize,
+          pageSizeOptions: [...CONVERSATION_TABLE_PAGINATION.pageSizeOptions],
           showSizeChanger: true,
           showTotal: (total) => `${total} conversations`,
         }}

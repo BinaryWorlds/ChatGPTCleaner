@@ -1,39 +1,61 @@
 import { Card, Descriptions, Tag, Typography } from "antd";
 import type { ReadFailureDiagnostic } from "../application/ports/ConversationGateway";
+import type { SafetyBlockReason } from "../application/SafetyBlockReason";
+import type { InventoryStage } from "./useManagerInventory";
 
-export interface SafetyStatusProps {
-  readonly status: "loading" | "ready" | "blocked";
-  readonly blockedReason: string | undefined;
-  readonly diagnostic?: ReadFailureDiagnostic;
-  readonly loadingStage?: "compatibility" | "inventory" | "projects";
-  readonly readCompatibilityConfirmed?: boolean;
+export type SafetyStatusState =
+  | {
+      readonly kind: "loading";
+      readonly stage: InventoryStage;
+    }
+  | { readonly kind: "ready" }
+  | {
+      readonly kind: "blocked";
+      readonly reason: SafetyBlockReason;
+      readonly diagnostic?: ReadFailureDiagnostic;
+      readonly readCompatibilityConfirmed: boolean;
+    };
+
+interface SafetyStatusProps {
+  readonly state: SafetyStatusState;
 }
+
+type SafetyIndicatorStatus =
+  "OK" | "READY" | "CHECKING" | "NOT CHECKED" | "BLOCKED";
 
 interface SafetyIndicators {
-  readonly connection: string;
-  readonly sourceTab: string;
-  readonly readCompatibility: string;
-  readonly projectProtection: string;
-  readonly runLock: string;
-  readonly deletion: string;
+  readonly connection: SafetyIndicatorStatus;
+  readonly sourceTab: SafetyIndicatorStatus;
+  readonly readCompatibility: SafetyIndicatorStatus;
+  readonly projectProtection: SafetyIndicatorStatus;
+  readonly runLock: SafetyIndicatorStatus;
+  readonly deletion: SafetyIndicatorStatus;
 }
 
-const blockedReasonLabels: Readonly<Record<string, string>> = {
+const blockedReasonLabels: Readonly<Record<SafetyBlockReason, string>> = {
   authentication: "Authentication unavailable",
   authorization: "Authorization denied",
   compatibility: "Read API compatibility failed",
   network: "Network unavailable",
   request: "ChatGPT rejected an inventory request",
   "retry-later": "Retry later",
+  server: "ChatGPT returned a temporary server error",
   "source-unavailable":
     "Source tab unavailable. Return to a valid ChatGPT tab and relaunch ChatGPTCleaner.",
   pagination: "Inventory pagination incomplete",
   "protected-storage": "Protected-ID storage invalid",
   "destructive-run-lock": "Another destructive run is active",
+  client: "ChatGPT rejected the deletion request",
+  "response-anomaly": "ChatGPT returned an incompatible deletion response",
+  "unexpected-run-error": "The destructive run stopped unexpectedly",
 };
 
-function indicatorColor(value: string): string {
-  if (value === "OK" || value === "AVAILABLE" || value === "READY") {
+export function safetyBlockReasonLabel(reason: SafetyBlockReason): string {
+  return blockedReasonLabels[reason];
+}
+
+function indicatorColor(value: SafetyIndicatorStatus): string {
+  if (value === "OK" || value === "READY") {
     return "success";
   }
   if (value === "CHECKING" || value === "NOT CHECKED") return "processing";
@@ -41,19 +63,16 @@ function indicatorColor(value: string): string {
 }
 
 export function deriveSafetyIndicators(
-  status: SafetyStatusProps["status"],
-  blockedReason: string | undefined,
-  loadingStage: SafetyStatusProps["loadingStage"] = "compatibility",
-  readCompatibilityConfirmed = false,
+  state: SafetyStatusState,
 ): SafetyIndicators {
-  if (status === "loading") {
-    if (loadingStage !== "compatibility") {
+  if (state.kind === "loading") {
+    if (state.stage !== "compatibility") {
       return {
         connection: "OK",
         sourceTab: "OK",
         readCompatibility: "OK",
         projectProtection:
-          loadingStage === "projects" ? "CHECKING" : "NOT CHECKED",
+          state.stage === "projects" ? "CHECKING" : "NOT CHECKED",
         runLock: "NOT CHECKED",
         deletion: "BLOCKED",
       };
@@ -67,19 +86,20 @@ export function deriveSafetyIndicators(
       deletion: "CHECKING",
     };
   }
-  if (status === "ready") {
+  if (state.kind === "ready") {
     return {
       connection: "OK",
       sourceTab: "OK",
       readCompatibility: "OK",
       projectProtection: "OK",
-      runLock: "AVAILABLE",
+      runLock: "NOT CHECKED",
       deletion: "READY",
     };
   }
 
+  const blockedReason = state.reason;
   const sourceValidated = blockedReason !== "source-unavailable";
-  if (readCompatibilityConfirmed) {
+  if (state.readCompatibilityConfirmed) {
     return {
       connection: "OK",
       sourceTab: "OK",
@@ -91,7 +111,7 @@ export function deriveSafetyIndicators(
   }
   const connectionValidated =
     sourceValidated &&
-    !["authentication", "network", "request", "retry-later"].includes(
+    !["authentication", "network", "request", "retry-later", "server"].includes(
       blockedReason ?? "",
     );
   const readValidated =
@@ -110,19 +130,8 @@ export function deriveSafetyIndicators(
   };
 }
 
-export function SafetyStatus({
-  status,
-  blockedReason,
-  diagnostic,
-  loadingStage,
-  readCompatibilityConfirmed,
-}: SafetyStatusProps) {
-  const indicators = deriveSafetyIndicators(
-    status,
-    blockedReason,
-    loadingStage,
-    readCompatibilityConfirmed,
-  );
+export function SafetyStatus({ state }: SafetyStatusProps) {
+  const indicators = deriveSafetyIndicators(state);
 
   return (
     <Card title="Safety status" size="small">
@@ -157,7 +166,10 @@ export function SafetyStatus({
           </Tag>
         </Descriptions.Item>
         <Descriptions.Item label="Run lock">
-          <Tag color={indicatorColor(indicators.runLock)}>
+          <Tag
+            color={indicatorColor(indicators.runLock)}
+            data-testid="safety-run-lock"
+          >
             {indicators.runLock}
           </Tag>
         </Descriptions.Item>
@@ -170,16 +182,14 @@ export function SafetyStatus({
           </Tag>
         </Descriptions.Item>
       </Descriptions>
-      {status === "blocked" && (
+      {state.kind === "blocked" && (
         <Typography.Paragraph type="danger" role="alert">
-          {blockedReasonLabels[blockedReason ?? ""] ??
-            blockedReason ??
-            "Safety checks failed."}
-          {diagnostic === undefined ? null : (
+          {safetyBlockReasonLabel(state.reason)}
+          {state.diagnostic === undefined ? null : (
             <>
               <br />
               <Typography.Text code>
-                {formatReadDiagnostic(diagnostic)}
+                {formatReadDiagnostic(state.diagnostic)}
               </Typography.Text>
             </>
           )}
@@ -195,9 +205,7 @@ function operationLabel(operation: ReadFailureDiagnostic["operation"]): string {
   return "Project conversations";
 }
 
-export function formatReadDiagnostic(
-  diagnostic: ReadFailureDiagnostic,
-): string {
+function formatReadDiagnostic(diagnostic: ReadFailureDiagnostic): string {
   const context = `${operationLabel(diagnostic.operation)} (${diagnostic.endpointFamily}), page ${diagnostic.paginationStep}`;
   const response = [
     diagnostic.httpStatus === undefined

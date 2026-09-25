@@ -1,15 +1,12 @@
 import type { SettingsStore } from "./ports/SettingsStore";
-
-export const DEFAULT_REQUESTS_PER_MINUTE = 60;
-export const MIN_REQUESTS_PER_MINUTE = 1;
-export const MAX_REQUESTS_PER_MINUTE = 120;
+import { AppConfig } from "../config";
 
 export function isValidRequestsPerMinute(value: unknown): value is number {
   return (
     typeof value === "number" &&
     Number.isInteger(value) &&
-    value >= MIN_REQUESTS_PER_MINUTE &&
-    value <= MAX_REQUESTS_PER_MINUTE
+    value >= AppConfig.deletion.requestsPerMinute.min &&
+    value <= AppConfig.deletion.requestsPerMinute.max
   );
 }
 
@@ -19,8 +16,10 @@ export async function loadRequestsPerMinute(
   const storedValue = await settingsStore.loadRequestsPerMinute();
   if (isValidRequestsPerMinute(storedValue)) return storedValue;
 
-  await settingsStore.saveRequestsPerMinute(DEFAULT_REQUESTS_PER_MINUTE);
-  return DEFAULT_REQUESTS_PER_MINUTE;
+  await settingsStore.saveRequestsPerMinute(
+    AppConfig.deletion.requestsPerMinute.default,
+  );
+  return AppConfig.deletion.requestsPerMinute.default;
 }
 
 export async function saveRequestsPerMinute(
@@ -31,4 +30,21 @@ export async function saveRequestsPerMinute(
 
   await settingsStore.saveRequestsPerMinute(requestsPerMinute);
   return true;
+}
+
+export class SerializedRequestsPerMinuteWriter {
+  private pendingWrite: Promise<void> = Promise.resolve();
+
+  public constructor(private readonly settingsStore: SettingsStore) {}
+
+  public save(requestsPerMinute: number): Promise<boolean> {
+    const write = this.pendingWrite.then(() =>
+      saveRequestsPerMinute(this.settingsStore, requestsPerMinute),
+    );
+    this.pendingWrite = write.then(
+      () => undefined,
+      () => undefined,
+    );
+    return write;
+  }
 }

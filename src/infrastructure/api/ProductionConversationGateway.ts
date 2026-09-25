@@ -1,8 +1,6 @@
-import { z } from "zod";
-import {
-  INVENTORY_MAX_PAGES,
-  INVENTORY_MAX_RECORDS,
-} from "../../application/paginationLimits";
+import { AppConfig } from "../../config";
+import { createAppError } from "../../application/AppError";
+import { isSafetyCriticalIdentifier } from "../../domain/identifier";
 import type {
   ConversationGateway,
   ConversationPage,
@@ -11,8 +9,10 @@ import type {
   ProjectReference,
   ReadResult,
 } from "../../application/ports/ConversationGateway";
-import type { Conversation } from "../../domain/conversation";
-import type { SourceTabValidationResult } from "../browser/SourceTab";
+import {
+  ChatGptOperation,
+  STANDALONE_CONVERSATION_PAGE_LIMIT,
+} from "../../application/ports/ConversationGateway";
 import {
   logReadEvent,
   logSchemaValidationFailure,
@@ -24,74 +24,21 @@ import type {
   ReadTransportPayload,
 } from "./PageContextReadTransport";
 import type { PageContextDeleteTransport } from "./PageContextDeleteTransport";
-import { STANDALONE_PAGE_LIMIT } from "./readLimits";
 import {
   createReadDiagnostic,
   createSchemaDiagnostic,
 } from "./readDiagnostics";
 import {
-  normalizeDisplayTitle,
-  parseSafetyCriticalIdentifier,
-} from "./readValidation";
-
-const identifierSchema = z
-  .string()
-  .max(512)
-  .refine((value) => value.trim().length > 0);
-const cursorSchema = z.string().min(1).max(2_048).nullable();
-const rawConversationSchema = z.object({
-  id: identifierSchema,
-  title: z.unknown().optional(),
-  create_time: z.unknown().optional(),
-  update_time: z.unknown().optional(),
-});
-const standalonePageSchema = z.object({
-  items: z.array(rawConversationSchema),
-  total: z.number().int().nonnegative(),
-  limit: z.number().int().positive(),
-  offset: z.number().int().nonnegative(),
-});
-const projectItemSchema = z.object({
-  gizmo: z.object({
-    gizmo: z.object({ id: identifierSchema }),
-  }),
-});
-const projectsPageSchema = z.object({
-  items: z.array(projectItemSchema),
-  cursor: cursorSchema,
-});
-const projectConversationPageSchema = z.object({
-  items: z.array(rawConversationSchema),
-  cursor: cursorSchema,
-});
-
-export interface SourceTabValidator {
-  validate(): Promise<SourceTabValidationResult>;
-}
-
-function displayTimestamp(value: unknown): number | null {
-  if (typeof value !== "string") return null;
-  const timestamp = Date.parse(value);
-  return Number.isFinite(timestamp) ? timestamp : null;
-}
-
-function normalizeConversation(
-  rawConversation: z.infer<typeof rawConversationSchema>,
-): Conversation {
-  return {
-    id: rawConversation.id,
-    title: normalizeDisplayTitle(rawConversation.title),
-    createdAt: displayTimestamp(rawConversation.create_time),
-    updatedAt: displayTimestamp(rawConversation.update_time),
-  };
-}
-
-function parseOffset(cursor: string | null): number | null {
-  if (cursor === null) return 0;
-  if (!/^\d+$/.test(cursor)) return null;
-  const offset = Number(cursor);
-  return Number.isSafeInteger(offset) ? offset : null;
-}
+  normalizeConversation,
+  parseProjectConversationPage,
+  parseProjectsPage,
+  parseStandalonePage,
+} from "./conversationPageParsing";
+import {
+  decideCursorPagination,
+  decideStandalonePagination,
+  parseOffset,
+} from "./paginationDecisions";
 
 interface StandalonePagePerformance extends ReadPageTiming {
   readonly offset: number;
@@ -135,13 +82,14 @@ export class ProductionConversationGateway implements ConversationGateway {
     this.maxObservedStandaloneReadConcurrency = 0;
     logger.info("inventory.standalone.started", {
       operationId: this.inventoryOperationId,
-      limit: STANDALONE_PAGE_LIMIT,
+      limit: STANDALONE_CONVERSATION_PAGE_LIMIT,
     });
     return this.transport.beginSafetyInventoryRead();
   }
 
   public completeStandaloneInventoryRead(committedPageCount: number): void {
-    const terminalOffsetExclusive = committedPageCount * STANDALONE_PAGE_LIMIT;
+    const terminalOffsetExclusive =
+      committedPageCount * STANDALONE_CONVERSATION_PAGE_LIMIT;
     const committedSamples = this.standalonePerformance.filter(
       (sample) => sample.offset < terminalOffsetExclusive,
     );
@@ -202,17 +150,16 @@ export class ProductionConversationGateway implements ConversationGateway {
     if (result.kind === "failure") return result;
 
     const paginationStep =
-      Math.floor(requestedOffset / STANDALONE_PAGE_LIMIT) + 1;
+      Math.floor(requestedOffset / STANDALONE_CONVERSATION_PAGE_LIMIT) + 1;
     logReadEvent({
       operation: "standalone",
       page: paginationStep,
-      endpoint: "/backend-api/conversations",
       stage: "SCHEMA_VALIDATION_START",
       status: result.value.httpStatus,
       jsonParsed: true,
     });
     const validationStartedAt = performance.now();
-    const parsed = standalonePageSchema.safeParse(result.value.body);
+    const parsed = parseStandalonePage(result.value.body);
     const validationMs = performance.now() - validationStartedAt;
     if (!parsed.success) {
       logSchemaValidationFailure(
@@ -235,10 +182,19 @@ export class ProductionConversationGateway implements ConversationGateway {
     logReadEvent({
       operation: "standalone",
       page: paginationStep,
-      endpoint: "/backend-api/conversations",
       stage: "SCHEMA_VALIDATION_OK",
     });
-    if (parsed.data.offset !== requestedOffset) {
+    const paginationStartedAt = performance.now();
+    const paginationDecision = decideStandalonePagination(
+      requestedOffset,
+      STANDALONE_CONVERSATION_PAGE_LIMIT,
+      parsed.data,
+    );
+    const paginationMs = performance.now() - paginationStartedAt;
+    if (
+      paginationDecision.kind === "blocked" &&
+      paginationDecision.reason === "offset-mismatch"
+    ) {
       logReadEvent({
         operation: "standalone",
         page: paginationStep,
@@ -248,7 +204,6 @@ export class ProductionConversationGateway implements ConversationGateway {
         limit: parsed.data.limit,
         total: parsed.data.total,
         paginationDecision: "BLOCKED",
-        reason: "response offset differs from requested offset",
       });
       return {
         kind: "failure",
@@ -265,11 +220,7 @@ export class ProductionConversationGateway implements ConversationGateway {
         }),
       };
     }
-    const effectivePageLimit = Math.min(
-      STANDALONE_PAGE_LIMIT,
-      parsed.data.limit,
-    );
-    if (parsed.data.items.length > effectivePageLimit) {
+    if (paginationDecision.kind === "blocked") {
       logReadEvent({
         operation: "standalone",
         page: paginationStep,
@@ -279,7 +230,6 @@ export class ProductionConversationGateway implements ConversationGateway {
         limit: parsed.data.limit,
         total: parsed.data.total,
         paginationDecision: "BLOCKED",
-        reason: "returned item count exceeds requested limit",
       });
       return {
         kind: "failure",
@@ -297,13 +247,7 @@ export class ProductionConversationGateway implements ConversationGateway {
       };
     }
 
-    const paginationStartedAt = performance.now();
-    const observedEnd = requestedOffset + parsed.data.items.length;
-    const pageIsFull = parsed.data.items.length === effectivePageLimit;
-    const totalIndicatesMore =
-      parsed.data.items.length > 0 && observedEnd < parsed.data.total;
-    const complete = !pageIsFull && !totalIndicatesMore;
-    const paginationMs = performance.now() - paginationStartedAt;
+    const { complete, observedEnd, effectivePageLimit } = paginationDecision;
     logReadEvent({
       operation: "standalone",
       page: paginationStep,
@@ -314,11 +258,6 @@ export class ProductionConversationGateway implements ConversationGateway {
       total: parsed.data.total,
       calculatedNextOffset: observedEnd,
       paginationDecision: complete ? "COMPLETE" : "CONTINUE",
-      reason: complete
-        ? "returned page is short and total does not indicate more"
-        : pageIsFull
-          ? "returned page is full at the effective response limit"
-          : "informational total indicates more records",
     });
     const finishedAt = performance.now();
     const performanceSample: StandalonePagePerformance = {
@@ -369,7 +308,7 @@ export class ProductionConversationGateway implements ConversationGateway {
     const visitedCursors = new Set<string>();
     let cursor: string | null = null;
 
-    for (let page = 0; page < INVENTORY_MAX_PAGES; page += 1) {
+    for (let page = 0; page < AppConfig.inventory.maxPages; page += 1) {
       const paginationStep = page + 1;
       const result = await this.transport.readProjectsPage(
         cursor,
@@ -379,12 +318,11 @@ export class ProductionConversationGateway implements ConversationGateway {
       logReadEvent({
         operation: "projects",
         page: paginationStep,
-        endpoint: "/backend-api/gizmos/snorlax/sidebar",
         stage: "SCHEMA_VALIDATION_START",
         status: result.value.httpStatus,
         jsonParsed: true,
       });
-      const parsed = projectsPageSchema.safeParse(result.value.body);
+      const parsed = parseProjectsPage(result.value.body);
       if (!parsed.success) {
         logSchemaValidationFailure(
           "projects",
@@ -406,13 +344,12 @@ export class ProductionConversationGateway implements ConversationGateway {
       logReadEvent({
         operation: "projects",
         page: paginationStep,
-        endpoint: "/backend-api/gizmos/snorlax/sidebar",
         stage: "SCHEMA_VALIDATION_OK",
       });
       for (const item of parsed.data.items) {
         const id = item.gizmo.gizmo.id;
         projectsById.set(id, { id });
-        if (projectsById.size > INVENTORY_MAX_RECORDS) {
+        if (projectsById.size > AppConfig.inventory.maxRecords) {
           return {
             kind: "failure",
             reason: "compatibility",
@@ -431,7 +368,12 @@ export class ProductionConversationGateway implements ConversationGateway {
       }
 
       const nextCursor = parsed.data.cursor;
-      if (nextCursor === null) {
+      const paginationDecision = decideCursorPagination(
+        cursor,
+        visitedCursors,
+        nextCursor,
+      );
+      if (paginationDecision.kind === "complete") {
         logReadEvent({
           operation: "projects",
           page: paginationStep,
@@ -440,7 +382,6 @@ export class ProductionConversationGateway implements ConversationGateway {
           cursorType: "null",
           cursorPresent: false,
           paginationDecision: "COMPLETE",
-          reason: "terminal null cursor",
         });
         logger.info("inventory.projects.discovery.completed", {
           operationId: this.inventoryOperationId,
@@ -450,7 +391,7 @@ export class ProductionConversationGateway implements ConversationGateway {
         });
         return { kind: "success", value: [...projectsById.values()] };
       }
-      if (nextCursor === cursor || visitedCursors.has(nextCursor)) {
+      if (paginationDecision.kind === "blocked") {
         logReadEvent({
           operation: "projects",
           page: paginationStep,
@@ -459,7 +400,6 @@ export class ProductionConversationGateway implements ConversationGateway {
           cursorType: typeof nextCursor,
           cursorPresent: true,
           paginationDecision: "BLOCKED",
-          reason: "cursor did not progress",
         });
         return {
           kind: "failure",
@@ -484,10 +424,9 @@ export class ProductionConversationGateway implements ConversationGateway {
         cursorType: typeof nextCursor,
         cursorPresent: true,
         paginationDecision: "CONTINUE",
-        reason: "new non-null cursor",
       });
-      visitedCursors.add(nextCursor);
-      cursor = nextCursor;
+      visitedCursors.add(paginationDecision.nextCursor);
+      cursor = paginationDecision.nextCursor;
     }
 
     return {
@@ -495,7 +434,7 @@ export class ProductionConversationGateway implements ConversationGateway {
       reason: "compatibility",
       diagnostic: createReadDiagnostic({
         operation: "projects",
-        paginationStep: INVENTORY_MAX_PAGES,
+        paginationStep: AppConfig.inventory.maxPages,
         category: "pagination-contract",
         fieldPath: "cursor",
         expectedType: "terminal null within safety ceiling",
@@ -514,7 +453,7 @@ export class ProductionConversationGateway implements ConversationGateway {
       operationId: this.inventoryOperationId,
       page: paginationStep,
     });
-    if (parseSafetyCriticalIdentifier(projectId) === null) {
+    if (!isSafetyCriticalIdentifier(projectId)) {
       return {
         kind: "failure",
         reason: "compatibility",
@@ -537,12 +476,11 @@ export class ProductionConversationGateway implements ConversationGateway {
     logReadEvent({
       operation: "project-conversations",
       page: paginationStep,
-      endpoint: "/backend-api/gizmos/{project-id}/conversations",
       stage: "SCHEMA_VALIDATION_START",
       status: result.value.httpStatus,
       jsonParsed: true,
     });
-    const parsed = projectConversationPageSchema.safeParse(result.value.body);
+    const parsed = parseProjectConversationPage(result.value.body);
     if (!parsed.success) {
       logSchemaValidationFailure(
         "project-conversations",
@@ -564,7 +502,6 @@ export class ProductionConversationGateway implements ConversationGateway {
     logReadEvent({
       operation: "project-conversations",
       page: paginationStep,
-      endpoint: "/backend-api/gizmos/{project-id}/conversations",
       stage: "SCHEMA_VALIDATION_OK",
     });
     logReadEvent({
@@ -576,10 +513,6 @@ export class ProductionConversationGateway implements ConversationGateway {
         parsed.data.cursor === null ? "null" : typeof parsed.data.cursor,
       cursorPresent: parsed.data.cursor !== null,
       paginationDecision: parsed.data.cursor === null ? "COMPLETE" : "CONTINUE",
-      reason:
-        parsed.data.cursor === null
-          ? "terminal null cursor"
-          : "non-null cursor",
     });
     logger.debug("inventory.project.completed", {
       operationId: this.inventoryOperationId,
@@ -600,7 +533,13 @@ export class ProductionConversationGateway implements ConversationGateway {
     conversationId: string,
   ): Promise<DeleteAttemptResult> {
     if (this.deleteTransport === undefined) {
-      return Promise.resolve({ kind: "fatal", reason: "response-anomaly" });
+      return Promise.resolve({
+        kind: "fatal",
+        reason: "response-anomaly",
+        error: createAppError("ApiCompatibilityFailure", {
+          operation: ChatGptOperation.ConversationDelete,
+        }),
+      });
     }
     return this.deleteTransport.deleteConversation(conversationId);
   }

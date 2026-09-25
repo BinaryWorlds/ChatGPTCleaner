@@ -1,7 +1,21 @@
 import { z } from "zod";
+import {
+  isSafetyCriticalIdentifier,
+  MAX_SAFETY_CRITICAL_IDENTIFIER_LENGTH,
+} from "../../domain/identifier";
 
-const boundedIdentifierSchema = z.string().min(1).max(512);
-const paginationCursorSchema = z.string().min(1).max(2_048).nullable();
+export const MAX_PAGINATION_CURSOR_LENGTH = 2_048;
+
+const boundedIdentifierSchema = z
+  .string()
+  .min(1)
+  .max(MAX_SAFETY_CRITICAL_IDENTIFIER_LENGTH)
+  .refine(isSafetyCriticalIdentifier);
+export const paginationCursorSchema = z
+  .string()
+  .min(1)
+  .max(MAX_PAGINATION_CURSOR_LENGTH)
+  .nullable();
 
 export function parseSafetyCriticalIdentifier(value: unknown): string | null {
   const parsed = boundedIdentifierSchema.safeParse(value);
@@ -17,8 +31,4 @@ export function normalizeDisplayTitle(value: unknown): string {
   return typeof value === "string" && value.trim() !== ""
     ? value
     : "(Untitled)";
-}
-
-export function normalizeDisplayTimestamp(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }

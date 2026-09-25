@@ -10,6 +10,7 @@ import {
 import { logSchemaValidationFailure } from "./readLogging";
 import { executeReadWithRetry } from "../api/readRetry";
 import { FakeClock } from "../fake/FakeClock";
+import { ApiRequestLifecycleEvent } from "../../application/ports/Observability";
 
 function capturingSink() {
   const entries: { level: string; message: string; fields?: SafeLogFields }[] =
@@ -32,6 +33,15 @@ function capturingSink() {
 }
 
 describe("privacy-safe logger", () => {
+  it("keeps the shared API request lifecycle vocabulary canonical", () => {
+    expect(ApiRequestLifecycleEvent).toEqual({
+      Started: "api.request.started",
+      Succeeded: "api.request.succeeded",
+      Failed: "api.request.failed",
+      Retry: "api.request.retry",
+    });
+  });
+
   it("emits DEBUG in development mode", () => {
     const capture = capturingSink();
     createLogger("development", capture.sink).debug("inventory.page.started");

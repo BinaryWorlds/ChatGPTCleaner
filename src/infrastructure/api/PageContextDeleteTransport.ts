@@ -1,20 +1,18 @@
 import { z } from "zod";
+import { AppConfig } from "../../config";
+import { isSafetyCriticalIdentifier } from "../../domain/identifier";
 import { createAppError } from "../../application/AppError";
 import type { Clock } from "../../application/ports/Clock";
-import type { DeleteAttemptResult } from "../../application/ports/ConversationGateway";
-import type { SourceTabValidationResult } from "../browser/SourceTab";
-import { parseRetryAfter, READ_RETRY_AFTER_LIMIT_MS } from "./readRetry";
-import { parseSafetyCriticalIdentifier } from "./readValidation";
-
-export const DELETE_CONVERSATION_PATH = "/backend-api/conversation/id/";
+import {
+  ChatGptOperation,
+  type DeleteAttemptResult,
+} from "../../application/ports/ConversationGateway";
+import type { SourceTabValidator } from "../browser/SourceTab";
+import { parseRetryAfter } from "./readRetry";
 
 export interface DeleteConversationOperation {
   readonly kind: "delete-conversation";
   readonly conversationId: string;
-}
-
-export interface DeleteSourceTabValidator {
-  validate(): Promise<SourceTabValidationResult>;
 }
 
 export interface PageContextDeleteExecutor {
@@ -59,9 +57,13 @@ const executionEnvelopeSchema = z
 export function createDeleteConversationOperation(
   conversationId: unknown,
 ): DeleteConversationOperation | null {
-  const parsedId = parseSafetyCriticalIdentifier(conversationId);
-  if (parsedId === null || !/^[A-Za-z0-9_-]+$/u.test(parsedId)) return null;
-  return { kind: "delete-conversation", conversationId: parsedId };
+  if (
+    !isSafetyCriticalIdentifier(conversationId) ||
+    !/^[A-Za-z0-9_-]+$/u.test(conversationId)
+  ) {
+    return null;
+  }
+  return { kind: "delete-conversation", conversationId };
 }
 
 export function classifyDeleteResponse(input: {
@@ -80,7 +82,7 @@ export function classifyDeleteResponse(input: {
       kind: "fatal",
       reason: "response-anomaly",
       error: createAppError("ApiCompatibilityFailure", {
-        operation: "conversation.delete",
+        operation: ChatGptOperation.ConversationDelete,
       }),
     };
   }
@@ -91,7 +93,7 @@ export function classifyDeleteResponse(input: {
         kind: "fatal",
         reason: "response-anomaly",
         error: createAppError("ApiCompatibilityFailure", {
-          operation: "conversation.delete",
+          operation: ChatGptOperation.ConversationDelete,
           httpStatus: input.status,
         }),
       };
@@ -104,13 +106,13 @@ export function classifyDeleteResponse(input: {
   if (input.status === 429) {
     if (
       input.retryAfterMs !== null &&
-      input.retryAfterMs > READ_RETRY_AFTER_LIMIT_MS
+      input.retryAfterMs > AppConfig.api.maxRetryAfterMs
     ) {
       return {
         kind: "fatal",
         reason: "retry-later",
         error: createAppError("RateLimited", {
-          operation: "conversation.delete",
+          operation: ChatGptOperation.ConversationDelete,
           httpStatus: input.status,
           retryAfterMs: input.retryAfterMs,
         }),
@@ -133,7 +135,7 @@ export function classifyDeleteResponse(input: {
       kind: "fatal",
       reason: "authentication",
       error: createAppError("AuthenticationUnavailable", {
-        operation: "conversation.delete",
+        operation: ChatGptOperation.ConversationDelete,
         httpStatus: input.status,
       }),
       status: input.status,
@@ -144,7 +146,7 @@ export function classifyDeleteResponse(input: {
       kind: "fatal",
       reason: "authorization",
       error: createAppError("AuthorizationDenied", {
-        operation: "conversation.delete",
+        operation: ChatGptOperation.ConversationDelete,
         httpStatus: input.status,
       }),
       status: input.status,
@@ -154,7 +156,7 @@ export function classifyDeleteResponse(input: {
     kind: "fatal",
     reason: "client",
     error: createAppError("ApiCompatibilityFailure", {
-      operation: "conversation.delete",
+      operation: ChatGptOperation.ConversationDelete,
       httpStatus: input.status,
     }),
     status: input.status,
@@ -163,7 +165,7 @@ export function classifyDeleteResponse(input: {
 
 export class PageContextDeleteTransport {
   public constructor(
-    private readonly sourceTab: DeleteSourceTabValidator,
+    private readonly sourceTab: SourceTabValidator,
     private readonly executor: PageContextDeleteExecutor,
     private readonly clock: Clock,
   ) {}
@@ -180,7 +182,7 @@ export class PageContextDeleteTransport {
         kind: "fatal",
         reason: "source-unavailable",
         error: createAppError("SourceTabUnavailable", {
-          operation: "conversation.delete",
+          operation: ChatGptOperation.ConversationDelete,
         }),
       };
     }
@@ -195,7 +197,7 @@ export class PageContextDeleteTransport {
           kind: "fatal",
           reason: "source-unavailable",
           error: createAppError("SourceTabUnavailable", {
-            operation: "conversation.delete",
+            operation: ChatGptOperation.ConversationDelete,
           }),
         };
       }
@@ -216,7 +218,7 @@ export class PageContextDeleteTransport {
           kind: "fatal",
           reason: "source-unavailable",
           error: createAppError("SourceTabInvalidOrigin", {
-            operation: "conversation.delete",
+            operation: ChatGptOperation.ConversationDelete,
           }),
         };
       }
@@ -225,7 +227,7 @@ export class PageContextDeleteTransport {
           kind: "fatal",
           reason: "authentication",
           error: createAppError("AuthenticationUnavailable", {
-            operation: "conversation.delete",
+            operation: ChatGptOperation.ConversationDelete,
           }),
         };
       }
@@ -247,7 +249,7 @@ function compatibilityFailure(): DeleteAttemptResult {
     kind: "fatal",
     reason: "response-anomaly",
     error: createAppError("ApiCompatibilityFailure", {
-      operation: "conversation.delete",
+      operation: ChatGptOperation.ConversationDelete,
     }),
   };
 }
@@ -268,6 +270,9 @@ export function createChromePageContextDeleteExecutor(): PageContextDeleteExecut
         args: [operation],
         func: async (narrowOperation: DeleteConversationOperation) => {
           const origin = "https://chatgpt.com";
+          const maximumConversationIdLength = 512;
+          const authSessionPath = "/api/auth/session";
+          const deleteConversationPathPrefix = "/backend-api/conversation/id/";
           const operationRecord: unknown = narrowOperation;
           const record =
             typeof operationRecord === "object" && operationRecord !== null
@@ -277,7 +282,7 @@ export function createChromePageContextDeleteExecutor(): PageContextDeleteExecut
             record?.kind !== "delete-conversation" ||
             typeof record.conversationId !== "string" ||
             record.conversationId.length < 1 ||
-            record.conversationId.length > 512 ||
+            record.conversationId.length > maximumConversationIdLength ||
             !/^[A-Za-z0-9_-]+$/u.test(record.conversationId) ||
             Object.keys(record).length !== 2
           ) {
@@ -294,7 +299,7 @@ export function createChromePageContextDeleteExecutor(): PageContextDeleteExecut
           if (typeof accessToken !== "string" || accessToken.length === 0) {
             let sessionResponse: Response;
             try {
-              sessionResponse = await fetch(`${origin}/api/auth/session`, {
+              sessionResponse = await fetch(`${origin}${authSessionPath}`, {
                 method: "GET",
                 credentials: "include",
                 redirect: "manual",
@@ -332,7 +337,7 @@ export function createChromePageContextDeleteExecutor(): PageContextDeleteExecut
             tokenCache.__chatgptCleanerDeleteAccessToken = accessToken;
           }
 
-          const pathname = `/backend-api/conversation/id/${encodeURIComponent(record.conversationId)}`;
+          const pathname = `${deleteConversationPathPrefix}${encodeURIComponent(record.conversationId)}`;
           let response: Response;
           try {
             response = await fetch(new URL(pathname, origin).href, {

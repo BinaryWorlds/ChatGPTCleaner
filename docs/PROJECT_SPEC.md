@@ -187,6 +187,7 @@ These rules must remain true even if UI state is wrong.
 23. The authenticated transport never exposes a generic arbitrary-URL fetch proxy.
 24. Destructive operations never start from React render/effect lifecycle; they start only from explicit user commands routed through Application orchestration.
 25. Safety-critical persisted configuration is runtime-validated before use.
+26. After acquiring the destructive run lock, the remaining confirmed set is freshly revalidated before the first DELETE and may only shrink.
 
 ---
 
@@ -205,6 +206,8 @@ Mitigation:
 - fresh preflight before each newly confirmed batch;
 - fresh revalidation before Resume;
 - fresh revalidation before Retry Failed;
+- fresh revalidation after acquiring the destructive lock and before the first
+  DELETE for a new batch or Retry Failed execution;
 - Resume/Retry may only shrink the already-confirmed ID set;
 - README warns users not to move conversations into/out of Projects during an active run.
 
@@ -656,16 +659,21 @@ Successful read pages add no artificial delay before the next scheduling
 window. Retry-After and deterministic retry backoff apply only to retryable
 failures.
 
-Standalone inventory is the sole read path allowed bounded concurrency. It
-fetches fixed 100-record offsets in deterministic windows of at most three
-requests (`MAX_STANDALONE_READ_CONCURRENCY = 3`). Results are committed in
-ascending offset order regardless of completion order. The first page shorter
-than 100 establishes the terminal boundary; speculative results at higher
-offsets are discarded and cannot contribute inventory records. A required-page
-failure blocks the whole inventory. Because a window must settle before the
-next is scheduled, a request waiting for 429/5xx/network retry prevents
-aggressive scheduling of another window. Project discovery, Project
-conversation enumeration, and all destructive operations remain sequential.
+Standalone inventory is the sole read path allowed bounded concurrency. The
+first validated page establishes the pagination mode. When its next cursor
+confirms the requested fixed 100-record offset contract, subsequent pages are
+fetched in deterministic windows of at most three requests
+(`MAX_STANDALONE_READ_CONCURRENCY = 3`) and committed in ascending offset order
+regardless of completion order. If any page reports a different valid next
+cursor or effective limit, Application stops fixed-offset speculation and
+follows the gateway cursor sequentially. Application treats the gateway's null
+next cursor as completion and does not independently infer completion from a
+hard-coded page size. Speculative results beyond a terminal page are discarded
+and cannot contribute inventory records. A required-page failure blocks the
+whole inventory. Because a window must settle before the next is scheduled, a
+request waiting for 429/5xx/network retry prevents aggressive scheduling of
+another window. Project discovery, Project conversation enumeration, and all
+destructive operations remain sequential.
 
 Hitting the safety ceiling means inventory is incomplete and deletion is blocked.
 
@@ -884,6 +892,7 @@ selected IDs
 -> typed confirmation
 -> confirmed IDs
 -> acquire destructive lock
+-> fresh revalidation of the confirmed subset
 -> executor
 ```
 
@@ -900,6 +909,11 @@ Normal application code should only obtain executable plans through the builder.
 Initial confirmation establishes a set of `confirmedConversationIds`.
 
 Resume and Retry Failed may only operate on a subset of that set.
+
+A new batch and Retry Failed revalidate the remaining confirmed set again after
+atomic lock acquisition. This closes protection changes made after the earlier
+preflight but before the executor owns the lock. No second typed confirmation is
+required when this revalidation only removes IDs.
 
 Example:
 
@@ -951,6 +965,10 @@ for currently visible standalone conversations.
 
 Resume always performs fresh revalidation, so newly protected IDs are removed from the remaining plan.
 
+Protection mutations are serialized. While a protection write is pending,
+additional Protect/Unprotect commands and Resume remain disabled. Resume may
+become available only after the protection write completes successfully.
+
 Do not allow paused-state actions to add IDs to the confirmed set.
 
 If another manager owns the destructive lock, other manager contexts must not mutate protection state.
@@ -999,6 +1017,8 @@ Behavior:
 
 - protected row cannot be selected;
 - protecting a selected row removes it from selection;
+- protection writes are serialized and overlapping Protect/Unprotect commands
+  are not started;
 - Select All Matching skips protected rows;
 - Invert Matching skips protected rows;
 - `DeletionPlan` excludes protected IDs even if UI state is corrupted.
@@ -1346,6 +1366,11 @@ protected IDs
 
 Revalidation may only remove IDs from the confirmed set.
 
+Resume must not begin while a user-protection write is pending.
+
+If revalidation removes an ID already captured by a paused local attempt, that
+attempt is discarded before any DELETE is issued.
+
 If safety remains READY, continue without another typed confirmation.
 
 Never replay already successful IDs.
@@ -1645,7 +1670,9 @@ Show Resume and Stop.
 
 Selection stays fixed.
 
-Protect/Unprotect may be used; Resume revalidates.
+Protect/Unprotect may be used; while their persistence is pending, additional
+protection mutations and Resume are disabled. Resume revalidates after the save
+completes.
 
 ### Finished
 
@@ -1846,15 +1873,19 @@ Before uncertain real schemas are coded, inspect current browser Network behavio
 
 ### Phase 6 — Production DELETE integration
 
-**Implementation status:** Stage A implemented with synthetic automated tests.
+**Implementation status:** Stage A implemented with synthetic automated tests;
+the one-disposable-conversation production smoke test succeeded.
 
 The production composition uses the observed fixed DELETE through a narrow
-ISOLATED-world gateway. Its live response contract is not considered verified
-until the one-disposable-conversation manual smoke test succeeds.
+ISOLATED-world gateway. The successful manual smoke lifecycle used fresh
+preflight with one eligible ID, issued exactly one attempt, and completed with
+one deletion and no failed or skipped items. No private conversation data was
+recorded.
 
 Do not perform automated live deletion.
 
-Manual live validation begins with one disposable conversation selected by the user.
+Further manual live validation remains staged and user-initiated; automated
+tests and demo mode never perform live deletion.
 
 ### Phase 7 — Hardening
 
@@ -1955,6 +1986,7 @@ UI selection
 -> typed confirmation
 -> confirmed ID set
 -> atomic single-run lock
+-> fresh confirmed-subset revalidation
 -> sequential rate-limited executor
 -> narrow ChatGPT DELETE operation
 ```

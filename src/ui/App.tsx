@@ -4,23 +4,11 @@ import { ManagerPage } from "./ManagerPage";
 
 const { Content, Header } = Layout;
 
-function hasSourceTab(): boolean {
-  const rawSourceTabId = new URLSearchParams(window.location.search).get(
-    "sourceTabId",
-  );
-  if (rawSourceTabId === null || !/^\d+$/.test(rawSourceTabId)) return false;
-  const sourceTabId = Number(rawSourceTabId);
-  return Number.isSafeInteger(sourceTabId) && sourceTabId > 0;
-}
-
-export interface AppProps {
+interface AppProps {
   readonly composition: ManagerComposition;
 }
 
 export function App({ composition }: AppProps) {
-  const sourceTabAvailable = hasSourceTab();
-  const demoMode = composition.mode === "demo";
-
   return (
     <Layout className="manager-shell">
       <Header className="manager-header">
@@ -32,7 +20,7 @@ export function App({ composition }: AppProps) {
             Review and delete standalone conversations with explicit safety
             checks.
           </Typography.Paragraph>
-          {demoMode || sourceTabAvailable ? (
+          {composition.sourceAvailable ? (
             <ManagerPage composition={composition} />
           ) : (
             <Alert

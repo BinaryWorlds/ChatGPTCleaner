@@ -14,6 +14,10 @@ Prefer the Web Locks API with a stable extension-origin lock.
 
 Acquire the lock atomically after typed confirmation and immediately before destructive execution.
 
+After acquiring the lock, freshly revalidate the remaining confirmed set before
+the first DELETE. This revalidation may only shrink the set. If it fails, release
+the lock without issuing a DELETE.
+
 Hold the lock while running and paused. Release it on completion, Stop, fatal termination, or manager-context teardown.
 
 Do not persist a manual lock flag in storage.
@@ -31,3 +35,5 @@ Rejected because browser-managed locking has simpler crash/release semantics.
 ## Consequences
 
 A second manager cannot begin destructive work until the active run ends.
+Protection changes made between the earlier preflight and lock acquisition are
+observed before the first destructive request.

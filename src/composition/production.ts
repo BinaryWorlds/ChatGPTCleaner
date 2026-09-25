@@ -36,7 +36,7 @@ import {
 import { createApplicationObservability } from "../infrastructure/observability/applicationObservability";
 import type { ManagerComposition, ManagerDependencies } from "./types";
 
-export interface ProductionRuntime {
+interface ProductionRuntime {
   readonly sourceTabBrowser: SourceTabBrowser;
   readonly pageReadExecutor?: PageContextReadExecutor;
   readonly pageDeleteExecutor?: PageContextDeleteExecutor;
@@ -113,6 +113,7 @@ export function createManagerComposition(
 
   return {
     mode: "production",
+    sourceAvailable: sourceTabId !== null,
     scenarios: [],
     initialScenarioId: "production",
     createDependencies,

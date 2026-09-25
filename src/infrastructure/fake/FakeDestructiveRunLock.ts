@@ -3,7 +3,7 @@ import type {
   LockResult,
 } from "../../application/ports/DestructiveRunLock";
 
-export interface FakeLockState {
+interface FakeLockState {
   active: boolean;
 }
 

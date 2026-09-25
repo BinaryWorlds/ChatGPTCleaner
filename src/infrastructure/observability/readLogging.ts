@@ -1,11 +1,18 @@
-import type { ReadOperationName } from "../../application/ports/ConversationGateway";
+import {
+  ChatGptOperation,
+  type ReadOperationName,
+} from "../../application/ports/ConversationGateway";
+import { ApiRequestLifecycleEvent } from "../../application/ports/Observability";
+import type { PageExecutionWorld } from "../api/PageContextReadContracts";
 import { logger, type Logger, type SafeLogFields } from "./logger";
 
-export interface ReadLogEvent {
+const MAX_SCHEMA_DIAGNOSTIC_ITEMS = 20;
+
+interface ReadLogEvent {
   readonly operation: ReadOperationName;
   readonly stage: string;
   readonly page?: number;
-  readonly world?: "ISOLATED" | "MAIN";
+  readonly world?: PageExecutionWorld;
   readonly status?: number;
   readonly responseReceived?: boolean;
   readonly redirected?: boolean;
@@ -18,20 +25,12 @@ export interface ReadLogEvent {
   readonly cursorPresent?: boolean;
   readonly cursorType?: string;
   readonly paginationDecision?: "COMPLETE" | "CONTINUE" | "BLOCKED";
-  readonly reason?: string;
-  readonly errorName?: string;
-  readonly errorMessage?: string;
-  readonly endpoint?: string;
-  readonly query?: Readonly<Record<string, string | number | boolean>>;
-  readonly ok?: boolean;
-  readonly responseType?: string;
-  readonly contentType?: string | null;
 }
 
 const operationNames: Record<ReadOperationName, string> = {
-  standalone: "standaloneConversations.list",
-  projects: "projects.list",
-  "project-conversations": "projectConversations.list",
+  standalone: ChatGptOperation.StandaloneConversationsList,
+  projects: ChatGptOperation.ProjectsList,
+  "project-conversations": ChatGptOperation.ProjectConversationsList,
 };
 
 function eventName(stage: string): string {
@@ -39,7 +38,7 @@ function eventName(stage: string): string {
   if (stage === "SCHEMA_VALIDATION_OK") return "schema.validation.succeeded";
   if (stage === "PAGINATION_STATE") return "inventory.pagination.state";
   if (stage.includes("FALLBACK") || stage.includes("RETRY")) {
-    return "api.request.retry";
+    return ApiRequestLifecycleEvent.Retry;
   }
   if (
     stage.includes("ERROR") ||
@@ -47,10 +46,10 @@ function eventName(stage: string): string {
     stage.includes("REJECTED") ||
     stage.includes("MALFORMED")
   ) {
-    return "api.request.failed";
+    return ApiRequestLifecycleEvent.Failed;
   }
-  if (stage.includes("REQUEST_START")) return "api.request.started";
-  if (stage.includes("RESPONSE")) return "api.request.succeeded";
+  if (stage.includes("REQUEST_START")) return ApiRequestLifecycleEvent.Started;
+  if (stage.includes("RESPONSE")) return ApiRequestLifecycleEvent.Succeeded;
   return "api.request.lifecycle";
 }
 
@@ -82,7 +81,10 @@ export function logReadEvent(event: ReadLogEvent): void {
       : { paginationDecision: event.paginationDecision }),
   };
   const name = eventName(event.stage);
-  if (name === "api.request.failed" || event.paginationDecision === "BLOCKED") {
+  if (
+    name === ApiRequestLifecycleEvent.Failed ||
+    event.paginationDecision === "BLOCKED"
+  ) {
     logger.warn(name, fields);
     return;
   }
@@ -131,12 +133,9 @@ export function logSchemaValidationFailure(
     schema: `${operation}.page`,
     page,
     issueCount: issues.length,
-    issueCodes: issues.map((issue) => issue.code).slice(0, 20),
-    paths: paths.slice(0, 20),
+    issueCodes: issues
+      .map((issue) => issue.code)
+      .slice(0, MAX_SCHEMA_DIAGNOSTIC_ITEMS),
+    paths: paths.slice(0, MAX_SCHEMA_DIAGNOSTIC_ITEMS),
   });
-}
-
-export function safeExternalErrorName(error: unknown): string {
-  if (!(error instanceof Error)) return "NonError";
-  return /^[A-Za-z][A-Za-z0-9]{0,63}$/u.test(error.name) ? error.name : "Error";
 }

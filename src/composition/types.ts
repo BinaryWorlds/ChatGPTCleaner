@@ -22,6 +22,7 @@ export interface DemoScenario {
 
 export interface ManagerComposition {
   readonly mode: "demo" | "production";
+  readonly sourceAvailable: boolean;
   readonly scenarios: readonly DemoScenario[];
   readonly initialScenarioId: string;
   createDependencies(scenarioId: string): ManagerDependencies | null;
