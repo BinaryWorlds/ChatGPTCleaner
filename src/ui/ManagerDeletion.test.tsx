@@ -1,10 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type {
-  ManagerComposition,
-  ManagerDependencies,
-} from "../composition/types";
+import type { ManagerDependencies } from "../composition/types";
 import type {
   ProtectedConversationIdsResult,
   ProtectedConversationStore,
@@ -16,7 +13,11 @@ import {
   FakeProtectedConversationStore,
   FakeSettingsStore,
 } from "../infrastructure/fake/FakeStores";
-import type { FakeGatewayFixture } from "../infrastructure/fake/fixtures";
+import {
+  STANDALONE_COMPATIBILITY_FAILURE_FIXTURE,
+  type FakeConversationFixture,
+  type FakeGatewayFixture,
+} from "../infrastructure/fake/fixtures";
 import { ManagerPage } from "./ManagerPage";
 
 const DAY_MS = 86_400_000;
@@ -69,7 +70,7 @@ class DeferredProtectedConversationStore implements ProtectedConversationStore {
 }
 
 function fixture(
-  conversations: readonly Record<string, unknown>[],
+  conversations: readonly FakeConversationFixture[],
   deleteOutcomes: FakeGatewayFixture["deleteOutcomes"] = {},
 ): FakeGatewayFixture {
   return {
@@ -119,18 +120,13 @@ function renderManager(input?: {
     destructiveRunLock: new FakeDestructiveRunLock(),
   };
   const openConversation = vi.fn();
-  const composition: ManagerComposition = {
-    mode: "demo",
-    sourceAvailable: true,
-    scenarios: [
-      { id: "test", label: "Test scenario", description: "Test fixture" },
-    ],
-    initialScenarioId: "test",
-    createDependencies: () => dependencies,
-    openConversation,
-  };
-
-  render(<ManagerPage composition={composition} />);
+  render(
+    <ManagerPage
+      mode="demo"
+      dependencies={dependencies}
+      openConversation={openConversation}
+    />,
+  );
   return { gateway, protectedConversationStore, openConversation };
 }
 
@@ -376,8 +372,9 @@ describe("ManagerPage destructive flow", () => {
   });
 
   it("shows BLOCKED for malformed inventory", async () => {
-    const malformed = fixture([{ title: "Missing ID" }]);
-    const firstRender = renderManager({ gatewayFixture: malformed });
+    const firstRender = renderManager({
+      gatewayFixture: STANDALONE_COMPATIBILITY_FAILURE_FIXTURE,
+    });
     expect(
       await screen.findByText("Read API compatibility failed"),
     ).toBeInTheDocument();

@@ -1,10 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type {
-  ManagerComposition,
-  ManagerDependencies,
-} from "../composition/types";
+import type { ManagerDependencies } from "../composition/types";
 import type {
   ProtectedConversationIdsResult,
   ProtectedConversationStore,
@@ -17,7 +14,11 @@ import {
   FakeProtectedConversationStore,
   FakeSettingsStore,
 } from "../infrastructure/fake/FakeStores";
-import type { FakeGatewayFixture } from "../infrastructure/fake/fixtures";
+import type {
+  FakeConversationFixture,
+  FakeConversationPageResult,
+  FakeGatewayFixture,
+} from "../infrastructure/fake/fixtures";
 import { ManagerPage } from "./ManagerPage";
 
 const DAY_MS = 86_400_000;
@@ -91,7 +92,7 @@ class DeferredRefreshGateway extends FakeConversationGateway {
 }
 
 function fixture(
-  conversations: readonly Record<string, unknown>[],
+  conversations: readonly FakeConversationFixture[],
   deleteOutcomes: FakeGatewayFixture["deleteOutcomes"] = {},
 ): FakeGatewayFixture {
   return {
@@ -105,7 +106,7 @@ function fixture(
 }
 
 function fixtureWithProjects(input?: {
-  readonly projectConversations?: readonly Record<string, unknown>[];
+  readonly projectConversations?: readonly FakeConversationFixture[];
 }): FakeGatewayFixture {
   return {
     standalonePages: {
@@ -181,18 +182,13 @@ function renderManager(input?: {
     destructiveRunLock: new FakeDestructiveRunLock(),
   };
   const openConversation = vi.fn();
-  const composition: ManagerComposition = {
-    mode: "demo",
-    sourceAvailable: true,
-    scenarios: [
-      { id: "test", label: "Test scenario", description: "Test fixture" },
-    ],
-    initialScenarioId: "test",
-    createDependencies: () => dependencies,
-    openConversation,
-  };
-
-  render(<ManagerPage composition={composition} />);
+  render(
+    <ManagerPage
+      mode="demo"
+      dependencies={dependencies}
+      openConversation={openConversation}
+    />,
+  );
   return {
     gateway,
     protectedConversationStore,
@@ -239,7 +235,10 @@ describe("ManagerPage inventory controls", () => {
       gatewayFixture,
       new FakeClock(FIXED_NOW),
     );
-    renderManager({ gateway });
+    const protectedConversationStore = new FakeProtectedConversationStore();
+    const settingsStore = new FakeSettingsStore(60);
+    const loadSettings = vi.spyOn(settingsStore, "loadRequestsPerMinute");
+    renderManager({ gateway, protectedConversationStore, settingsStore });
     await waitForInventory();
     await selectConversation(user, "Alpha");
     await user.click(
@@ -247,7 +246,12 @@ describe("ManagerPage inventory controls", () => {
     );
     expect(screen.getByText("Confirm deletion")).toBeInTheDocument();
 
-    (gatewayFixture.standalonePages as Record<string, unknown>).first = {
+    (
+      gatewayFixture.standalonePages as Record<
+        string,
+        FakeConversationPageResult
+      >
+    ).first = {
       conversations: [{ id: "fresh", title: "Fresh snapshot" }],
       nextCursor: null,
     };
@@ -266,6 +270,8 @@ describe("ManagerPage inventory controls", () => {
     expect(gateway.safetyInventoryReadCount).toBe(2);
     expect(gateway.standalonePageReadCount).toBe(2);
     expect(gateway.projectDiscoveryReadCount).toBe(2);
+    expect(protectedConversationStore.loadCount).toBe(1);
+    expect(loadSettings).toHaveBeenCalledOnce();
   });
 
   it("preserves the previous valid snapshot when Refresh is incomplete", async () => {
@@ -275,14 +281,22 @@ describe("ManagerPage inventory controls", () => {
     await waitForInventory();
     await selectConversation(user, "Alpha");
 
-    (gatewayFixture.standalonePages as Record<string, unknown>).first = {
+    (
+      gatewayFixture.standalonePages as Record<
+        string,
+        FakeConversationPageResult
+      >
+    ).first = {
       conversations: [{ id: "partial", title: "Partial refresh" }],
       nextCursor: null,
     };
     (gatewayFixture.projects as unknown[]).push({ id: "project" });
-    (gatewayFixture.projectConversationPages as Record<string, unknown>)[
-      "project:first"
-    ] = { conversations: [], nextCursor: "missing" };
+    (
+      gatewayFixture.projectConversationPages as Record<
+        string,
+        FakeConversationPageResult
+      >
+    )["project:first"] = { conversations: [], nextCursor: "missing" };
 
     await user.click(screen.getByRole("button", { name: "Refresh inventory" }));
     expect(
@@ -353,10 +367,6 @@ describe("ManagerPage inventory controls", () => {
     await showProjectConversations(user);
 
     await user.type(screen.getByLabelText("Search titles"), "planning");
-    expect(screen.getByText("Project planning")).toBeInTheDocument();
-    expect(screen.queryByText("Project overlap")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Reset filters" }));
-    await user.click(screen.getByRole("button", { name: "Older than 7 days" }));
     expect(screen.getByText("Project planning")).toBeInTheDocument();
     expect(screen.queryByText("Project overlap")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Reset filters" }));

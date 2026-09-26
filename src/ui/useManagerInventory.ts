@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AppConfig } from "../config";
 import {
   loadInventory,
+  loadSafetyInventory,
   type InventoryLoadProgress,
 } from "../application/inventory";
 import type { ReadFailureDiagnostic } from "../application/ports/ConversationGateway";
@@ -31,7 +32,7 @@ const INITIAL_INVENTORY_STATE: InventoryState = {
   loadedConversationCount: 0,
 };
 
-export function useManagerInventory(dependencies: ManagerDependencies | null) {
+export function useManagerInventory(dependencies: ManagerDependencies) {
   const [inventoryState, setInventoryState] = useState<InventoryState>(
     INITIAL_INVENTORY_STATE,
   );
@@ -52,7 +53,6 @@ export function useManagerInventory(dependencies: ManagerDependencies | null) {
   );
   const [refreshing, setRefreshing] = useState(false);
   const refreshingRef = useRef(false);
-  const loadGenerationRef = useRef(0);
 
   const replaceInventorySnapshot = useCallback(
     (inventory: {
@@ -71,14 +71,8 @@ export function useManagerInventory(dependencies: ManagerDependencies | null) {
   );
 
   useEffect(() => {
-    loadGenerationRef.current += 1;
     let current = true;
     let readCompatibilityConfirmed = false;
-    if (dependencies === null) {
-      return () => {
-        current = false;
-      };
-    }
 
     const updateInventoryProgress = (progress: InventoryLoadProgress) => {
       if (!current) return;
@@ -136,53 +130,26 @@ export function useManagerInventory(dependencies: ManagerDependencies | null) {
   }, [dependencies, replaceInventorySnapshot]);
 
   const refreshInventory = useCallback(async (): Promise<boolean> => {
-    if (dependencies === null || refreshingRef.current) return false;
+    if (refreshingRef.current) return false;
 
-    const loadGeneration = loadGenerationRef.current;
     refreshingRef.current = true;
     setRefreshing(true);
     try {
-      const result = await loadInventory(dependencies);
-      if (
-        result.kind === "blocked" ||
-        loadGeneration !== loadGenerationRef.current
-      ) {
-        return false;
-      }
+      const result = await loadSafetyInventory(dependencies.gateway);
+      if (result.kind === "blocked") return false;
       replaceInventorySnapshot(result.inventory);
       return true;
     } catch {
       return false;
     } finally {
-      if (loadGeneration === loadGenerationRef.current) {
-        refreshingRef.current = false;
-        setRefreshing(false);
-      }
+      refreshingRef.current = false;
+      setRefreshing(false);
     }
   }, [dependencies, replaceInventorySnapshot]);
 
-  const resetInventory = (sourceAvailable: boolean) => {
-    loadGenerationRef.current += 1;
-    refreshingRef.current = false;
-    setRefreshing(false);
-    setInventoryState(
-      sourceAvailable
-        ? INITIAL_INVENTORY_STATE
-        : {
-            kind: "blocked",
-            reason: "source-unavailable",
-            readCompatibilityConfirmed: false,
-          },
-    );
-    setConversations([]);
-    setProjectConversations([]);
-    setConversationTitles(new Map());
-    setProtectedConversationIds(new Set());
-  };
-
-  const removeConversations = (removedIds: ReadonlySet<string>) => {
+  const removeConversation = (removedId: string) => {
     setConversations((currentConversations) =>
-      currentConversations.filter(({ id }) => !removedIds.has(id)),
+      currentConversations.filter(({ id }) => id !== removedId),
     );
   };
 
@@ -195,8 +162,7 @@ export function useManagerInventory(dependencies: ManagerDependencies | null) {
     requestsPerMinute,
     refreshing,
     refreshInventory,
-    resetInventory,
-    removeConversations,
+    removeConversation,
     setProtectedConversationIds,
     setRequestsPerMinute,
   } as const;

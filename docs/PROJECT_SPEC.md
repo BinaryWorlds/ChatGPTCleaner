@@ -1520,7 +1520,7 @@ pnpm build    -> production infrastructure
 
 Do not switch using query params or localStorage flags.
 
-Fixtures should cover:
+The single deterministic demo fixture should cover the normal workflow with:
 
 ```text
 many standalone conversations
@@ -1529,12 +1529,11 @@ protected conversations
 varied/null dates
 untitled conversations
 duplicates
-malformed responses
-success and relevant HTTP/network failures
 latency
 ```
 
-Tests are deterministic.
+Automated tests cover malformed responses and relevant HTTP/network failures.
+Tests and the demo fixture are deterministic.
 
 ---
 

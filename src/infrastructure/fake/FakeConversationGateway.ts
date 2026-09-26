@@ -9,12 +9,10 @@ import type {
   ConversationGateway,
   ConversationPage,
   DeleteAttemptResult,
-  ProjectConversationPage,
   ProjectReference,
   ReadResult,
 } from "../../application/ports/ConversationGateway";
 import { ChatGptOperation } from "../../application/ports/ConversationGateway";
-import type { Conversation } from "../../domain/conversation";
 import type { FakeDeleteOutcome, FakeGatewayFixture } from "./fixtures";
 
 const rawConversationSchema = z.object({
@@ -23,9 +21,9 @@ const rawConversationSchema = z.object({
     .min(1)
     .max(MAX_SAFETY_CRITICAL_IDENTIFIER_LENGTH)
     .refine(isSafetyCriticalIdentifier),
-  title: z.unknown().optional(),
-  createdAt: z.unknown().optional(),
-  updatedAt: z.unknown().optional(),
+  title: z.string(),
+  createdAt: z.number().finite().nullable().default(null),
+  updatedAt: z.number().finite().nullable().default(null),
 });
 const rawConversationPageSchema = z.object({
   conversations: z.array(rawConversationSchema),
@@ -43,16 +41,6 @@ const projectConversationPageSchema = z.object({
   conversations: z.array(rawConversationSchema),
   nextCursor: z.string().min(1).nullable(),
 });
-
-function displayTitle(value: unknown): string {
-  return typeof value === "string" && value.trim() !== ""
-    ? value
-    : "(Untitled)";
-}
-
-function displayTimestamp(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
 
 function deleteResult(outcome: FakeDeleteOutcome): DeleteAttemptResult {
   if (outcome === "success") return { kind: "deleted", status: 204 };
@@ -137,22 +125,17 @@ export class FakeConversationGateway implements ConversationGateway {
   ): Promise<ReadResult<ConversationPage>> {
     this.standalonePageReadCount += 1;
     const rawPage = this.fixture.standalonePages[cursor ?? "first"];
+    if (rawPage !== undefined && "kind" in rawPage) {
+      return Promise.resolve(rawPage);
+    }
     const parsedPage = rawConversationPageSchema.safeParse(rawPage);
     if (!parsedPage.success) {
       return Promise.resolve({ kind: "failure", reason: "compatibility" });
     }
 
-    const conversations: Conversation[] = parsedPage.data.conversations.map(
-      (rawConversation) => ({
-        id: rawConversation.id,
-        title: displayTitle(rawConversation.title),
-        createdAt: displayTimestamp(rawConversation.createdAt),
-        updatedAt: displayTimestamp(rawConversation.updatedAt),
-      }),
-    );
     return Promise.resolve({
       kind: "success",
-      value: { conversations, nextCursor: parsedPage.data.nextCursor },
+      value: parsedPage.data,
     });
   }
 
@@ -169,27 +152,19 @@ export class FakeConversationGateway implements ConversationGateway {
   public fetchProjectConversationPage(
     projectId: string,
     cursor: string | null,
-  ): Promise<ReadResult<ProjectConversationPage>> {
+  ): Promise<ReadResult<ConversationPage>> {
     this.projectConversationPageReadCount += 1;
     const key = `${projectId}:${cursor ?? "first"}`;
-    const parsedPage = projectConversationPageSchema.safeParse(
-      this.fixture.projectConversationPages[key],
-    );
+    const rawPage = this.fixture.projectConversationPages[key];
+    if (rawPage !== undefined && "kind" in rawPage) {
+      return Promise.resolve(rawPage);
+    }
+    const parsedPage = projectConversationPageSchema.safeParse(rawPage);
     return Promise.resolve(
       parsedPage.success
         ? {
             kind: "success",
-            value: {
-              conversations: parsedPage.data.conversations.map(
-                (rawConversation) => ({
-                  id: rawConversation.id,
-                  title: displayTitle(rawConversation.title),
-                  createdAt: displayTimestamp(rawConversation.createdAt),
-                  updatedAt: displayTimestamp(rawConversation.updatedAt),
-                }),
-              ),
-              nextCursor: parsedPage.data.nextCursor,
-            },
+            value: parsedPage.data,
           }
         : { kind: "failure", reason: "compatibility" },
     );

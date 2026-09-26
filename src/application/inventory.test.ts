@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type {
-  ConversationPage,
-  ProjectConversationPage,
-  ReadResult,
-} from "./ports/ConversationGateway";
+import type { ConversationPage, ReadResult } from "./ports/ConversationGateway";
 import { FakeClock } from "../infrastructure/fake/FakeClock";
 import { FakeConversationGateway } from "../infrastructure/fake/FakeConversationGateway";
 import {
@@ -12,11 +8,11 @@ import {
 } from "../infrastructure/fake/FakeStores";
 import {
   DEMO_FIXTURE,
-  MALFORMED_STANDALONE_FIXTURE,
+  STANDALONE_COMPATIBILITY_FAILURE_FIXTURE,
+  type FakeConversationPageResult,
   type FakeGatewayFixture,
 } from "../infrastructure/fake/fixtures";
 import { loadInventory, loadSafetyInventory } from "./inventory";
-import { buildDeletionPlan } from "../domain/deletionPlan";
 
 async function settleAsyncWork(): Promise<void> {
   await Promise.resolve();
@@ -78,7 +74,7 @@ class DeferredProjectGateway extends FakeConversationGateway {
   public readonly projectReadOrder: string[] = [];
   private readonly resolvers = new Map<
     string,
-    (result: ReadResult<ProjectConversationPage>) => void
+    (result: ReadResult<ConversationPage>) => void
   >();
 
   public constructor(projectIds: readonly string[]) {
@@ -97,7 +93,7 @@ class DeferredProjectGateway extends FakeConversationGateway {
   public override fetchProjectConversationPage(
     projectId: string,
     cursor: string | null,
-  ): Promise<ReadResult<ProjectConversationPage>> {
+  ): Promise<ReadResult<ConversationPage>> {
     const key = `${projectId}:${cursor ?? "first"}`;
     this.activeProjectReads += 1;
     this.maxActiveProjectReads = Math.max(
@@ -115,7 +111,7 @@ class DeferredProjectGateway extends FakeConversationGateway {
 
   public resolveProjectPage(
     key: string,
-    result: ReadResult<ProjectConversationPage>,
+    result: ReadResult<ConversationPage>,
   ): void {
     const resolve = this.resolvers.get(key);
     if (resolve === undefined) {
@@ -129,7 +125,7 @@ class DeferredProjectGateway extends FakeConversationGateway {
 function projectPage(
   conversationId: string,
   nextCursor: string | null = null,
-): ReadResult<ProjectConversationPage> {
+): ReadResult<ConversationPage> {
   return {
     kind: "success",
     value: {
@@ -389,40 +385,6 @@ describe("inventory and deletion planning", () => {
     ]);
   });
 
-  it("follows a smaller effective standalone cursor sequentially", async () => {
-    const conversations = Array.from({ length: 60 }, (_, index) => ({
-      id: `conversation-${index}`,
-      title: `Conversation ${index}`,
-    }));
-    const result = await loadSafetyInventory(
-      new FakeConversationGateway(
-        {
-          standalonePages: {
-            first: {
-              conversations: conversations.slice(0, 28),
-              nextCursor: "28",
-            },
-            "28": {
-              conversations: conversations.slice(28, 56),
-              nextCursor: "56",
-            },
-            "56": {
-              conversations: conversations.slice(56),
-              nextCursor: null,
-            },
-          },
-          projects: [],
-          projectConversationPages: {},
-        },
-        new FakeClock(),
-      ),
-    );
-
-    expect(result.kind).toBe("ready");
-    if (result.kind !== "ready") return;
-    expect(result.inventory.standaloneConversations).toHaveLength(60);
-  });
-
   it("blocks a duplicate full standalone page that makes no ID progress", async () => {
     const conversations = Array.from({ length: 100 }, (_, index) => ({
       id: `conversation-${index}`,
@@ -448,7 +410,7 @@ describe("inventory and deletion planning", () => {
   it("blocks malformed safety-critical response data", async () => {
     const result = await loadSafetyInventory(
       new FakeConversationGateway(
-        MALFORMED_STANDALONE_FIXTURE,
+        STANDALONE_COMPATIBILITY_FAILURE_FIXTURE,
         new FakeClock(),
       ),
     );
@@ -476,12 +438,13 @@ describe("inventory and deletion planning", () => {
   });
 
   it("blocks standalone pagination that reaches the safety ceiling", async () => {
-    const standalonePages: Record<string, unknown> = {};
+    const standalonePages: Record<string, FakeConversationPageResult> = {};
     for (let index = 0; index < 1_000; index += 1) {
       const key = index === 0 ? "first" : String(index * 100);
       standalonePages[key] = {
         conversations: Array.from({ length: 100 }, (_, itemIndex) => ({
           id: `conversation-${index}-${itemIndex}`,
+          title: `Conversation ${index}-${itemIndex}`,
         })),
         nextCursor: String((index + 1) * 100),
       };
@@ -540,40 +503,9 @@ describe("inventory and deletion planning", () => {
 
     const blocked = await loadInventory({
       gateway: new FakeConversationGateway(DEMO_FIXTURE, new FakeClock()),
-      protectedConversationStore: new FakeProtectedConversationStore([42]),
+      protectedConversationStore: new FakeProtectedConversationStore("invalid"),
       settingsStore: new FakeSettingsStore(),
     });
     expect(blocked).toEqual({ kind: "blocked", reason: "protected-storage" });
-  });
-
-  it("builds a snapshot plan that excludes Project, protected, and missing IDs", () => {
-    const plan = buildDeletionPlan({
-      selectedConversationIds: [
-        "standalone",
-        "protected",
-        "project",
-        "missing",
-      ],
-      standaloneConversations: [
-        {
-          id: "standalone",
-          title: "Standalone",
-          createdAt: null,
-          updatedAt: null,
-        },
-        {
-          id: "protected",
-          title: "Protected",
-          createdAt: null,
-          updatedAt: null,
-        },
-      ],
-      projectConversationIds: new Set(["project"]),
-      protectedConversationIds: new Set(["protected"]),
-    });
-    expect(plan.eligibleConversationIds).toEqual(["standalone"]);
-    expect(plan.excludedProjectIds).toEqual(["project"]);
-    expect(plan.excludedProtectedIds).toEqual(["protected"]);
-    expect(plan.missingConversationIds).toEqual(["missing"]);
   });
 });

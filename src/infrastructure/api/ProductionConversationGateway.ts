@@ -1,11 +1,9 @@
 import { AppConfig } from "../../config";
-import { createAppError } from "../../application/AppError";
 import { isSafetyCriticalIdentifier } from "../../domain/identifier";
 import type {
   ConversationGateway,
   ConversationPage,
   DeleteAttemptResult,
-  ProjectConversationPage,
   ProjectReference,
   ReadResult,
 } from "../../application/ports/ConversationGateway";
@@ -36,7 +34,7 @@ import {
 export class ProductionConversationGateway implements ConversationGateway {
   public constructor(
     private readonly transport: PageContextReadTransport,
-    private readonly deleteTransport?: Pick<
+    private readonly deleteTransport: Pick<
       PageContextDeleteTransport,
       "deleteConversation"
     >,
@@ -266,7 +264,7 @@ export class ProductionConversationGateway implements ConversationGateway {
     projectId: string,
     cursor: string | null,
     paginationStep = 1,
-  ): Promise<ReadResult<ProjectConversationPage>> {
+  ): Promise<ReadResult<ConversationPage>> {
     if (!isSafetyCriticalIdentifier(projectId)) {
       return {
         kind: "failure",
@@ -318,15 +316,6 @@ export class ProductionConversationGateway implements ConversationGateway {
   public deleteConversation(
     conversationId: string,
   ): Promise<DeleteAttemptResult> {
-    if (this.deleteTransport === undefined) {
-      return Promise.resolve({
-        kind: "fatal",
-        reason: "response-anomaly",
-        error: createAppError("ApiCompatibilityFailure", {
-          operation: ChatGptOperation.ConversationDelete,
-        }),
-      });
-    }
     return this.deleteTransport.deleteConversation(conversationId);
   }
 }

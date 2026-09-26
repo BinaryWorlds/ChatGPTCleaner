@@ -11,13 +11,10 @@ export type PageReadOperation =
   | {
       readonly kind: "standalone";
       readonly offset: number;
-      readonly pageLimit: number;
       readonly paginationStep: number;
     }
   | {
       readonly kind: "projects";
-      readonly ownedOnly: true;
-      readonly conversationsPerGizmo: 0;
       readonly cursor: string;
       readonly paginationStep: number;
     }
@@ -59,32 +56,6 @@ export interface PageContextReadExecutor {
     cursor: string | null,
     paginationStep?: number,
   ): Promise<unknown>;
-}
-
-export function createProjectDiscoveryOperation(
-  cursor: string | null | undefined,
-  paginationStep: number,
-): Extract<PageReadOperation, { readonly kind: "projects" }> {
-  return {
-    kind: "projects",
-    ownedOnly: true,
-    conversationsPerGizmo: 0,
-    cursor: cursor ?? "",
-    paginationStep,
-  };
-}
-
-export function createProjectConversationOperation(
-  projectId: string,
-  cursor: string | null | undefined,
-  paginationStep: number,
-): Extract<PageReadOperation, { readonly kind: "project-conversations" }> {
-  return {
-    kind: "project-conversations",
-    projectId,
-    cursor: cursor ?? "",
-    paginationStep,
-  };
 }
 
 const pageResponseSchema = z.object({

@@ -20,8 +20,12 @@ export function App({ composition }: AppProps) {
             Review and delete standalone conversations with explicit safety
             checks.
           </Typography.Paragraph>
-          {composition.sourceAvailable ? (
-            <ManagerPage composition={composition} />
+          {composition.dependencies !== null ? (
+            <ManagerPage
+              mode={composition.mode}
+              dependencies={composition.dependencies}
+              openConversation={composition.openConversation}
+            />
           ) : (
             <Alert
               type="warning"

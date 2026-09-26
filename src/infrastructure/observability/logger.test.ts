@@ -10,7 +10,6 @@ import {
 import { logSchemaValidationFailure } from "./readLogging";
 import { executeReadWithRetry } from "../api/readRetry";
 import { FakeClock } from "../fake/FakeClock";
-import { ApiRequestLifecycleEvent } from "../../application/ports/Observability";
 
 function capturingSink() {
   const entries: { level: string; message: string; fields?: SafeLogFields }[] =
@@ -33,13 +32,6 @@ function capturingSink() {
 }
 
 describe("privacy-safe logger", () => {
-  it("keeps the shared API request lifecycle vocabulary canonical", () => {
-    expect(ApiRequestLifecycleEvent).toEqual({
-      Failed: "api.request.failed",
-      Retry: "api.request.retry",
-    });
-  });
-
   it("emits DEBUG in development mode", () => {
     const capture = capturingSink();
     createLogger("development", capture.sink).debug("inventory.page.started");
@@ -48,8 +40,11 @@ describe("privacy-safe logger", () => {
 
   it("emits DEBUG in debug mode", () => {
     const capture = capturingSink();
-    createLogger("debug", capture.sink).debug("inventory.page.started");
+    createLogger("debug", capture.sink).debug("protectedStore.load.started");
     expect(capture.entries).toHaveLength(1);
+    expect(capture.entries[0]?.message).toContain(
+      "protectedStore.load.started",
+    );
   });
 
   it("emits DEBUG in demo mode", () => {
@@ -138,33 +133,6 @@ describe("privacy-safe logger", () => {
     const capture = capturingSink();
     createLogger("debug", capture.sink).debug("PRIVATE_TITLE_SENTINEL");
     expect(capture.entries[0]?.message).toContain("logger.invalidEvent");
-  });
-
-  it.each([
-    "protectedStore.load.started",
-    "settingsStore.load.succeeded",
-    "runLock.acquire.started",
-    "runLock.acquire.succeeded",
-    "runLock.released",
-    "deletion.run.started",
-  ])("accepts the intended camel-case event contract: %s", (event) => {
-    const capture = capturingSink();
-    createLogger("debug", capture.sink).debug(event, {
-      operation: "conversation.delete",
-      ordinal: 1,
-      attempt: 1,
-      status: 204,
-      durationMs: 25,
-    });
-    expect(capture.entries[0]?.message).toContain(event);
-    expect(capture.entries[0]?.message).not.toContain("logger.invalidEvent");
-    expect(capture.entries[0]?.fields).toEqual({
-      operation: "conversation.delete",
-      ordinal: 1,
-      attempt: 1,
-      status: 204,
-      durationMs: 25,
-    });
   });
 
   it("never emits privacy sentinel values", () => {

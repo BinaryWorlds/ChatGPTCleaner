@@ -1,7 +1,34 @@
+import type { Conversation } from "../../domain/conversation";
+import type {
+  ConversationPage,
+  ReadResult,
+} from "../../application/ports/ConversationGateway";
+
+export interface FakeConversationFixture extends Omit<
+  Conversation,
+  "createdAt" | "updatedAt"
+> {
+  readonly createdAt?: number | null;
+  readonly updatedAt?: number | null;
+}
+
+export interface FakeConversationPageFixture {
+  readonly conversations: readonly FakeConversationFixture[];
+  readonly nextCursor: string | null;
+}
+
+export type FakeConversationPageResult =
+  | FakeConversationPageFixture
+  | Extract<ReadResult<ConversationPage>, { readonly kind: "failure" }>;
+
 export interface FakeGatewayFixture {
-  readonly standalonePages: Readonly<Record<string, unknown>>;
+  readonly standalonePages: Readonly<
+    Record<string, FakeConversationPageResult>
+  >;
   readonly projects: unknown;
-  readonly projectConversationPages: Readonly<Record<string, unknown>>;
+  readonly projectConversationPages: Readonly<
+    Record<string, FakeConversationPageResult>
+  >;
   readonly deleteOutcomes?: Readonly<
     Record<string, readonly FakeDeleteOutcome[]>
   >;
@@ -25,7 +52,7 @@ const NOW = Date.UTC(2026, 8, 21);
 
 const standaloneRecords = Array.from({ length: 64 }, (_, index) => ({
   id: `standalone-${String(index + 1).padStart(3, "0")}`,
-  title: index === 4 ? null : `Conversation ${index + 1}`,
+  title: index === 4 ? "(Untitled)" : `Conversation ${index + 1}`,
   createdAt: index === 7 ? null : NOW - (index + 1) * DAY_MS,
   updatedAt: index === 9 ? null : NOW - index * DAY_MS,
 }));
@@ -35,7 +62,7 @@ export const DEMO_FIXTURE: FakeGatewayFixture = {
     first: {
       conversations: [
         ...standaloneRecords,
-        standaloneRecords[0],
+        standaloneRecords[0]!,
         {
           id: "project-overlap",
           title: "Must be removed from standalone inventory",
@@ -67,7 +94,12 @@ export const DEMO_FIXTURE: FakeGatewayFixture = {
     },
     "project-alpha:project-alpha-page-2": {
       conversations: [
-        { id: "project-chat-2", title: null },
+        {
+          id: "project-chat-2",
+          title: "(Untitled)",
+          createdAt: null,
+          updatedAt: null,
+        },
         {
           id: "project-chat-1",
           title: "Project planning",
@@ -108,12 +140,9 @@ export const DEMO_FIXTURE: FakeGatewayFixture = {
   latencyMs: 25,
 };
 
-export const MALFORMED_STANDALONE_FIXTURE: FakeGatewayFixture = {
+export const STANDALONE_COMPATIBILITY_FAILURE_FIXTURE: FakeGatewayFixture = {
   ...DEMO_FIXTURE,
   standalonePages: {
-    first: {
-      conversations: [{ title: "Missing safety-critical ID" }],
-      nextCursor: null,
-    },
+    first: { kind: "failure", reason: "compatibility" },
   },
 };

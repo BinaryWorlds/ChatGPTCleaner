@@ -22,11 +22,6 @@ export interface ConversationPage {
   readonly nextCursor: string | null;
 }
 
-export interface ProjectConversationPage {
-  readonly conversations: readonly Conversation[];
-  readonly nextCursor: string | null;
-}
-
 export type ReadOperationName =
   "standalone" | "projects" | "project-conversations";
 
@@ -99,6 +94,6 @@ export interface ConversationGateway {
     projectId: string,
     cursor: string | null,
     paginationStep?: number,
-  ): Promise<ReadResult<ProjectConversationPage>>;
+  ): Promise<ReadResult<ConversationPage>>;
   deleteConversation(conversationId: string): Promise<DeleteAttemptResult>;
 }

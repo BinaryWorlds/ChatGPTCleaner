@@ -33,7 +33,6 @@ describe("App", () => {
                 {
                   result: {
                     origin: "https://chatgpt.com",
-                    readyState: "complete",
                   },
                 },
               ]),
@@ -63,12 +62,15 @@ describe("App", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows demo mode without requiring a source tab", () => {
+  it("renders the deterministic demo composition without a source tab", async () => {
     render(<App composition={createDemoComposition()} />);
 
     expect(screen.getByText("Demo mode")).toBeInTheDocument();
     expect(
       screen.getByText(/No request can reach ChatGPT/),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByRole("table", { name: "Standalone conversations" }),
     ).toBeInTheDocument();
   });
 });

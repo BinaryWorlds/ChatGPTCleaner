@@ -22,11 +22,6 @@ export function parseSafetyCriticalIdentifier(value: unknown): string | null {
   return parsed.success ? parsed.data : null;
 }
 
-export function parsePaginationCursor(value: unknown): string | null | false {
-  const parsed = paginationCursorSchema.safeParse(value);
-  return parsed.success ? parsed.data : false;
-}
-
 export function normalizeDisplayTitle(value: unknown): string {
   return typeof value === "string" && value.trim() !== ""
     ? value

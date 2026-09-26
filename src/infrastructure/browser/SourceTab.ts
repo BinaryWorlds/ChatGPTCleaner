@@ -12,7 +12,6 @@ const pageProbeResultsSchema = z
       result: z
         .object({
           origin: z.string(),
-          readyState: z.enum(["loading", "interactive", "complete"]),
         })
         .optional(),
     }),
@@ -96,7 +95,6 @@ export function createChromeSourceTabBrowser(): SourceTabBrowser {
         world: "ISOLATED",
         func: () => ({
           origin: window.location.origin,
-          readyState: document.readyState,
         }),
       }),
   };

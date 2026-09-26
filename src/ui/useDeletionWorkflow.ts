@@ -158,13 +158,6 @@ export function useDeletionWorkflow({
     currentRun.resumeDeletion();
   };
 
-  const resetWorkflow = () => {
-    setPreviewPlan(null);
-    setCurrentRun(null);
-    setRunState(null);
-    setSafetyOverride(null);
-  };
-
   const cancelConfirmation = () => {
     setPreviewPlan(null);
   };
@@ -183,7 +176,6 @@ export function useDeletionWorkflow({
     pauseRun: () => currentRun?.pauseDeletion(),
     stopRun: () => currentRun?.stopDeletion(),
     cancelConfirmation,
-    resetWorkflow,
     blockSafety: setSafetyOverride,
   } as const;
 }

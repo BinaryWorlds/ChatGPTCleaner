@@ -13,7 +13,6 @@ function sourceBrowser(url: string): SourceTabBrowser {
       {
         result: {
           origin: "https://chatgpt.com",
-          readyState: "complete",
         },
       },
     ]),

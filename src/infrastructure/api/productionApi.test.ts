@@ -6,20 +6,16 @@ import {
   createChromePageContextReadExecutor,
 } from "./PageContextReadExecutor";
 import {
-  createProjectConversationOperation,
-  createProjectDiscoveryOperation,
   type PageContextReadExecutor,
   type PageReadOperation,
   type PageScriptRunner,
 } from "./PageContextReadContracts";
 import { PageContextReadTransport } from "./SourceBoundPageContextReadTransport";
 import { ProductionConversationGateway } from "./ProductionConversationGateway";
-import { STANDALONE_CONVERSATION_PAGE_LIMIT } from "../../application/ports/ConversationGateway";
 import { MAX_SAFETY_CRITICAL_IDENTIFIER_LENGTH } from "../../domain/identifier";
 import {
   MAX_PAGINATION_CURSOR_LENGTH,
   normalizeDisplayTitle,
-  parsePaginationCursor,
   parseSafetyCriticalIdentifier,
 } from "./readValidation";
 
@@ -29,7 +25,7 @@ afterEach(() => {
 });
 
 describe("production read validation", () => {
-  it("blocks malformed safety-critical identifiers and cursors", () => {
+  it("blocks malformed safety-critical identifiers", () => {
     expect(parseSafetyCriticalIdentifier("conversation-id")).toBe(
       "conversation-id",
     );
@@ -46,15 +42,6 @@ describe("production read validation", () => {
         "a".repeat(MAX_SAFETY_CRITICAL_IDENTIFIER_LENGTH + 1),
       ),
     ).toBeNull();
-    expect(parsePaginationCursor("next")).toBe("next");
-    expect(parsePaginationCursor(null)).toBeNull();
-    expect(parsePaginationCursor({ cursor: "next" })).toBe(false);
-    expect(
-      parsePaginationCursor("c".repeat(MAX_PAGINATION_CURSOR_LENGTH)),
-    ).not.toBe(false);
-    expect(
-      parsePaginationCursor("c".repeat(MAX_PAGINATION_CURSOR_LENGTH + 1)),
-    ).toBe(false);
   });
 
   it("degrades invalid display metadata without inventing values", () => {
@@ -66,6 +53,9 @@ describe("production read validation", () => {
   function gatewayWith(
     execute: (tabId: number, operation: PageReadOperation) => Promise<unknown>,
     sourceAvailable = true,
+    deleteConversation = vi.fn(() =>
+      Promise.resolve({ kind: "deleted" as const }),
+    ),
   ) {
     const source = {
       validate: vi
@@ -79,24 +69,30 @@ describe("production read validation", () => {
         execute(tabId, {
           kind: "standalone",
           offset,
-          pageLimit: STANDALONE_CONVERSATION_PAGE_LIMIT,
           paginationStep,
         }),
       fetchProjectsPage: (tabId, cursor, paginationStep = 1) =>
-        execute(tabId, createProjectDiscoveryOperation(cursor, paginationStep)),
+        execute(tabId, {
+          kind: "projects",
+          cursor: cursor ?? "",
+          paginationStep,
+        }),
       fetchProjectConversationsPage: (
         tabId,
         projectId,
         cursor,
         paginationStep = 1,
       ) =>
-        execute(
-          tabId,
-          createProjectConversationOperation(projectId, cursor, paginationStep),
-        ),
+        execute(tabId, {
+          kind: "project-conversations",
+          projectId,
+          cursor: cursor ?? "",
+          paginationStep,
+        }),
     };
     return new ProductionConversationGateway(
       new PageContextReadTransport(source, executor, new FakeClock()),
+      { deleteConversation },
     );
   }
 
@@ -158,7 +154,6 @@ describe("production read validation", () => {
     expect(requests[0]).toEqual({
       kind: "standalone",
       offset: 0,
-      pageLimit: 100,
       paginationStep: 1,
     });
   });
@@ -198,38 +193,6 @@ describe("production read validation", () => {
     }
 
     expect(requestedOffsets).toEqual([0, 100, 200, 300]);
-    expect(cursor).toBeNull();
-  });
-
-  it("continues when the backend reports a smaller effective page limit", async () => {
-    const requestedOffsets: number[] = [];
-    const gateway = gatewayWith((_tabId, operation) => {
-      if (operation.kind !== "standalone") {
-        throw new Error("Expected standalone operation");
-      }
-      requestedOffsets.push(operation.offset);
-      const itemCount = operation.offset === 56 ? 4 : 28;
-      return Promise.resolve(
-        response({
-          items: Array.from({ length: itemCount }, (_, index) => ({
-            id: `conversation-${operation.offset + index}`,
-          })),
-          total: 60,
-          limit: 28,
-          offset: operation.offset,
-        }),
-      );
-    });
-
-    let cursor: string | null = null;
-    for (let page = 0; page < 3; page += 1) {
-      const result = await gateway.fetchStandaloneConversationPage(cursor);
-      expect(result.kind).toBe("success");
-      if (result.kind !== "success") return;
-      cursor = result.value.nextCursor;
-    }
-
-    expect(requestedOffsets).toEqual([0, 28, 56]);
     expect(cursor).toBeNull();
   });
 
@@ -480,19 +443,16 @@ describe("production read validation", () => {
     expect(runScript).toHaveBeenNthCalledWith(1, 42, "ISOLATED", {
       kind: "standalone",
       offset: 0,
-      pageLimit: 100,
       paginationStep: 1,
     });
     expect(runScript).toHaveBeenNthCalledWith(2, 42, "ISOLATED", {
       kind: "standalone",
       offset: 100,
-      pageLimit: 100,
       paginationStep: 2,
     });
     expect(runScript).toHaveBeenNthCalledWith(3, 42, "ISOLATED", {
       kind: "standalone",
       offset: 200,
-      pageLimit: 100,
       paginationStep: 3,
     });
   });
@@ -510,7 +470,6 @@ describe("production read validation", () => {
     expect(runScript).toHaveBeenCalledWith(42, "ISOLATED", {
       kind: "standalone",
       offset: 0,
-      pageLimit: 100,
       paginationStep: 1,
     });
   });
@@ -608,7 +567,7 @@ describe("production read validation", () => {
     },
   );
 
-  it("adds no artificial delay between successful production pages", async () => {
+  it("binds source validation once per inventory read", async () => {
     const source = {
       validate: vi.fn().mockResolvedValue({ kind: "valid", tabId: 42 }),
     };
@@ -627,7 +586,6 @@ describe("production read validation", () => {
     await transport.readStandalonePage(0);
     await transport.readStandalonePage(100);
 
-    expect(clock.requestedSleeps).toEqual([]);
     expect(source.validate).toHaveBeenCalledOnce();
 
     await transport.beginSafetyInventoryRead();
@@ -643,7 +601,6 @@ describe("production read validation", () => {
 
     const requestedUrls: string[] = [];
     const backendRequestHeaders: Headers[] = [];
-    const serializedOperations: unknown[] = [];
     let backendStatus = 200;
     let backendResponseBody: unknown = { items: [] };
     vi.stubGlobal("window", {
@@ -682,7 +639,6 @@ describe("production read validation", () => {
       if (!Array.isArray(serializedArgs) || serializedArgs.length !== 2) {
         throw new Error("Expected two JSON-compatible executeScript arguments");
       }
-      serializedOperations.push(serializedArgs[0]);
       return [
         { result: await details.func(serializedArgs[0], serializedArgs[1]) },
       ];
@@ -749,29 +705,9 @@ describe("production read validation", () => {
       "ISOLATED",
       "ISOLATED",
     ]);
-    const projectDiscoveryDetails = executeScript.mock.calls[3]?.[0];
-    expect(projectDiscoveryDetails?.args[0]).toEqual({
-      kind: "projects",
-      ownedOnly: true,
-      conversationsPerGizmo: 0,
-      cursor: "",
-      paginationStep: 1,
-    });
-    expect(serializedOperations[3]).toEqual(projectDiscoveryDetails?.args[0]);
-    expect(projectDiscoveryDetails?.args[0].kind).toBe("projects");
-    if (projectDiscoveryDetails?.args[0].kind !== "projects") {
-      throw new Error("Expected the Project discovery operation");
-    }
-    expect(projectDiscoveryDetails.args[0].cursor).toBe("");
     await expect(executeScript.mock.results[3]?.value).resolves.toMatchObject([
       { result: { kind: "response", status: 200 } },
     ]);
-    expect(executeScript.mock.calls[4]?.[0].args[0]).toEqual({
-      kind: "project-conversations",
-      projectId: "project/one",
-      cursor: "",
-      paginationStep: 1,
-    });
     await expect(executeScript.mock.results[4]?.value).resolves.toMatchObject([
       { result: { kind: "response", status: 200 } },
     ]);
@@ -786,7 +722,7 @@ describe("production read validation", () => {
     };
     await expect(
       Reflect.apply(injectedFunction, undefined, [
-        createProjectDiscoveryOperation(null, 1),
+        { kind: "projects", cursor: "", paginationStep: 1 },
         "ISOLATED",
       ]),
     ).resolves.toMatchObject({
@@ -806,20 +742,22 @@ describe("production read validation", () => {
 
     await expect(
       Reflect.apply(injectedFunction, undefined, [
-        createProjectDiscoveryOperation(
-          "c".repeat(MAX_PAGINATION_CURSOR_LENGTH),
-          1,
-        ),
+        {
+          kind: "projects",
+          cursor: "c".repeat(MAX_PAGINATION_CURSOR_LENGTH),
+          paginationStep: 1,
+        },
         "ISOLATED",
       ]),
     ).resolves.toMatchObject({ kind: "response", status: 200 });
     const requestCountAfterMaximumCursor = requestedUrls.length;
     await expect(
       Reflect.apply(injectedFunction, undefined, [
-        createProjectDiscoveryOperation(
-          "c".repeat(MAX_PAGINATION_CURSOR_LENGTH + 1),
-          1,
-        ),
+        {
+          kind: "projects",
+          cursor: "c".repeat(MAX_PAGINATION_CURSOR_LENGTH + 1),
+          paginationStep: 1,
+        },
         "ISOLATED",
       ]),
     ).resolves.toMatchObject({
@@ -831,14 +769,24 @@ describe("production read validation", () => {
     const maximumProjectId = "p".repeat(MAX_SAFETY_CRITICAL_IDENTIFIER_LENGTH);
     await expect(
       Reflect.apply(injectedFunction, undefined, [
-        createProjectConversationOperation(maximumProjectId, null, 1),
+        {
+          kind: "project-conversations",
+          projectId: maximumProjectId,
+          cursor: "",
+          paginationStep: 1,
+        },
         "ISOLATED",
       ]),
     ).resolves.toMatchObject({ kind: "response", status: 200 });
     const requestCountAfterMaximumProjectId = requestedUrls.length;
     await expect(
       Reflect.apply(injectedFunction, undefined, [
-        createProjectConversationOperation(`${maximumProjectId}p`, null, 1),
+        {
+          kind: "project-conversations",
+          projectId: `${maximumProjectId}p`,
+          cursor: "",
+          paginationStep: 1,
+        },
         "ISOLATED",
       ]),
     ).resolves.toMatchObject({
@@ -850,22 +798,24 @@ describe("production read validation", () => {
     const maximumProjectCursor = "c".repeat(MAX_PAGINATION_CURSOR_LENGTH);
     await expect(
       Reflect.apply(injectedFunction, undefined, [
-        createProjectConversationOperation(
-          "project-one",
-          maximumProjectCursor,
-          1,
-        ),
+        {
+          kind: "project-conversations",
+          projectId: "project-one",
+          cursor: maximumProjectCursor,
+          paginationStep: 1,
+        },
         "ISOLATED",
       ]),
     ).resolves.toMatchObject({ kind: "response", status: 200 });
     const requestCountAfterMaximumProjectCursor = requestedUrls.length;
     await expect(
       Reflect.apply(injectedFunction, undefined, [
-        createProjectConversationOperation(
-          "project-one",
-          `${maximumProjectCursor}c`,
-          1,
-        ),
+        {
+          kind: "project-conversations",
+          projectId: "project-one",
+          cursor: `${maximumProjectCursor}c`,
+          paginationStep: 1,
+        },
         "ISOLATED",
       ]),
     ).resolves.toMatchObject({
@@ -876,7 +826,7 @@ describe("production read validation", () => {
 
     await expect(
       Reflect.apply(injectedFunction, undefined, [
-        { kind: "projects", cursor: "", paginationStep: 1 },
+        { kind: "projects", cursor: "", paginationStep: 0 },
         "ISOLATED",
       ]),
     ).resolves.toMatchObject({
@@ -890,7 +840,7 @@ describe("production read validation", () => {
     });
     await expect(
       Reflect.apply(injectedFunction, undefined, [
-        createProjectDiscoveryOperation(null, 1),
+        { kind: "projects", cursor: "", paginationStep: 1 },
         "ISOLATED",
       ]),
     ).resolves.toEqual({
@@ -905,18 +855,19 @@ describe("production read validation", () => {
     expect(requestedUrls).toHaveLength(requestCountAfterMaximumProjectCursor);
   });
 
-  it("revalidates the source before reads and contains no DELETE transport", async () => {
-    const gateway = gatewayWith(() => Promise.resolve(response({})), false);
+  it("revalidates the source before reads without invoking DELETE", async () => {
+    const deleteConversation = vi.fn(() =>
+      Promise.resolve({ kind: "deleted" as const }),
+    );
+    const gateway = gatewayWith(
+      () => Promise.resolve(response({})),
+      false,
+      deleteConversation,
+    );
     await expect(gateway.fetchProjects()).resolves.toEqual({
       kind: "failure",
       reason: "source-unavailable",
     });
-    await expect(gateway.deleteConversation("anything")).resolves.toMatchObject(
-      {
-        kind: "fatal",
-        reason: "response-anomaly",
-        error: { code: "API_COMPATIBILITY_FAILURE" },
-      },
-    );
+    expect(deleteConversation).not.toHaveBeenCalled();
   });
 });

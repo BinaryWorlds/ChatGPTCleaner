@@ -8,8 +8,6 @@ import {
   hasSuccessfulResponse,
   projectDiscoveryHasResponseEnvelope,
   requiresMainWorld,
-  createProjectConversationOperation,
-  createProjectDiscoveryOperation,
   type PageContextReadExecutor,
   type PageExecutionWorld,
   type PageReadOperation,
@@ -38,7 +36,6 @@ export class IsolatedFirstPageContextReadExecutor implements PageContextReadExec
     return this.execute(tabId, {
       kind: "standalone",
       offset,
-      pageLimit: STANDALONE_CONVERSATION_PAGE_LIMIT,
       paginationStep,
     });
   }
@@ -48,10 +45,11 @@ export class IsolatedFirstPageContextReadExecutor implements PageContextReadExec
     cursor: string | null,
     paginationStep = 1,
   ): Promise<unknown> {
-    return this.execute(
-      tabId,
-      createProjectDiscoveryOperation(cursor, paginationStep),
-    );
+    return this.execute(tabId, {
+      kind: "projects",
+      cursor: cursor ?? "",
+      paginationStep,
+    });
   }
 
   public fetchProjectConversationsPage(
@@ -60,10 +58,12 @@ export class IsolatedFirstPageContextReadExecutor implements PageContextReadExec
     cursor: string | null,
     paginationStep = 1,
   ): Promise<unknown> {
-    return this.execute(
-      tabId,
-      createProjectConversationOperation(projectId, cursor, paginationStep),
-    );
+    return this.execute(tabId, {
+      kind: "project-conversations",
+      projectId,
+      cursor: cursor ?? "",
+      paginationStep,
+    });
   }
 
   private async execute(
@@ -120,6 +120,8 @@ function createChromePageScriptRunner(): PageScriptRunner {
             executionWorld: PageExecutionWorld,
           ) => {
             const standalonePageLimit = 100;
+            const projectDiscoveryOwnedOnly = true;
+            const projectDiscoveryConversationsPerGizmo = 0;
             const projectConversationPageLimit = 5;
             const maximumIdentifierLength = 512;
             const maximumCursorLength = 2_048;
@@ -132,8 +134,6 @@ function createChromePageScriptRunner(): PageScriptRunner {
                 : null;
             const projectDiscoveryArgumentsValid =
               receivedArgRecord?.kind === "projects" &&
-              receivedArgRecord.ownedOnly === true &&
-              receivedArgRecord.conversationsPerGizmo === 0 &&
               typeof receivedArgRecord.cursor === "string" &&
               receivedArgRecord.cursor.length <= maximumCursorLength &&
               typeof receivedArgRecord.paginationStep === "number" &&
@@ -320,13 +320,12 @@ function createChromePageScriptRunner(): PageScriptRunner {
             if (
               narrowOperation.kind === "standalone" &&
               Number.isSafeInteger(narrowOperation.offset) &&
-              narrowOperation.offset >= 0 &&
-              narrowOperation.pageLimit === standalonePageLimit
+              narrowOperation.offset >= 0
             ) {
               pathname = "/backend-api/conversations";
               query = {
                 offset: String(narrowOperation.offset),
-                limit: String(narrowOperation.pageLimit),
+                limit: String(standalonePageLimit),
                 order: "updated",
                 is_archived: "false",
                 is_starred: "false",
@@ -337,9 +336,9 @@ function createChromePageScriptRunner(): PageScriptRunner {
             ) {
               pathname = projectPathname;
               query = {
-                owned_only: String(narrowOperation.ownedOnly),
+                owned_only: String(projectDiscoveryOwnedOnly),
                 conversations_per_gizmo: String(
-                  narrowOperation.conversationsPerGizmo,
+                  projectDiscoveryConversationsPerGizmo,
                 ),
                 ...(narrowOperation.cursor.length === 0
                   ? {}

@@ -14,17 +14,8 @@ export interface ManagerDependencies {
   readonly observability?: ApplicationObservability;
 }
 
-export interface DemoScenario {
-  readonly id: string;
-  readonly label: string;
-  readonly description: string;
-}
-
 export interface ManagerComposition {
   readonly mode: "demo" | "production";
-  readonly sourceAvailable: boolean;
-  readonly scenarios: readonly DemoScenario[];
-  readonly initialScenarioId: string;
-  createDependencies(scenarioId: string): ManagerDependencies | null;
-  openConversation(conversationId: string): void;
+  readonly dependencies: ManagerDependencies | null;
+  readonly openConversation: (conversationId: string) => void;
 }

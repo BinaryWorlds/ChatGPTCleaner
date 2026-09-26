@@ -3,35 +3,22 @@ import type {
   ProtectedConversationStore,
 } from "../../application/ports/ProtectedConversationStore";
 import { AppConfig } from "../../config";
-import { isSafetyCriticalIdentifier } from "../../domain/identifier";
 import type { SettingsStore } from "../../application/ports/SettingsStore";
-
-function parseProtectedIds(value: unknown): ReadonlySet<string> | null {
-  if (!Array.isArray(value)) return null;
-  const protectedIds = new Set<string>();
-
-  for (const item of value) {
-    if (!isSafetyCriticalIdentifier(item)) {
-      return null;
-    }
-    protectedIds.add(item);
-  }
-  return protectedIds;
-}
 
 export class FakeProtectedConversationStore implements ProtectedConversationStore {
   public loadCount = 0;
 
-  public constructor(private storedValue: unknown = []) {}
+  public constructor(private storedValue: readonly string[] | "invalid" = []) {}
 
   public loadProtectedConversationIds(): Promise<ProtectedConversationIdsResult> {
     this.loadCount += 1;
-    const protectedConversationIds = parseProtectedIds(this.storedValue);
-    return Promise.resolve(
-      protectedConversationIds === null
-        ? { kind: "invalid" }
-        : { kind: "success", protectedConversationIds },
-    );
+    if (this.storedValue === "invalid") {
+      return Promise.resolve({ kind: "invalid" });
+    }
+    return Promise.resolve({
+      kind: "success",
+      protectedConversationIds: new Set(this.storedValue),
+    });
   }
 
   public saveProtectedConversationIds(

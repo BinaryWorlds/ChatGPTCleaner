@@ -6,7 +6,6 @@ import {
   InputNumber,
   Row,
   Segmented,
-  Select,
   Space,
   Spin,
   Statistic,
@@ -47,16 +46,18 @@ import { useDeletionWorkflow } from "./useDeletionWorkflow";
 import { useManagerInventory } from "./useManagerInventory";
 
 interface ManagerPageProps {
-  readonly composition: ManagerComposition;
+  readonly mode: ManagerComposition["mode"];
+  readonly dependencies: ManagerDependencies;
+  readonly openConversation: ManagerComposition["openConversation"];
 }
 
-export function ManagerPage({ composition }: ManagerPageProps) {
+export function ManagerPage({
+  mode,
+  dependencies,
+  openConversation,
+}: ManagerPageProps) {
   const [conversationView, setConversationView] =
     useState<ConversationView>("standalone");
-  const [scenarioId, setScenarioId] = useState(composition.initialScenarioId);
-  const [dependencies, setDependencies] = useState<ManagerDependencies | null>(
-    () => composition.createDependencies(composition.initialScenarioId),
-  );
   const {
     inventoryState,
     conversations,
@@ -66,8 +67,7 @@ export function ManagerPage({ composition }: ManagerPageProps) {
     requestsPerMinute,
     refreshing,
     refreshInventory,
-    resetInventory,
-    removeConversations,
+    removeConversation,
     setProtectedConversationIds,
     setRequestsPerMinute,
   } = useManagerInventory(dependencies);
@@ -101,10 +101,7 @@ export function ManagerPage({ composition }: ManagerPageProps) {
     useState(false);
   const protectionMutationPendingRef = useRef(false);
   const rateWriter = useMemo(
-    () =>
-      dependencies === null
-        ? null
-        : new SerializedRequestsPerMinuteWriter(dependencies.settingsStore),
+    () => new SerializedRequestsPerMinuteWriter(dependencies.settingsStore),
     [dependencies],
   );
   const projectConversationIds = useMemo(
@@ -125,7 +122,6 @@ export function ManagerPage({ composition }: ManagerPageProps) {
     pauseRun,
     stopRun,
     cancelConfirmation,
-    resetWorkflow,
     blockSafety,
   } = useDeletionWorkflow({
     dependencies,
@@ -137,15 +133,12 @@ export function ManagerPage({ composition }: ManagerPageProps) {
     requestsPerMinute,
     isProtectionMutationPending: () => protectionMutationPendingRef.current,
     onConversationRemoved: (removedId) => {
-      removeConversations(new Set([removedId]));
-      setSelectedConversationIds(
-        (currentSelection) =>
-          new Set(
-            [...currentSelection].filter(
-              (conversationId) => conversationId !== removedId,
-            ),
-          ),
-      );
+      removeConversation(removedId);
+      setSelectedConversationIds((currentSelection) => {
+        const nextSelection = new Set(currentSelection);
+        nextSelection.delete(removedId);
+        return nextSelection;
+      });
     },
     onNotice: setNotice,
   });
@@ -225,34 +218,11 @@ export function ManagerPage({ composition }: ManagerPageProps) {
     setPage(1);
   };
 
-  const changeScenario = (nextScenarioId: string) => {
-    if (
-      runActive ||
-      refreshing ||
-      previewPlan !== null ||
-      protectionMutationPendingRef.current
-    ) {
-      return;
-    }
-    const nextDependencies = composition.createDependencies(nextScenarioId);
-    setScenarioId(nextScenarioId);
-    setDependencies(nextDependencies);
-    resetInventory(nextDependencies !== null);
-    setSelectedConversationIds(new Set());
-    resetWorkflow();
-    setNotice(null);
-    setFilters(EMPTY_CONVERSATION_FILTERS);
-    setProjectFilters(EMPTY_CONVERSATION_FILTERS);
-    setConversationView("standalone");
-    setPage(1);
-    setProjectPage(1);
-  };
-
   const persistProtection = (
     nextProtectedIds: ReadonlySet<string>,
     nextSelection: ReadonlySet<string>,
   ) => {
-    if (dependencies === null || protectionMutationPendingRef.current) return;
+    if (protectionMutationPendingRef.current) return;
     protectionMutationPendingRef.current = true;
     setProtectionMutationPending(true);
     saveProtectedConversationIds({
@@ -297,13 +267,18 @@ export function ManagerPage({ composition }: ManagerPageProps) {
   };
 
   const handleRateChange = (value: number | null) => {
-    if (rateWriter === null || value === null || runActive) return;
+    if (value === null || runActive) return;
     rateWriter
       .save(value)
       .then((saved) => {
         if (saved) setRequestsPerMinute(value);
       })
       .catch(() => setNotice("Could not save the deletion rate."));
+  };
+
+  const handleOpenConversation = (conversationId: string) => {
+    openConversation(conversationId);
+    setNotice(mode === "demo" ? `Demo Open action: ${conversationId}` : null);
   };
 
   const handleRefresh = () => {
@@ -333,35 +308,13 @@ export function ManagerPage({ composition }: ManagerPageProps) {
 
   return (
     <Space orientation="vertical" size="middle" className="manager-panel">
-      {composition.mode === "demo" && (
-        <>
-          <Alert
-            type="success"
-            showIcon
-            title="Demo mode"
-            description="Deterministic fake infrastructure is active. No request can reach ChatGPT and no real DELETE can be issued."
-          />
-          <Card size="small" title="Demo scenario">
-            <Space wrap>
-              <Select
-                aria-label="Demo scenario"
-                value={scenarioId}
-                disabled={runActive || refreshing || protectionMutationPending}
-                options={composition.scenarios.map((scenario) => ({
-                  value: scenario.id,
-                  label: scenario.label,
-                }))}
-                onChange={changeScenario}
-              />
-              <Typography.Text type="secondary">
-                {
-                  composition.scenarios.find(({ id }) => id === scenarioId)
-                    ?.description
-                }
-              </Typography.Text>
-            </Space>
-          </Card>
-        </>
+      {mode === "demo" && (
+        <Alert
+          type="success"
+          showIcon
+          title="Demo mode"
+          description="Deterministic fake infrastructure is active. No request can reach ChatGPT and no real DELETE can be issued."
+        />
       )}
 
       <SafetyStatus state={safetyState} />
@@ -471,9 +424,7 @@ export function ManagerPage({ composition }: ManagerPageProps) {
                   conversationView === "standalone" ? filters : projectFilters
                 }
                 onChange={updateFilters}
-                currentDate={() =>
-                  new Date(dependencies?.clock.now() ?? Date.now())
-                }
+                currentDate={() => new Date(dependencies.clock.now())}
               />
               {conversationView === "standalone" && (
                 <Space>
@@ -586,14 +537,7 @@ export function ManagerPage({ composition }: ManagerPageProps) {
               onSelectionChange={setSelectedConversationIds}
               onProtect={handleProtect}
               onUnprotect={handleUnprotect}
-              onOpen={(conversationId) => {
-                composition.openConversation(conversationId);
-                setNotice(
-                  composition.mode === "demo"
-                    ? `Demo Open action: ${conversationId}`
-                    : null,
-                );
-              }}
+              onOpen={handleOpenConversation}
               onSort={(field, direction) => {
                 setSortField(field);
                 setSortDirection(direction);
@@ -612,14 +556,7 @@ export function ManagerPage({ composition }: ManagerPageProps) {
               sortDirection={projectSortDirection}
               page={visibleProjectPage}
               pageSize={projectPageSize}
-              onOpen={(conversationId) => {
-                composition.openConversation(conversationId);
-                setNotice(
-                  composition.mode === "demo"
-                    ? `Demo Open action: ${conversationId}`
-                    : null,
-                );
-              }}
+              onOpen={handleOpenConversation}
               onSort={(field, direction) => {
                 setProjectSortField(field);
                 setProjectSortDirection(direction);

@@ -519,7 +519,7 @@ describe("destructive run", () => {
   it.each([
     {
       failure: "validation",
-      store: new FakeProtectedConversationStore([42]),
+      store: new FakeProtectedConversationStore("invalid"),
     },
     {
       failure: "read",

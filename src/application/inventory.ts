@@ -68,7 +68,6 @@ async function loadStandaloneConversations(
   | {
       readonly kind: "success";
       readonly conversations: readonly Conversation[];
-      readonly pageCount: number;
     }
   | {
       readonly kind: "failure";
@@ -130,7 +129,6 @@ async function loadStandaloneConversations(
     return {
       kind: "success",
       conversations: [...conversationsById.values()],
-      pageCount: committedPageCount,
     };
   }
 
@@ -148,7 +146,6 @@ async function loadStandaloneConversations(
         return {
           kind: "success",
           conversations: [...conversationsById.values()],
-          pageCount: committedPageCount,
         };
       }
       nextCursor = committedPage.nextCursor;
@@ -186,7 +183,6 @@ async function loadStandaloneConversations(
         return {
           kind: "success",
           conversations: [...conversationsById.values()],
-          pageCount: committedPageCount,
         };
       }
 

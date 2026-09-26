@@ -6,6 +6,7 @@ import {
   parseStandalonePage,
   type StandalonePage,
 } from "./conversationPageParsing";
+import { MAX_PAGINATION_CURSOR_LENGTH } from "./readValidation";
 import {
   decideCursorPagination,
   decideStandalonePagination,
@@ -41,6 +42,15 @@ describe("production page parsing", () => {
         cursor: "next",
       }).success,
     ).toBe(true);
+    expect(
+      parseProjectsPage({ items: [], cursor: { cursor: "next" } }).success,
+    ).toBe(false);
+    expect(
+      parseProjectConversationPage({
+        items: [],
+        cursor: "c".repeat(MAX_PAGINATION_CURSOR_LENGTH + 1),
+      }).success,
+    ).toBe(false);
     expect(parseStandalonePage({ items: [] }).success).toBe(false);
   });
 

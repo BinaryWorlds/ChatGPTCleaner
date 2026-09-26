@@ -71,8 +71,8 @@ export function createManagerComposition(
     new URLSearchParams(window.location.search).get("sourceTabId"),
   );
 
-  const createDependencies = (): ManagerDependencies | null => {
-    if (sourceTabId === null) return null;
+  let dependencies: ManagerDependencies | null = null;
+  if (sourceTabId !== null) {
     const activeRuntime = runtime ?? createBrowserRuntime();
     const trustedStorage = new TrustedStorageAccess(activeRuntime.storage);
     const clock = new SystemClock();
@@ -85,7 +85,7 @@ export function createManagerComposition(
       activeRuntime.pageReadExecutor ?? createChromePageContextReadExecutor(),
       clock,
     );
-    return {
+    dependencies = {
       gateway: new ProductionConversationGateway(
         transport,
         new PageContextDeleteTransport(
@@ -107,14 +107,11 @@ export function createManagerComposition(
       destructiveRunLock: new WebLocksDestructiveRunLock(activeRuntime.locks),
       observability: createApplicationObservability(),
     };
-  };
+  }
 
   return {
     mode: "production",
-    sourceAvailable: sourceTabId !== null,
-    scenarios: [],
-    initialScenarioId: "production",
-    createDependencies,
+    dependencies,
     openConversation: openProductionConversation,
   };
 }
