@@ -14,7 +14,8 @@ ChatGPTCleaner is intentionally narrow:
 - explicitly discovers Project conversations so they are protected;
 - lets you search, sort, filter, select, and protect standalone chats;
 - provides date filters and quick cleanup presets;
-- performs a fresh safety preflight before deletion;
+- previews deletion from the last successfully loaded inventory snapshot and
+  current local protection state;
 - deletes selected conversations sequentially at a configurable requests-per-minute rate;
 - supports Pause, Resume, Stop, retries, progress, and ETA;
 - never intentionally deletes Projects or conversations belonging to Projects.
@@ -31,30 +32,36 @@ The deletion path is:
 
 ```text
 selection
--> fresh source/inventory/Project preflight
--> DeletionPlan
+-> DeletionPlan preview from loaded inventory
 -> typed confirmation
 -> confirmed IDs
 -> single-run lock
+-> fresh local protected-ID check
 -> sequential rate-limited DELETE
 ```
 
 Important rules:
 
 - Project conversations are hard-protected.
-- User-protected conversations are excluded.
-- Incomplete Project protection blocks deletion.
+- User-protected conversations are excluded at confirmation and freshly
+  rechecked inside the destructive lock before DELETE continues.
+- Incomplete Project protection blocks initial load or Refresh from replacing
+  the current snapshot.
 - API incompatibility blocks deletion.
 - Source-tab instability blocks or stops deletion.
 - Raw table selection never reaches DELETE.
-- Resume/Retry may only shrink the already-confirmed ID set.
+- Resume/Retry may only use IDs from the already-confirmed ID set and never
+  reload ChatGPT inventory.
 - Closing/reloading the manager prevents new DELETE requests from starting.
 - An already-dispatched request may still complete remotely.
 - There is no persisted deletion queue and no automatic resume.
 - DELETE attempts are strictly sequential and use the configured rate limit;
   retries count as attempts.
 
-Because ChatGPT does not provide the extension an atomic "delete only if still outside Project" operation, do not move conversations into or out of Projects while a deletion run is active.
+Project exclusion reflects the last successful initial inventory load or
+explicit Refresh. It is not atomically rechecked before DELETE. If ChatGPT data
+may have changed externally, use Refresh before deleting, and do not move
+conversations into or out of Projects during an active run.
 Do not switch the relevant ChatGPT account or workspace during an active run.
 
 ## Privacy
@@ -63,7 +70,8 @@ ChatGPTCleaner has no external backend, telemetry, analytics, or remote logging.
 
 The extension does not persist conversation contents, conversation inventory, Project inventory, authentication tokens, cookies, request headers, deletion queues, confirmed deletion plans, or run history.
 
-Persistent local storage is limited to small settings such as protected conversation IDs and the deletion rate.
+Persistent local storage is limited to protected conversation IDs and the
+deletion-rate preference.
 
 ## Installation from source
 
@@ -110,9 +118,10 @@ production build into demo mode.
 Production source-tab, read-only inventory, Project protection, storage, retry,
 locking, and the narrow production DELETE transport are implemented. The
 production DELETE contract completed its documented manual smoke test against
-one disposable standalone conversation: fresh preflight selected one eligible
-ID, exactly one DELETE attempt succeeded, and the run completed with no failed
-or skipped items. Automated tests and demo mode still never issue real DELETE.
+one disposable standalone conversation using the then-current safety path:
+one eligible ID was confirmed, exactly one DELETE attempt succeeded, and the
+run completed with no failed or skipped items. Automated tests and demo mode
+still never issue real DELETE.
 
 ### Debug logging
 

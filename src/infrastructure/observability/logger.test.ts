@@ -143,7 +143,6 @@ describe("privacy-safe logger", () => {
   });
 
   it.each([
-    "sourceTab.validation.started",
     "protectedStore.load.started",
     "settingsStore.load.succeeded",
     "runLock.acquire.started",

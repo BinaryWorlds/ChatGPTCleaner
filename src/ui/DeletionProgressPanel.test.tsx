@@ -25,7 +25,6 @@ describe("DeletionProgressPanel", () => {
         paused: false,
         currentConversationId: null,
         failedConversationIds,
-        removedConversationIds: [],
       },
     };
 

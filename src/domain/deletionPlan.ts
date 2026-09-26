@@ -100,14 +100,19 @@ export function confirmDeletionPlan(
 
 export function shrinkConfirmedDeletionPlan(
   confirmedPlan: ConfirmedDeletionPlan,
-  revalidatedPlan: DeletionPlan,
+  safetyState: {
+    readonly projectConversationIds: ReadonlySet<string>;
+    readonly protectedConversationIds: ReadonlySet<string>;
+    readonly standaloneConversationIds: ReadonlySet<string>;
+  },
 ): ConfirmedDeletionPlan {
-  const revalidatedIds = new Set(revalidatedPlan.eligibleConversationIds);
-
   return {
     [confirmedDeletionPlanBrand]: true,
     confirmedConversationIds: confirmedPlan.confirmedConversationIds.filter(
-      (conversationId) => revalidatedIds.has(conversationId),
+      (conversationId) =>
+        !safetyState.projectConversationIds.has(conversationId) &&
+        !safetyState.protectedConversationIds.has(conversationId) &&
+        safetyState.standaloneConversationIds.has(conversationId),
     ),
   };
 }

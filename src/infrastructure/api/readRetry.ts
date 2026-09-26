@@ -98,15 +98,6 @@ export async function executeReadWithRetry<T>(input: {
     attempt <= AppConfig.readRetry.maxAttempts;
     attempt += 1
   ) {
-    const attemptStartedAt = performance.now();
-    activeLogger.debug(ApiRequestLifecycleEvent.Started, {
-      ...(input.operationId === undefined
-        ? {}
-        : { operationId: input.operationId }),
-      operation,
-      retryAttempt: attempt,
-      ...(input.page === undefined ? {} : { page: input.page }),
-    });
     const result = await input.attempt();
     if (result.kind === "failure") {
       return result;
@@ -116,16 +107,6 @@ export async function executeReadWithRetry<T>(input: {
       result.status >= 200 &&
       result.status < 300
     ) {
-      activeLogger.debug(ApiRequestLifecycleEvent.Succeeded, {
-        ...(input.operationId === undefined
-          ? {}
-          : { operationId: input.operationId }),
-        operation,
-        retryAttempt: attempt,
-        ...(input.page === undefined ? {} : { page: input.page }),
-        status: result.status,
-        durationMs: Math.round(performance.now() - attemptStartedAt),
-      });
       return { kind: "success", value: result.body };
     }
     if (
@@ -142,7 +123,6 @@ export async function executeReadWithRetry<T>(input: {
         status: result.status,
         errorCode: appError.code,
         retryable: appError.retryable,
-        durationMs: Math.round(performance.now() - attemptStartedAt),
       });
       return { kind: "failure", reason: nonRetryableFailure(result.status) };
     }
@@ -163,7 +143,6 @@ export async function executeReadWithRetry<T>(input: {
           ...(status === undefined ? {} : { status }),
           errorCode: appError.code,
           retryable: appError.retryable,
-          durationMs: Math.round(performance.now() - attemptStartedAt),
         },
       );
       return {

@@ -158,7 +158,7 @@ describe("deletion safety boundary", () => {
     expect(confirmDeletionPlan(plan, "DELETE 1").kind).toBe("confirmed");
   });
 
-  it("revalidation can only shrink the confirmed set", () => {
+  it("confirmation applies the current snapshot and local protection without adding IDs", () => {
     const originalPlan = buildDeletionPlan({
       selectedConversationIds: ["a", "b"],
       standaloneConversations: conversations,
@@ -168,16 +168,12 @@ describe("deletion safety boundary", () => {
     const confirmation = confirmDeletionPlan(originalPlan, "DELETE 2");
     if (confirmation.kind !== "confirmed") throw new Error("Expected plan");
 
-    const refreshedPlan = buildDeletionPlan({
-      selectedConversationIds: ["a", "b", "c"],
-      standaloneConversations: conversations,
-      projectConversationIds: new Set(["b"]),
-      protectedConversationIds: new Set(),
-    });
-
     expect(
-      shrinkConfirmedDeletionPlan(confirmation.plan, refreshedPlan)
-        .confirmedConversationIds,
+      shrinkConfirmedDeletionPlan(confirmation.plan, {
+        projectConversationIds: new Set(),
+        protectedConversationIds: new Set(["b"]),
+        standaloneConversationIds: new Set(["a", "b", "c"]),
+      }).confirmedConversationIds,
     ).toEqual(["a"]);
   });
 });

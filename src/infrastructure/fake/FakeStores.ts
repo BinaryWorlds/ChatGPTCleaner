@@ -20,9 +20,12 @@ function parseProtectedIds(value: unknown): ReadonlySet<string> | null {
 }
 
 export class FakeProtectedConversationStore implements ProtectedConversationStore {
+  public loadCount = 0;
+
   public constructor(private storedValue: unknown = []) {}
 
   public loadProtectedConversationIds(): Promise<ProtectedConversationIdsResult> {
+    this.loadCount += 1;
     const protectedConversationIds = parseProtectedIds(this.storedValue);
     return Promise.resolve(
       protectedConversationIds === null

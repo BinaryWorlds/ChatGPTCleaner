@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AppConfig } from "../config";
 import {
   loadInventory,
@@ -44,15 +44,34 @@ export function useManagerInventory(dependencies: ManagerDependencies | null) {
   const [conversationTitles, setConversationTitles] = useState<
     ReadonlyMap<string, string>
   >(new Map());
-  const [projectConversationCount, setProjectConversationCount] = useState(0);
   const [protectedConversationIds, setProtectedConversationIds] = useState<
     ReadonlySet<string>
   >(new Set());
   const [requestsPerMinute, setRequestsPerMinute] = useState<number>(
     AppConfig.deletion.requestsPerMinute.default,
   );
+  const [refreshing, setRefreshing] = useState(false);
+  const refreshingRef = useRef(false);
+  const loadGenerationRef = useRef(0);
+
+  const replaceInventorySnapshot = useCallback(
+    (inventory: {
+      readonly standaloneConversations: readonly Conversation[];
+      readonly projectConversations: readonly Conversation[];
+    }) => {
+      setConversations(inventory.standaloneConversations);
+      setProjectConversations(inventory.projectConversations);
+      setConversationTitles(
+        new Map(
+          inventory.standaloneConversations.map(({ id, title }) => [id, title]),
+        ),
+      );
+    },
+    [],
+  );
 
   useEffect(() => {
+    loadGenerationRef.current += 1;
     let current = true;
     let readCompatibilityConfirmed = false;
     if (dependencies === null) {
@@ -96,19 +115,7 @@ export function useManagerInventory(dependencies: ManagerDependencies | null) {
           });
           return;
         }
-        setConversations(result.inventory.standaloneConversations);
-        setProjectConversations(result.inventory.projectConversations);
-        setConversationTitles(
-          new Map(
-            result.inventory.standaloneConversations.map(({ id, title }) => [
-              id,
-              title,
-            ]),
-          ),
-        );
-        setProjectConversationCount(
-          result.inventory.projectConversationIds.size,
-        );
+        replaceInventorySnapshot(result.inventory);
         setProtectedConversationIds(result.protectedConversationIds);
         setRequestsPerMinute(result.requestsPerMinute);
         setInventoryState({ kind: "ready" });
@@ -126,9 +133,38 @@ export function useManagerInventory(dependencies: ManagerDependencies | null) {
     return () => {
       current = false;
     };
-  }, [dependencies]);
+  }, [dependencies, replaceInventorySnapshot]);
+
+  const refreshInventory = useCallback(async (): Promise<boolean> => {
+    if (dependencies === null || refreshingRef.current) return false;
+
+    const loadGeneration = loadGenerationRef.current;
+    refreshingRef.current = true;
+    setRefreshing(true);
+    try {
+      const result = await loadInventory(dependencies);
+      if (
+        result.kind === "blocked" ||
+        loadGeneration !== loadGenerationRef.current
+      ) {
+        return false;
+      }
+      replaceInventorySnapshot(result.inventory);
+      return true;
+    } catch {
+      return false;
+    } finally {
+      if (loadGeneration === loadGenerationRef.current) {
+        refreshingRef.current = false;
+        setRefreshing(false);
+      }
+    }
+  }, [dependencies, replaceInventorySnapshot]);
 
   const resetInventory = (sourceAvailable: boolean) => {
+    loadGenerationRef.current += 1;
+    refreshingRef.current = false;
+    setRefreshing(false);
     setInventoryState(
       sourceAvailable
         ? INITIAL_INVENTORY_STATE
@@ -141,7 +177,6 @@ export function useManagerInventory(dependencies: ManagerDependencies | null) {
     setConversations([]);
     setProjectConversations([]);
     setConversationTitles(new Map());
-    setProjectConversationCount(0);
     setProtectedConversationIds(new Set());
   };
 
@@ -156,9 +191,10 @@ export function useManagerInventory(dependencies: ManagerDependencies | null) {
     conversations,
     projectConversations,
     conversationTitles,
-    projectConversationCount,
     protectedConversationIds,
     requestsPerMinute,
+    refreshing,
+    refreshInventory,
     resetInventory,
     removeConversations,
     setProtectedConversationIds,

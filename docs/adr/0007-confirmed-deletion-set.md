@@ -4,30 +4,27 @@
 
 ## Context
 
-Pause/Resume and Retry Failed need fresh safety checks, but repeatedly asking the user to retype confirmation for the same already-approved IDs is unnecessary.
-
-At the same time, revalidation must never introduce a conversation the user did not confirm.
+Pause/Resume and Retry Failed must remain inside the already-approved set
+without asking the user to retype confirmation.
 
 ## Decision
 
 Typed confirmation creates an in-memory maximum set of `confirmedConversationIds`.
 
-Resume and Retry Failed may revalidate and **remove** IDs from that set, but may never add IDs.
-
-After acquiring the destructive run lock, a new batch or Retry Failed execution
-revalidates the remaining confirmed IDs again before the first DELETE. This
-post-lock check also may only remove IDs and does not require another typed
-confirmation.
+Starting, Resume, and Retry Failed may **remove** IDs from that set, but may
+never add IDs. They do not reload standalone or Project inventory. Current
+local protection is loaded inside the destructive lock before DELETE continues
+so protection changes cannot expand the set.
 
 Example:
 
 ```text
 confirmed: A B C D
-revalidated: A C D
+remaining subset: A C D
 => allowed
 
 confirmed: A B C D
-revalidated: A B C D E
+attempted subset: A B C D E
 => E rejected
 ```
 
@@ -38,12 +35,11 @@ Confirmed IDs are never persisted.
 ## Alternatives considered
 
 - Require typed confirmation after every Resume/Retry.
-- Continue the original plan without revalidation.
+- Continue the original plan without subset enforcement.
 - Allow refreshed inventory to add newly eligible IDs automatically.
 
 The chosen model preserves explicit user approval while keeping Resume/Retry usable.
 
 ## Consequences
 
-Revalidation is monotonic: safety checks can only reduce the destructive set,
-including the check performed after lock acquisition.
+The confirmed set is monotonic: later operations can only reduce it.

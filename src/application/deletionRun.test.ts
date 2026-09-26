@@ -19,6 +19,7 @@ import type {
   ApplicationObservability,
   ObservabilityFields,
 } from "./ports/Observability";
+import type { ProtectedConversationStore } from "./ports/ProtectedConversationStore";
 
 function confirmedPlan(ids: readonly string[]): ConfirmedDeletionPlan {
   const conversations: Conversation[] = ids.map((id) => ({
@@ -74,6 +75,16 @@ class MutatingDestructiveRunLock implements DestructiveRunLock {
     this.acquisitionCount += 1;
     await this.onAcquire(this.acquisitionCount);
     return { kind: "acquired", value: await work() };
+  }
+}
+
+class UnreadableProtectedConversationStore implements ProtectedConversationStore {
+  public loadProtectedConversationIds(): Promise<never> {
+    return Promise.reject(new Error("Storage unavailable"));
+  }
+
+  public saveProtectedConversationIds(): Promise<void> {
+    return Promise.resolve();
   }
 }
 
@@ -258,6 +269,7 @@ describe("destructive run", () => {
 
   it("handles success, 404, 410, retries, and sequential rate limiting", async () => {
     const ids = ["success", "gone", "removed", "limited", "server", "network"];
+    const removedIds: string[] = [];
     const clock = new FakeClock();
     const gateway = new FakeConversationGateway(
       fixtureForDeletion(ids, {
@@ -277,6 +289,8 @@ describe("destructive run", () => {
       protectedConversationStore: new FakeProtectedConversationStore(),
       clock,
       destructiveRunLock: new FakeDestructiveRunLock(),
+      onConversationRemoved: (conversationId) =>
+        removedIds.push(conversationId),
     });
 
     const state = await run.startDeletion();
@@ -284,6 +298,7 @@ describe("destructive run", () => {
     expect(state.progress.deleted).toBe(4);
     expect(state.progress.skipped).toBe(2);
     expect(state.progress.retries).toBe(3);
+    expect(removedIds).toEqual(ids);
     expect(gateway.deleteAttempts).toHaveLength(9);
     for (let index = 1; index < gateway.deleteAttempts.length; index += 1) {
       const previous = gateway.deleteAttempts[index - 1];
@@ -295,26 +310,6 @@ describe("destructive run", () => {
     }
   });
 
-  it("stops fatally on 403 without attempting later IDs", async () => {
-    const ids = ["forbidden", "untouched"];
-    const clock = new FakeClock();
-    const gateway = new FakeConversationGateway(
-      fixtureForDeletion(ids, { forbidden: [403] }),
-      clock,
-    );
-    const run = new DeletionRun({
-      confirmedPlan: confirmedPlan(ids),
-      requestsPerMinute: 60,
-      gateway,
-      protectedConversationStore: new FakeProtectedConversationStore(),
-      clock,
-      destructiveRunLock: new FakeDestructiveRunLock(),
-    });
-
-    expect((await run.startDeletion()).kind).toBe("fatal");
-    expect(gateway.deleteAttempts.map(({ id }) => id)).toEqual(["forbidden"]);
-  });
-
   it.each([
     [401, "authentication"],
     [403, "authorization"],
@@ -323,6 +318,7 @@ describe("destructive run", () => {
     "stops on fatal HTTP %i before the next confirmed ID",
     async (status, reason) => {
       const ids = ["fatal", "untouched"];
+      const removedIds: string[] = [];
       const clock = new FakeClock();
       const lockState = { active: false };
       const gateway = new FakeConversationGateway(
@@ -336,17 +332,21 @@ describe("destructive run", () => {
         protectedConversationStore: new FakeProtectedConversationStore(),
         clock,
         destructiveRunLock: new FakeDestructiveRunLock(lockState),
+        onConversationRemoved: (conversationId) =>
+          removedIds.push(conversationId),
       });
 
       const result = await run.startDeletion();
       expect(result).toMatchObject({ kind: "fatal", reason });
       expect(gateway.deleteAttempts.map(({ id }) => id)).toEqual(["fatal"]);
+      expect(removedIds).toEqual([]);
       expect(lockState.active).toBe(false);
     },
   );
 
   it("continues after exhausted server and network failures", async () => {
     const ids = ["server-failed", "network-failed", "success"];
+    const removedIds: string[] = [];
     const clock = new FakeClock();
     const gateway = new FakeConversationGateway(
       fixtureForDeletion(ids, {
@@ -369,6 +369,8 @@ describe("destructive run", () => {
       protectedConversationStore: new FakeProtectedConversationStore(),
       clock,
       destructiveRunLock: new FakeDestructiveRunLock(),
+      onConversationRemoved: (conversationId) =>
+        removedIds.push(conversationId),
     });
 
     const result = await run.startDeletion();
@@ -376,6 +378,7 @@ describe("destructive run", () => {
       kind: "finished",
       progress: { failed: 2, deleted: 1, processed: 3 },
     });
+    expect(removedIds).toEqual(["success"]);
     expect(gateway.deleteAttempts.at(-1)?.id).toBe("success");
   });
 
@@ -486,18 +489,47 @@ describe("destructive run", () => {
     expect((await run.startDeletion()).kind).toBe("blocked");
   });
 
-  it("revalidates confirmed IDs after acquiring the lock and before the first DELETE", async () => {
+  it.each([{ ids: ["a"] }, { ids: ["a", "b"] }])(
+    "starts DELETE for $ids with zero inventory reads",
+    async ({ ids }) => {
+      const clock = new FakeClock();
+      const gateway = new FakeConversationGateway(
+        fixtureForDeletion(ids, {}),
+        clock,
+      );
+      const protectedStore = new FakeProtectedConversationStore();
+      const run = new DeletionRun({
+        confirmedPlan: confirmedPlan(ids),
+        requestsPerMinute: 120,
+        gateway,
+        protectedConversationStore: protectedStore,
+        clock,
+        destructiveRunLock: new FakeDestructiveRunLock(),
+      });
+
+      expect((await run.startDeletion()).kind).toBe("finished");
+      expect(gateway.safetyInventoryReadCount).toBe(0);
+      expect(gateway.standalonePageReadCount).toBe(0);
+      expect(gateway.projectDiscoveryReadCount).toBe(0);
+      expect(gateway.projectConversationPageReadCount).toBe(0);
+      expect(protectedStore.loadCount).toBe(1);
+      expect(gateway.deleteAttempts.map(({ id }) => id)).toEqual(ids);
+    },
+  );
+
+  it("removes an ID protected after confirmation once the lock is acquired", async () => {
+    const ids = ["newly-protected", "still-eligible"];
     const clock = new FakeClock();
     const store = new FakeProtectedConversationStore();
     const gateway = new FakeConversationGateway(
-      fixtureForDeletion(["a"], {}),
+      fixtureForDeletion(ids, {}),
       clock,
     );
     const lock = new MutatingDestructiveRunLock(async () => {
-      await store.saveProtectedConversationIds(new Set(["a"]));
+      await store.saveProtectedConversationIds(new Set(["newly-protected"]));
     });
     const run = new DeletionRun({
-      confirmedPlan: confirmedPlan(["a"]),
+      confirmedPlan: confirmedPlan(ids),
       requestsPerMinute: 60,
       gateway,
       protectedConversationStore: store,
@@ -505,38 +537,74 @@ describe("destructive run", () => {
       destructiveRunLock: lock,
     });
 
-    const result = await run.startDeletion();
-
-    expect(result.kind).toBe("finished");
-    expect(gateway.deleteAttempts).toEqual([]);
+    expect((await run.startDeletion()).kind).toBe("finished");
+    expect(store.loadCount).toBe(1);
+    expect(gateway.deleteAttempts.map(({ id }) => id)).toEqual([
+      "still-eligible",
+    ]);
   });
 
-  it("blocks before the first DELETE when post-lock revalidation fails", async () => {
+  it("issues no DELETE when every ID becomes protected after lock acquisition", async () => {
+    const ids = ["a", "b"];
     const clock = new FakeClock();
+    const store = new FakeProtectedConversationStore();
     const gateway = new FakeConversationGateway(
-      fixtureForDeletion(["a"], {}),
+      fixtureForDeletion(ids, {}),
       clock,
     );
+    const lock = new MutatingDestructiveRunLock(async () => {
+      await store.saveProtectedConversationIds(new Set(ids));
+    });
     const run = new DeletionRun({
-      confirmedPlan: confirmedPlan(["a"]),
+      confirmedPlan: confirmedPlan(ids),
       requestsPerMinute: 60,
       gateway,
-      protectedConversationStore: new FakeProtectedConversationStore([42]),
+      protectedConversationStore: store,
       clock,
-      destructiveRunLock: new FakeDestructiveRunLock(),
+      destructiveRunLock: lock,
     });
 
-    const result = await run.startDeletion();
-
-    expect(result).toMatchObject({
-      kind: "blocked",
-      reason: "protected-storage",
-    });
+    expect((await run.startDeletion()).kind).toBe("finished");
     expect(gateway.deleteAttempts).toEqual([]);
   });
 
-  it("pauses a local wait, revalidates, resumes, and does not replay success", async () => {
+  it.each([
+    {
+      failure: "validation",
+      store: new FakeProtectedConversationStore([42]),
+    },
+    {
+      failure: "read",
+      store: new UnreadableProtectedConversationStore(),
+    },
+  ])(
+    "blocks before DELETE on protected-store $failure failure",
+    async ({ store }) => {
+      const clock = new FakeClock();
+      const gateway = new FakeConversationGateway(
+        fixtureForDeletion(["a"], {}),
+        clock,
+      );
+      const run = new DeletionRun({
+        confirmedPlan: confirmedPlan(["a"]),
+        requestsPerMinute: 60,
+        gateway,
+        protectedConversationStore: store,
+        clock,
+        destructiveRunLock: new FakeDestructiveRunLock(),
+      });
+
+      await expect(run.startDeletion()).resolves.toMatchObject({
+        kind: "blocked",
+        reason: "protected-storage",
+      });
+      expect(gateway.deleteAttempts).toEqual([]);
+    },
+  );
+
+  it("pauses a local wait, resumes, and does not replay success", async () => {
     const ids = ["a", "b"];
+    const removedIds: string[] = [];
     const clock = new FakeClock(0, false);
     const gateway = new FakeConversationGateway(
       fixtureForDeletion(ids, {}),
@@ -549,6 +617,8 @@ describe("destructive run", () => {
       protectedConversationStore: new FakeProtectedConversationStore(),
       clock,
       destructiveRunLock: new FakeDestructiveRunLock(),
+      onConversationRemoved: (conversationId) =>
+        removedIds.push(conversationId),
     });
 
     const completion = run.startDeletion();
@@ -564,6 +634,7 @@ describe("destructive run", () => {
 
     expect((await completion).kind).toBe("finished");
     expect(gateway.deleteAttempts.map(({ id }) => id)).toEqual(["a", "b"]);
+    expect(removedIds).toEqual(["a", "b"]);
   });
 
   it("lets an in-flight attempt finish and holds the lock while paused", async () => {
@@ -653,10 +724,11 @@ describe("destructive run", () => {
     expect(run.getState().kind).toBe("finished");
 
     expect((await completion).kind).toBe("finished");
+    expect(store.loadCount).toBe(2);
     expect(gateway.deleteAttempts.map(({ id }) => id)).toEqual(["a"]);
   });
 
-  it("retry failed revalidates and cannot add or delete a newly protected ID", async () => {
+  it("retry failed cannot add or delete a newly protected ID", async () => {
     const clock = new FakeClock();
     const store = new FakeProtectedConversationStore();
     const gateway = new FakeConversationGateway(
@@ -680,10 +752,11 @@ describe("destructive run", () => {
     const retried = await run.retryFailedDeletion();
 
     expect(retried.kind).toBe("finished");
+    expect(store.loadCount).toBe(2);
     expect(gateway.deleteAttempts).toHaveLength(5);
   });
 
-  it("revalidates Retry Failed again after reacquiring the lock", async () => {
+  it("reloads only local protection after reacquiring the Retry Failed lock", async () => {
     const clock = new FakeClock();
     const store = new FakeProtectedConversationStore();
     const gateway = new FakeConversationGateway(
@@ -714,6 +787,98 @@ describe("destructive run", () => {
   });
 
   it("retry failed can delete only the previously confirmed failed subset", async () => {
+    const ids = ["succeeded", "failed"];
+    const removedIds: string[] = [];
+    const clock = new FakeClock();
+    const gateway = new FakeConversationGateway(
+      fixtureForDeletion(ids, {
+        failed: [500, 500, 500, 500, 500, "success"],
+      }),
+      clock,
+    );
+    const run = new DeletionRun({
+      confirmedPlan: confirmedPlan(ids),
+      requestsPerMinute: 60,
+      gateway,
+      protectedConversationStore: new FakeProtectedConversationStore(),
+      clock,
+      destructiveRunLock: new FakeDestructiveRunLock(),
+      onConversationRemoved: (conversationId) =>
+        removedIds.push(conversationId),
+    });
+
+    expect(await run.startDeletion()).toMatchObject({
+      progress: { deleted: 1, failed: 1 },
+    });
+    expect(removedIds).toEqual(["succeeded"]);
+    const retryResult = await run.retryFailedDeletion();
+
+    expect(retryResult.kind).toBe("finished");
+    expect(retryResult.progress.deleted).toBe(1);
+    expect(removedIds).toEqual(["succeeded", "failed"]);
+    expect(gateway.deleteAttempts.map(({ id }) => id)).toEqual([
+      "succeeded",
+      "failed",
+      "failed",
+      "failed",
+      "failed",
+      "failed",
+      "failed",
+    ]);
+  });
+
+  it("never dispatches an ID outside the confirmed set", async () => {
+    const clock = new FakeClock();
+    const gateway = new FakeConversationGateway(
+      fixtureForDeletion(["confirmed", "not-confirmed"], {}),
+      clock,
+    );
+    const run = new DeletionRun({
+      confirmedPlan: confirmedPlan(["confirmed"]),
+      requestsPerMinute: 60,
+      gateway,
+      protectedConversationStore: new FakeProtectedConversationStore(),
+      clock,
+      destructiveRunLock: new FakeDestructiveRunLock(),
+    });
+
+    await run.startDeletion();
+
+    expect(gateway.deleteAttempts.map(({ id }) => id)).toEqual(["confirmed"]);
+  });
+
+  it("Resume performs no ChatGPT inventory reads", async () => {
+    const clock = new FakeClock(0, false);
+    const gateway = new FakeConversationGateway(
+      fixtureForDeletion(["a", "b"], {}),
+      clock,
+    );
+    const run = new DeletionRun({
+      confirmedPlan: confirmedPlan(["a", "b"]),
+      requestsPerMinute: 60,
+      gateway,
+      protectedConversationStore: new FakeProtectedConversationStore(),
+      clock,
+      destructiveRunLock: new FakeDestructiveRunLock(),
+    });
+
+    const completion = run.startDeletion();
+    await settleAsyncWork();
+    run.pauseDeletion();
+    await settleAsyncWork();
+    run.resumeDeletion();
+    await settleAsyncWork();
+    clock.advanceBy(1_000);
+    await settleAsyncWork();
+
+    await completion;
+    expect(gateway.safetyInventoryReadCount).toBe(0);
+    expect(gateway.standalonePageReadCount).toBe(0);
+    expect(gateway.projectDiscoveryReadCount).toBe(0);
+    expect(gateway.projectConversationPageReadCount).toBe(0);
+  });
+
+  it("Retry Failed performs no ChatGPT inventory reads", async () => {
     const clock = new FakeClock();
     const gateway = new FakeConversationGateway(
       fixtureForDeletion(["failed"], {
@@ -731,17 +896,12 @@ describe("destructive run", () => {
     });
 
     expect((await run.startDeletion()).progress.failed).toBe(1);
-    const retryResult = await run.retryFailedDeletion();
+    await run.retryFailedDeletion();
 
-    expect(retryResult.kind).toBe("finished");
-    expect(retryResult.progress.deleted).toBe(1);
-    expect(gateway.deleteAttempts.map(({ id }) => id)).toEqual([
-      "failed",
-      "failed",
-      "failed",
-      "failed",
-      "failed",
-      "failed",
-    ]);
+    expect(gateway.safetyInventoryReadCount).toBe(0);
+    expect(gateway.standalonePageReadCount).toBe(0);
+    expect(gateway.projectDiscoveryReadCount).toBe(0);
+    expect(gateway.projectConversationPageReadCount).toBe(0);
+    expect(gateway.deleteAttempts).toHaveLength(6);
   });
 });

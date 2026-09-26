@@ -1,7 +1,4 @@
-import {
-  shrinkConfirmedDeletionPlan,
-  type ConfirmedDeletionPlan,
-} from "../domain/deletionPlan";
+import type { ConfirmedDeletionPlan } from "../domain/deletionPlan";
 import {
   calculateDeletionProgress,
   type DeletionProgress,
@@ -15,10 +12,10 @@ import type {
 import { ChatGptOperation } from "./ports/ConversationGateway";
 import { appErrorCode, type AppErrorCode } from "./AppError";
 import type { DestructiveRunLock } from "./ports/DestructiveRunLock";
+import type { LockResult } from "./ports/DestructiveRunLock";
 import type { ProtectedConversationStore } from "./ports/ProtectedConversationStore";
 import type { ApplicationObservability } from "./ports/Observability";
 import { ApiRequestLifecycleEvent } from "./ports/Observability";
-import { runPreflight } from "./preflight";
 import { isValidRequestsPerMinute } from "./settings";
 import type { SafetyBlockReason } from "./SafetyBlockReason";
 
@@ -27,7 +24,6 @@ const MILLISECONDS_PER_MINUTE = 60_000;
 export interface DeletionRunProgress extends DeletionProgress {
   readonly currentConversationId: string | null;
   readonly failedConversationIds: readonly string[];
-  readonly removedConversationIds: readonly string[];
 }
 
 export type DeletionRunState =
@@ -51,9 +47,7 @@ export type DeletionRunState =
 
 type ControlCommand = "run" | "pause" | "stop";
 type ResumeDecision = "resume" | "stop";
-type RemainingRevalidationResult =
-  | { readonly kind: "ready" | "empty" }
-  | { readonly kind: "blocked"; readonly reason: SafetyBlockReason };
+type LocalProtectionResult = "ready" | "empty" | "blocked";
 
 interface MutableRunCounts {
   deleted: number;
@@ -71,7 +65,6 @@ export class DeletionRun {
   private readonly confirmedPlan: ConfirmedDeletionPlan;
   private remainingConversationIds: string[];
   private failedConversationIds: string[] = [];
-  private removedConversationIds: string[] = [];
   private counts: MutableRunCounts = {
     deleted: 0,
     failed: 0,
@@ -93,6 +86,7 @@ export class DeletionRun {
       readonly destructiveRunLock: DestructiveRunLock;
       readonly observability?: ApplicationObservability;
       readonly onStateChange?: (state: DeletionRunState) => void;
+      readonly onConversationRemoved?: (conversationId: string) => void;
     },
   ) {
     if (!isValidRequestsPerMinute(input.requestsPerMinute)) {
@@ -157,24 +151,11 @@ export class DeletionRun {
     }
     if (this.failedConversationIds.length === 0) return this.state;
 
-    const preflightResult = await runPreflight({
-      selectedConversationIds: this.failedConversationIds,
-      gateway: this.input.gateway,
-      protectedConversationStore: this.input.protectedConversationStore,
-    });
-    if (preflightResult.kind === "blocked") {
-      this.publish("blocked", null, preflightResult.reason);
-      return this.state;
-    }
-
-    const retryPlan = shrinkConfirmedDeletionPlan(
-      this.confirmedPlan,
-      preflightResult.plan,
-    );
     const failedIds = new Set(this.failedConversationIds);
-    this.remainingConversationIds = retryPlan.confirmedConversationIds.filter(
-      (conversationId) => failedIds.has(conversationId),
-    );
+    this.remainingConversationIds =
+      this.confirmedPlan.confirmedConversationIds.filter((conversationId) =>
+        failedIds.has(conversationId),
+      );
     this.resetCurrentRun();
     if (this.remainingConversationIds.length === 0) {
       this.publish("finished", null);
@@ -185,26 +166,19 @@ export class DeletionRun {
   }
 
   private async runWithLock(): Promise<DeletionRunState> {
-    const lockResult = await this.input.destructiveRunLock.runExclusive(
-      async () => {
+    const lockResult: LockResult<void> =
+      await this.input.destructiveRunLock.runExclusive(async () => {
         this.beginExecution();
-        const revalidation = await this.revalidateRemainingConfirmedIds();
-        if (revalidation.kind === "blocked") {
-          this.finishActivePeriod();
-          this.logWarn("deletion.run.revalidationBlocked", {
-            reason: revalidation.reason,
-          });
-          this.publish("blocked", null, revalidation.reason);
-          return;
-        }
-        if (revalidation.kind === "empty") {
+        const protectionResult =
+          await this.removeCurrentlyProtectedRemainingIds();
+        if (protectionResult === "blocked") return;
+        if (protectionResult === "empty") {
           this.finishActivePeriod();
           this.completeRun();
           return;
         }
         await this.executeRemainingConversations();
-      },
-    );
+      });
     if (lockResult.kind === "unavailable") {
       this.logWarn("deletion.run.blocked", { lockReason: "unavailable" });
       this.publish("blocked", null, "destructive-run-lock");
@@ -222,33 +196,32 @@ export class DeletionRun {
       total: this.remainingConversationIds.length,
       requestsPerMinute: this.input.requestsPerMinute,
     });
-    this.logInfo("deletion.run.revalidationStarted", {
-      remainingCount: this.remainingConversationIds.length,
-    });
   }
 
-  private async revalidateRemainingConfirmedIds(): Promise<RemainingRevalidationResult> {
-    const preflightResult = await runPreflight({
-      selectedConversationIds: this.remainingConversationIds,
-      gateway: this.input.gateway,
-      protectedConversationStore: this.input.protectedConversationStore,
-    });
-    if (preflightResult.kind === "blocked") {
-      return { kind: "blocked", reason: preflightResult.reason };
+  private async removeCurrentlyProtectedRemainingIds(): Promise<LocalProtectionResult> {
+    let protectedIdsResult;
+    try {
+      protectedIdsResult =
+        await this.input.protectedConversationStore.loadProtectedConversationIds();
+    } catch {
+      return this.blockForProtectedStorage();
+    }
+    if (protectedIdsResult.kind === "invalid") {
+      return this.blockForProtectedStorage();
     }
 
-    const revalidatedPlan = shrinkConfirmedDeletionPlan(
-      this.confirmedPlan,
-      preflightResult.plan,
+    this.remainingConversationIds = this.remainingConversationIds.filter(
+      (conversationId) =>
+        !protectedIdsResult.protectedConversationIds.has(conversationId),
     );
-    const remainingIds = new Set(this.remainingConversationIds);
-    this.remainingConversationIds =
-      revalidatedPlan.confirmedConversationIds.filter((conversationId) =>
-        remainingIds.has(conversationId),
-      );
-    return {
-      kind: this.remainingConversationIds.length === 0 ? "empty" : "ready",
-    };
+    return this.remainingConversationIds.length > 0 ? "ready" : "empty";
+  }
+
+  private blockForProtectedStorage(): LocalProtectionResult {
+    this.finishActivePeriod();
+    this.logWarn("deletion.run.protectedStateBlocked");
+    this.publish("blocked", null, "protected-storage");
+    return "blocked";
   }
 
   private async executeRemainingConversations(): Promise<void> {
@@ -279,17 +252,18 @@ export class DeletionRun {
       this.remainingConversationIds.shift();
       if (outcome.kind === "deleted") {
         this.counts.deleted += 1;
-        this.removedConversationIds.push(conversationId);
       }
       if (outcome.kind === "skipped") {
         this.counts.skipped += 1;
-        this.removedConversationIds.push(conversationId);
       }
       if (outcome.kind === "failed") {
         this.counts.failed += 1;
         this.failedConversationIds.push(conversationId);
       }
       this.publish("running", conversationId);
+      if (outcome.kind === "deleted" || outcome.kind === "skipped") {
+        this.input.onConversationRemoved?.(conversationId);
+      }
     }
 
     this.finishActivePeriod();
@@ -480,24 +454,13 @@ export class DeletionRun {
     this.resolveResumeDecision = null;
     if (decision === "stop") return false;
 
-    const resumeOperationId = this.input.observability?.createOperationId();
-    this.input.observability?.info("deletion.run.revalidationStarted", {
-      ...(resumeOperationId === undefined
-        ? {}
-        : { operationId: resumeOperationId }),
-      remainingCount: this.remainingConversationIds.length,
-    });
-
-    const revalidation = await this.revalidateRemainingConfirmedIds();
-    if (revalidation.kind === "blocked") {
+    const protectionResult = await this.removeCurrentlyProtectedRemainingIds();
+    if (protectionResult === "blocked") {
       this.command = "stop";
-      this.input.observability?.warn("deletion.run.revalidationBlocked", {
-        ...(resumeOperationId === undefined
-          ? {}
-          : { operationId: resumeOperationId }),
-        reason: revalidation.reason,
-      });
-      this.publish("blocked", null, revalidation.reason);
+      return false;
+    }
+    if (protectionResult === "empty") {
+      this.command = "run";
       return false;
     }
     this.command = "run";
@@ -522,7 +485,6 @@ export class DeletionRun {
   private resetCurrentRun(): void {
     this.command = "run";
     this.failedConversationIds = [];
-    this.removedConversationIds = [];
     this.counts = { deleted: 0, failed: 0, skipped: 0, retries: 0 };
     this.activeElapsedMs = 0;
     this.activeStartedAt = null;
@@ -554,7 +516,6 @@ export class DeletionRun {
       ...progress,
       currentConversationId,
       failedConversationIds: [...this.failedConversationIds],
-      removedConversationIds: [...this.removedConversationIds],
     };
   }
 

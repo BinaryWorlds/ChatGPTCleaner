@@ -88,8 +88,9 @@ A new destructive batch always requires:
 
 ```text
 explicit selection
--> fresh preflight
+-> preview from the loaded standalone snapshot
 -> typed confirmation
+-> destructive Web Lock
 -> sequential execution
 ```
 
@@ -167,10 +168,12 @@ These rules must remain true even if UI state is wrong.
 3. User-protected conversations are never deleted.
 4. Malformed or incompatible API data is never interpreted as permission to delete.
 5. Raw UI selection never reaches a DELETE loop.
-6. Only a validated `DeletionPlan` may reach destructive execution.
-7. A newly confirmed destructive batch uses the current authenticated source tab, fresh standalone inventory, fresh Project protection, and current user protection.
-8. All Project conversation IDs are explicitly enumerated before deletion.
-9. Incomplete Project discovery/enumeration blocks deletion.
+6. Raw selection must first become a snapshot-based `DeletionPlan`; only its
+   confirmed monotonic subset may reach destructive execution.
+7. A newly confirmed destructive batch uses eligible IDs from the last
+   successfully loaded inventory snapshot and current local user protection.
+8. Every accepted snapshot explicitly enumerates all Project conversation IDs.
+9. Incomplete Project discovery/enumeration blocks accepting a new snapshot.
 10. Read-side API incompatibility blocks deletion.
 11. A change or loss of the bound authenticated source tab blocks/stops deletion.
 12. `401`, `403`, and unexpected non-retryable destructive `4xx` stop the batch.
@@ -187,7 +190,7 @@ These rules must remain true even if UI state is wrong.
 23. The authenticated transport never exposes a generic arbitrary-URL fetch proxy.
 24. Destructive operations never start from React render/effect lifecycle; they start only from explicit user commands routed through Application orchestration.
 25. Safety-critical persisted configuration is runtime-validated before use.
-26. After acquiring the destructive run lock, the remaining confirmed set is freshly revalidated before the first DELETE and may only shrink.
+26. Starting, resuming, or retrying a destructive run performs no standalone or Project inventory reads.
 
 ---
 
@@ -201,15 +204,15 @@ DELETE conversation ONLY IF it is still outside every Project
 
 against ChatGPT's undocumented backend.
 
-Mitigation:
+Product semantics:
 
-- fresh preflight before each newly confirmed batch;
-- fresh revalidation before Resume;
-- fresh revalidation before Retry Failed;
-- fresh revalidation after acquiring the destructive lock and before the first
-  DELETE for a new batch or Retry Failed execution;
-- Resume/Retry may only shrink the already-confirmed ID set;
-- README warns users not to move conversations into/out of Projects during an active run.
+- the last successful initial load or explicit Refresh is the inventory
+  snapshot used for Project exclusion;
+- current local protection is applied at confirmation and reloaded inside the
+  destructive lock before starting, resuming, or retrying DELETE;
+- Resume/Retry may only shrink the already-confirmed ID set and do not reload
+  ChatGPT inventory;
+- users are told to Refresh when ChatGPT inventory may have changed externally.
 
 Do not claim an atomic guarantee the client cannot provide.
 
@@ -245,7 +248,8 @@ Do not claim an atomic guarantee the client cannot provide.
 - explicit Project enumeration;
 - source-tab revalidation before every high-level safety inventory operation;
 - `DeletionPlan` safety boundary;
-- fresh preflight;
+- loaded-snapshot deletion preview;
+- explicit atomic snapshot replacement on successful Refresh;
 - monotonic confirmed-ID subset;
 - narrow page transport;
 - minimal permissions;
@@ -337,7 +341,6 @@ Shallow orchestrators such as:
 
 ```text
 loadInventory
-runPreflight
 startDeletion
 pauseDeletion
 resumeDeletion
@@ -415,7 +418,7 @@ The manager extension page owns the entire long-running workflow:
 inventory
 filters
 selection
-preflight
+deletion preview
 confirmed IDs
 executor
 rate limiting
@@ -469,16 +472,18 @@ Do not perform API work.
 
 ---
 
-## 11. Source-bound freshness
+## 11. Source-bound inventory and DELETE transport
 
 The MVP safety boundary remains bound to the exact authenticated source tab
 captured at launch and does not add a separate identity-context mechanism.
 
-Initial inventory, preflight, Resume, and Retry Failed each revalidate that
-source tab and load fresh standalone inventory, complete Project protection,
-and current user-protected IDs. If the tab is missing, has left the exact
-`https://chatgpt.com` origin, or cannot execute the narrow read transport,
-deletion safety is BLOCKED.
+Initial inventory and each explicit Refresh validate the bound source tab and
+load a complete standalone and Project snapshot. Preview, confirmation, run
+start, Resume, and Retry Failed do not issue inventory requests. The narrow
+DELETE transport still validates the exact bound source tab and performs any
+authentication/session request required for DELETE; this does not refresh
+inventory membership. If the tab is missing or has left the exact
+`https://chatgpt.com` origin, the DELETE transport stops fail-closed.
 
 ---
 
@@ -529,9 +534,10 @@ Prefer Web Locks using a stable extension-origin lock name.
 The lock lifecycle is:
 
 ```text
-preflight
+snapshot preview
 -> typed confirmation
 -> atomic lock acquire
+-> fresh local protected-ID check
 -> running
 -> paused (lock still held)
 -> running
@@ -659,8 +665,8 @@ Successful read pages add no artificial delay before the next scheduling
 window. Retry-After and deterministic retry backoff apply only to retryable
 failures.
 
-Standalone inventory is the sole read path allowed bounded concurrency. The
-first validated page establishes the pagination mode. When its next cursor
+Standalone fixed-offset pages and independent Projects use bounded read
+concurrency. The first validated standalone page establishes the pagination mode. When its next cursor
 confirms the requested fixed 100-record offset contract, subsequent pages are
 fetched in deterministic windows of at most three requests
 (`MAX_STANDALONE_READ_CONCURRENCY = 3`) and committed in ascending offset order
@@ -672,8 +678,10 @@ hard-coded page size. Speculative results beyond a terminal page are discarded
 and cannot contribute inventory records. A required-page failure blocks the
 whole inventory. Because a window must settle before the next is scheduled, a
 request waiting for 429/5xx/network retry prevents aggressive scheduling of
-another window. Project discovery, Project conversation enumeration, and all
-destructive operations remain sequential.
+another window. Project discovery remains sequential. Different Projects may
+be enumerated with at most the same three-read limit, while cursor-dependent
+pages inside each Project remain sequential. All destructive operations remain
+sequential.
 
 Hitting the safety ceiling means inventory is incomplete and deletion is blocked.
 
@@ -826,7 +834,7 @@ Then persist a normalized value when appropriate.
 
 ## 18. Read-side request policy
 
-Read requests are sequential by default.
+Cursor-dependent pages within one collection are sequential by default.
 
 Do not enumerate all Projects using uncontrolled `Promise.all`.
 
@@ -892,7 +900,6 @@ selected IDs
 -> typed confirmation
 -> confirmed IDs
 -> acquire destructive lock
--> fresh revalidation of the confirmed subset
 -> executor
 ```
 
@@ -900,7 +907,11 @@ selected IDs
 
 - Project IDs;
 - user-protected IDs;
-- IDs missing from fresh standalone inventory.
+- IDs missing from the loaded standalone snapshot.
+
+At confirmation, the executable subset is checked against the current loaded
+snapshot and current local protected IDs. No ChatGPT inventory request occurs
+after confirmation.
 
 Normal application code should only obtain executable plans through the builder.
 
@@ -910,20 +921,18 @@ Initial confirmation establishes a set of `confirmedConversationIds`.
 
 Resume and Retry Failed may only operate on a subset of that set.
 
-A new batch and Retry Failed revalidate the remaining confirmed set again after
-atomic lock acquisition. This closes protection changes made after the earlier
-preflight but before the executor owns the lock. No second typed confirmation is
-required when this revalidation only removes IDs.
+Resume and Retry Failed use only remaining IDs from the confirmed set. Current
+local protection may remove IDs, but neither operation reloads ChatGPT inventory.
 
 Example:
 
 ```text
 confirmed: A B C D
-revalidated: A C D
+remaining subset: A C D
 => allowed
 
 confirmed: A B C D
-revalidated: A B C D E
+attempted subset: A B C D E
 => E rejected
 ```
 
@@ -963,7 +972,8 @@ Unprotect
 
 for currently visible standalone conversations.
 
-Resume always performs fresh revalidation, so newly protected IDs are removed from the remaining plan.
+Resume reloads only local protected IDs, so newly protected IDs are removed
+from the remaining plan without refreshing ChatGPT inventory.
 
 Protection mutations are serialized. While a protection write is pending,
 additional Protect/Unprotect commands and Resume remain disabled. Resume may
@@ -1224,6 +1234,14 @@ validated first read does not make deletion READY. Deletion remains blocked
 until standalone pagination and complete Project protection both finish. No
 destructive request occurs during inventory loading.
 
+Explicit Refresh runs this same complete loader while the current valid
+snapshot remains displayed. The replacement is built off to the side and is
+published only after all standalone and Project pages validate. Success
+atomically replaces the snapshot and clears selection and any stale deletion
+preview while retaining filters, sorting, and page size. Failure preserves the
+previous snapshot. Refresh shows a loading indicator, cannot create a deletion
+plan from partial results, and is disabled while a destructive run is active.
+
 ---
 
 ## 29. New destructive batch
@@ -1232,18 +1250,14 @@ When the user chooses `Delete selected`:
 
 ```text
 verify no run is already active
--> revalidate source tab
--> refresh standalone inventory
--> refresh all Project conversation IDs
--> reload/validate protected IDs
--> build fresh DeletionPlan
--> show preflight summary
+-> build a DeletionPlan from the loaded standalone/Project snapshot and current local protection
+-> show preview summary
 -> require typed confirmation
 -> atomically acquire destructive lock
 -> start execution
 ```
 
-Preflight summary includes:
+Preview summary includes:
 
 ```text
 Originally selected
@@ -1258,6 +1272,11 @@ Typed confirmation:
 ```text
 DELETE N
 ```
+
+Confirmation applies current local protected IDs again and may only reduce the
+previewed set. An empty final subset issues no DELETE. Run start then performs
+zero standalone or Project inventory reads. Project exclusion reflects the last
+successfully loaded initial or explicitly refreshed snapshot.
 
 The confirmed eligible IDs become the in-memory confirmed ID set.
 
@@ -1355,20 +1374,13 @@ The destructive lock remains held while paused.
 
 ### Resume
 
-Resume performs fresh revalidation for remaining confirmed IDs:
-
-```text
-source tab
-standalone inventory
-Project IDs
-protected IDs
-```
-
-Revalidation may only remove IDs from the confirmed set.
+Resume operates on remaining confirmed IDs, reloads only current local
+protected IDs, and performs no standalone or Project inventory reads. It may
+only remove IDs from the confirmed set.
 
 Resume must not begin while a user-protection write is pending.
 
-If revalidation removes an ID already captured by a paused local attempt, that
+If local protection removes an ID already captured by a paused local attempt, that
 attempt is discarded before any DELETE is issued.
 
 If safety remains READY, continue without another typed confirmation.
@@ -1438,6 +1450,9 @@ remove from current inventory if still present
 remove from selection
 ```
 
+These updates mutate the in-memory snapshot incrementally. They do not trigger
+an automatic inventory reload.
+
 After failed non-fatal result:
 
 ```text
@@ -1445,7 +1460,8 @@ keep conversation selected
 keep visible when possible
 ```
 
-`Retry failed` performs fresh revalidation and may operate only on failed IDs already in the confirmed set.
+`Retry failed` may operate only on failed IDs already in the confirmed set,
+applies current local protection, and performs no ChatGPT inventory reload.
 
 No persistent run history.
 
@@ -1467,7 +1483,7 @@ An already-dispatched network request may still complete remotely.
 
 Next launch starts fresh.
 
-Only protected IDs and rate preference persist.
+Only protected IDs and the rate preference persist.
 
 ---
 
@@ -1590,7 +1606,9 @@ Use fake timers and cover configured spacing, retries, fatal/non-fatal status be
 
 ### Pause/Resume/Stop
 
-Cover in-flight completion, cancellation of local waits, revalidation, subset enforcement, lock lifecycle, and prevention of successful-ID replay.
+Cover in-flight completion, cancellation of local waits, local protection,
+subset enforcement, zero inventory reloads, lock lifecycle, and prevention of
+successful-ID replay.
 
 ### Single-run lock
 
@@ -1650,7 +1668,7 @@ Table
 Delete selected (N)
 ```
 
-### Preflight
+### Safety status
 
 Show concise progress/status.
 
@@ -1671,8 +1689,8 @@ Show Resume and Stop.
 Selection stays fixed.
 
 Protect/Unprotect may be used; while their persistence is pending, additional
-protection mutations and Resume are disabled. Resume revalidates after the save
-completes.
+protection mutations and Resume are disabled. Resume applies the saved local
+protection before continuing.
 
 ### Finished
 
@@ -1836,7 +1854,7 @@ Implement/test:
 
 ```text
 ports
-inventory/preflight orchestration
+inventory/preview/Refresh orchestration
 source-tab stability
 rate limiting
 destructive run orchestration
@@ -1877,10 +1895,10 @@ Before uncertain real schemas are coded, inspect current browser Network behavio
 the one-disposable-conversation production smoke test succeeded.
 
 The production composition uses the observed fixed DELETE through a narrow
-ISOLATED-world gateway. The successful manual smoke lifecycle used fresh
-preflight with one eligible ID, issued exactly one attempt, and completed with
-one deletion and no failed or skipped items. No private conversation data was
-recorded.
+ISOLATED-world gateway. The earlier successful manual smoke lifecycle used the
+then-current safety path with one eligible ID, issued exactly one attempt, and
+completed with one deletion and no failed or skipped items. No private
+conversation data was recorded.
 
 Do not perform automated live deletion.
 
@@ -1980,13 +1998,10 @@ Destructive path:
 
 ```text
 UI selection
--> source-tab revalidation
--> fresh inventory + Project protection
--> DeletionPlan
+-> DeletionPlan preview from loaded inventory
 -> typed confirmation
 -> confirmed ID set
 -> atomic single-run lock
--> fresh confirmed-subset revalidation
 -> sequential rate-limited executor
 -> narrow ChatGPT DELETE operation
 ```
@@ -1995,11 +2010,14 @@ Resume / Retry:
 
 ```text
 remaining confirmed IDs
--> fresh revalidation
--> subset only
+-> current local protection
+-> confirmed subset only, with no inventory reload
 -> continue
 ```
 
 Core rule:
 
-> A conversation can reach DELETE only through a fresh validated plan built from the current bound source tab, current standalone inventory, complete Project-protection data, current user-protection data, and an explicit user-confirmed ID set. Revalidation may remove IDs from that confirmed set but may never add new ones.
+> A conversation can reach DELETE only from an explicit user-confirmed subset
+> that was eligible in the last successfully loaded complete inventory snapshot
+> and is not currently locally protected. Later operations may remove IDs from
+> the confirmed set but may never add new ones.

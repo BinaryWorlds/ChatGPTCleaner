@@ -1,4 +1,8 @@
-import { STANDALONE_CONVERSATION_PAGE_LIMIT } from "../../application/ports/ConversationGateway";
+import {
+  ChatGptOperation,
+  STANDALONE_CONVERSATION_PAGE_LIMIT,
+} from "../../application/ports/ConversationGateway";
+import { ApiRequestLifecycleEvent } from "../../application/ports/Observability";
 import {
   executionResultSchema,
   hasSuccessfulResponse,
@@ -11,7 +15,7 @@ import {
   type PageReadOperation,
   type PageScriptRunner,
 } from "./PageContextReadContracts";
-import { logReadEvent } from "../observability/readLogging";
+import { logger } from "../observability/logger";
 
 export class IsolatedFirstPageContextReadExecutor implements PageContextReadExecutor {
   private readonly successfulWorlds = new Map<
@@ -89,15 +93,6 @@ export class IsolatedFirstPageContextReadExecutor implements PageContextReadExec
       return isolatedResult;
     }
 
-    logReadEvent({
-      operation: operation.kind,
-      page: operation.paginationStep,
-      world: "ISOLATED",
-      stage: projectTransportFallback
-        ? "AUTH_OR_TRANSPORT_FALLBACK_TO_MAIN"
-        : "AUTH_FALLBACK_TO_MAIN",
-    });
-
     let mainResult: unknown;
     try {
       mainResult = await this.runner.execute(tabId, "MAIN", operation);
@@ -114,14 +109,7 @@ export class IsolatedFirstPageContextReadExecutor implements PageContextReadExec
 function createChromePageScriptRunner(): PageScriptRunner {
   return {
     execute: async (tabId, world, operation) => {
-      logReadEvent({
-        operation: operation.kind,
-        page: operation.paginationStep,
-        world,
-        stage: `${world}_EXECUTION_START`,
-      });
       let rawExecutionResult: unknown;
-      const executeScriptStartedAt = performance.now();
       try {
         rawExecutionResult = await browser.scripting.executeScript({
           target: { tabId },
@@ -175,7 +163,6 @@ function createChromePageScriptRunner(): PageScriptRunner {
               | {
                   readonly kind: "success";
                   readonly accessToken: string;
-                  readonly authSessionMs: number;
                 }
               | {
                   readonly kind: "failure";
@@ -195,7 +182,6 @@ function createChromePageScriptRunner(): PageScriptRunner {
                 return {
                   kind: "success",
                   accessToken: cachedAccessToken,
-                  authSessionMs: 0,
                 };
               }
 
@@ -218,7 +204,6 @@ function createChromePageScriptRunner(): PageScriptRunner {
                   return {
                     kind: "success",
                     accessToken: sharedResult.accessToken,
-                    authSessionMs: 0,
                   };
                 }
                 return { kind: "failure", reason: "authentication" };
@@ -226,7 +211,6 @@ function createChromePageScriptRunner(): PageScriptRunner {
 
               const requestSessionToken =
                 async (): Promise<AccessTokenResult> => {
-                  const sessionStartedAt = performance.now();
                   let sessionResponse: Response;
                   try {
                     sessionResponse = await fetch(
@@ -241,7 +225,6 @@ function createChromePageScriptRunner(): PageScriptRunner {
                   } catch {
                     return { kind: "failure", reason: "authentication" };
                   }
-                  const authSessionMs = performance.now() - sessionStartedAt;
                   if (!sessionResponse.ok || sessionResponse.redirected) {
                     return { kind: "failure", reason: "authentication" };
                   }
@@ -266,7 +249,7 @@ function createChromePageScriptRunner(): PageScriptRunner {
                   ) {
                     return { kind: "failure", reason: "authentication" };
                   }
-                  return { kind: "success", accessToken, authSessionMs };
+                  return { kind: "success", accessToken };
                 };
 
               const sessionPromise = requestSessionToken();
@@ -295,8 +278,6 @@ function createChromePageScriptRunner(): PageScriptRunner {
               | {
                   readonly kind: "response";
                   readonly response: Response;
-                  readonly authSessionMs: number;
-                  readonly backendFetchMs: number;
                 }
               | {
                   readonly kind: "failure";
@@ -305,12 +286,8 @@ function createChromePageScriptRunner(): PageScriptRunner {
             > => {
               const requestWithToken = async (
                 accessToken: string,
-              ): Promise<{
-                readonly response: Response;
-                readonly backendFetchMs: number;
-              }> => {
-                const startedAt = performance.now();
-                const response = await fetch(requestUrl.href, {
+              ): Promise<Response> =>
+                fetch(requestUrl.href, {
                   method: "GET",
                   credentials: "include",
                   redirect: "follow",
@@ -319,36 +296,22 @@ function createChromePageScriptRunner(): PageScriptRunner {
                     Authorization: `Bearer ${accessToken}`,
                   },
                 });
-                return {
-                  response,
-                  backendFetchMs: performance.now() - startedAt,
-                };
-              };
 
               let session = await loadAccessToken(false);
               if (session.kind === "failure") return session;
-              let backend = await requestWithToken(session.accessToken);
-              let authSessionMs = session.authSessionMs;
-              let backendFetchMs = backend.backendFetchMs;
-              if (
-                backend.response.status === 401 ||
-                backend.response.status === 403
-              ) {
+              let response = await requestWithToken(session.accessToken);
+              if (response.status === 401 || response.status === 403) {
                 if (executionWorld === "ISOLATED") {
                   isolatedTokenCache.__chatgptCleanerReadAccessToken =
                     undefined;
                 }
                 session = await loadAccessToken(true);
                 if (session.kind === "failure") return session;
-                authSessionMs += session.authSessionMs;
-                backend = await requestWithToken(session.accessToken);
-                backendFetchMs += backend.backendFetchMs;
+                response = await requestWithToken(session.accessToken);
               }
               return {
                 kind: "response",
-                response: backend.response,
-                authSessionMs,
-                backendFetchMs,
+                response,
               };
             };
 
@@ -455,14 +418,10 @@ function createChromePageScriptRunner(): PageScriptRunner {
 
             if (narrowOperation.kind === "projects") {
               let response: Response;
-              let authSessionMs: number;
-              let backendFetchMs: number;
               try {
                 const fetchResult = await apiFetch(url);
                 if (fetchResult.kind === "failure") return fetchResult;
                 response = fetchResult.response;
-                authSessionMs = fetchResult.authSessionMs;
-                backendFetchMs = fetchResult.backendFetchMs;
               } catch (error) {
                 const errorName =
                   error instanceof Error ? error.name : "NonError";
@@ -480,7 +439,6 @@ function createChromePageScriptRunner(): PageScriptRunner {
 
               const contentType = response.headers.get("Content-Type");
               let responseText: string;
-              const jsonParseStartedAt = performance.now();
               try {
                 responseText = await response.text();
               } catch (error) {
@@ -528,11 +486,6 @@ function createChromePageScriptRunner(): PageScriptRunner {
                 body: response.ok ? parsedBody : null,
                 retryAfter: response.headers.get("Retry-After"),
                 jsonParsed: true,
-                timing: {
-                  authSessionMs,
-                  backendFetchMs,
-                  jsonParseMs: performance.now() - jsonParseStartedAt,
-                },
               };
             }
 
@@ -550,7 +503,6 @@ function createChromePageScriptRunner(): PageScriptRunner {
                 mediaType?.endsWith("+json") === true;
               let body: unknown = null;
               let jsonParsed = false;
-              const jsonParseStartedAt = performance.now();
               if (hasJsonContentType) {
                 try {
                   body = (await response.json()) as unknown;
@@ -568,39 +520,20 @@ function createChromePageScriptRunner(): PageScriptRunner {
                 redirected: response.redirected,
                 contentType,
                 jsonParsed,
-                timing: {
-                  authSessionMs: fetchResult.authSessionMs,
-                  backendFetchMs: fetchResult.backendFetchMs,
-                  jsonParseMs: performance.now() - jsonParseStartedAt,
-                },
               };
             } catch {
               return { kind: "network-error" };
             }
           },
         });
-        const executeScriptMs = performance.now() - executeScriptStartedAt;
-        const parsedExecution =
-          executionResultSchema.safeParse(rawExecutionResult);
-        const parsedResult = parsedExecution.success
-          ? parsedExecution.data[0]?.result
-          : undefined;
-        if (parsedResult?.kind === "response") {
-          rawExecutionResult = [
-            {
-              result: {
-                ...parsedResult,
-                timing: {
-                  ...parsedResult.timing,
-                  executeScriptMs,
-                },
-              },
-            },
-          ];
-        }
       } catch (error) {
-        logReadEvent({
-          operation: operation.kind,
+        logger.warn(ApiRequestLifecycleEvent.Failed, {
+          operation:
+            operation.kind === "standalone"
+              ? ChatGptOperation.StandaloneConversationsList
+              : operation.kind === "projects"
+                ? ChatGptOperation.ProjectsList
+                : ChatGptOperation.ProjectConversationsList,
           page: operation.paginationStep,
           world,
           stage: `${world}_EXECUTE_SCRIPT_REJECTED`,
@@ -611,44 +544,44 @@ function createChromePageScriptRunner(): PageScriptRunner {
 
       const parsed = executionResultSchema.safeParse(rawExecutionResult);
       const result = parsed.success ? parsed.data[0]?.result : undefined;
-      let resultStage = `${world}_RESPONSE`;
+      let failureStage: string | null = null;
       if (!Array.isArray(rawExecutionResult)) {
-        resultStage = `${world}_EXECUTE_SCRIPT_RESULT_NOT_ARRAY`;
+        failureStage = `${world}_EXECUTE_SCRIPT_RESULT_NOT_ARRAY`;
       } else if (rawExecutionResult.length === 0) {
-        resultStage = `${world}_EXECUTE_SCRIPT_RESULT_EMPTY`;
+        failureStage = `${world}_EXECUTE_SCRIPT_RESULT_EMPTY`;
       } else if (rawExecutionResult[0] === undefined) {
-        resultStage = `${world}_EXECUTE_SCRIPT_RESULT_ENTRY_MISSING`;
+        failureStage = `${world}_EXECUTE_SCRIPT_RESULT_ENTRY_MISSING`;
       } else if (
         typeof rawExecutionResult[0] !== "object" ||
         rawExecutionResult[0] === null ||
         !("result" in rawExecutionResult[0])
       ) {
-        resultStage = `${world}_EXECUTE_SCRIPT_RESULT_PROPERTY_MISSING`;
+        failureStage = `${world}_EXECUTE_SCRIPT_RESULT_PROPERTY_MISSING`;
       } else if (Reflect.get(rawExecutionResult[0], "result") === undefined) {
-        resultStage = `${world}_EXECUTE_SCRIPT_RESULT_UNDEFINED`;
+        failureStage = `${world}_EXECUTE_SCRIPT_RESULT_UNDEFINED`;
       } else if (!parsed.success) {
-        resultStage = `${world}_EXECUTE_SCRIPT_RESULT_MALFORMED`;
+        failureStage = `${world}_EXECUTE_SCRIPT_RESULT_MALFORMED`;
       } else if (result?.kind === "transport-error") {
-        resultStage = `${world}_${result.stage ?? "TRANSPORT_ERROR"}`;
+        failureStage = `${world}_${result.stage ?? "TRANSPORT_ERROR"}`;
       } else if (result?.kind === "network-error") {
-        resultStage = `${world}_TRANSPORT_ERROR`;
+        failureStage = `${world}_TRANSPORT_ERROR`;
       } else if (result?.kind === "failure") {
-        resultStage = `${world}_INJECTED_FAILURE`;
+        failureStage = `${world}_INJECTED_FAILURE`;
       }
-      logReadEvent({
-        operation: operation.kind,
-        page: operation.paginationStep,
-        world,
-        stage: resultStage,
-        responseReceived: result?.kind === "response",
-        ...(result?.kind === "response"
-          ? {
-              status: result.status,
-              redirected: result.redirected,
-              jsonParsed: result.jsonParsed,
-            }
-          : {}),
-      });
+      if (failureStage !== null) {
+        logger.warn(ApiRequestLifecycleEvent.Failed, {
+          operation:
+            operation.kind === "standalone"
+              ? ChatGptOperation.StandaloneConversationsList
+              : operation.kind === "projects"
+                ? ChatGptOperation.ProjectsList
+                : ChatGptOperation.ProjectConversationsList,
+          page: operation.paginationStep,
+          world,
+          stage: failureStage,
+          responseReceived: false,
+        });
+      }
       return rawExecutionResult;
     },
   };

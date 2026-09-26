@@ -1,23 +1,27 @@
 import { Descriptions, Input, Modal, Typography } from "antd";
-import type { DeletionPlan } from "../domain/deletionPlan";
+import { useState } from "react";
+import {
+  confirmDeletionPlan,
+  type ConfirmedDeletionPlan,
+  type DeletionPlan,
+} from "../domain/deletionPlan";
 
 interface DeletionConfirmationModalProps {
-  readonly plan: DeletionPlan | null;
-  readonly confirmationText: string;
-  readonly onConfirmationTextChange: (value: string) => void;
+  readonly plan: DeletionPlan;
+  readonly disabled?: boolean;
   readonly onCancel: () => void;
-  readonly onConfirm: () => void;
+  readonly onConfirm: (plan: ConfirmedDeletionPlan) => void;
 }
 
 export function DeletionConfirmationModal({
   plan,
-  confirmationText,
-  onConfirmationTextChange,
+  disabled = false,
   onCancel,
   onConfirm,
 }: DeletionConfirmationModalProps) {
-  if (plan === null) return null;
+  const [confirmationText, setConfirmationText] = useState("");
   const expectedText = `DELETE ${plan.eligibleConversationIds.length}`;
+  const confirmation = confirmDeletionPlan(plan, confirmationText);
 
   return (
     <Modal
@@ -27,11 +31,16 @@ export function DeletionConfirmationModal({
       okButtonProps={{
         danger: true,
         disabled:
+          disabled ||
           plan.eligibleConversationIds.length === 0 ||
           confirmationText !== expectedText,
       }}
       onCancel={onCancel}
-      onOk={onConfirm}
+      onOk={() => {
+        if (confirmation.kind === "confirmed") {
+          onConfirm(confirmation.plan);
+        }
+      }}
     >
       <Descriptions size="small" column={1} bordered>
         <Descriptions.Item label="Originally selected">
@@ -59,8 +68,9 @@ export function DeletionConfirmationModal({
       <Input
         aria-label="Deletion confirmation"
         autoComplete="off"
+        disabled={disabled}
         value={confirmationText}
-        onChange={(event) => onConfirmationTextChange(event.target.value)}
+        onChange={(event) => setConfirmationText(event.target.value)}
       />
     </Modal>
   );

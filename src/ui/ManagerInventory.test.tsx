@@ -9,6 +9,7 @@ import type {
   ProtectedConversationIdsResult,
   ProtectedConversationStore,
 } from "../application/ports/ProtectedConversationStore";
+import type { ReadResult } from "../application/ports/ConversationGateway";
 import { FakeClock } from "../infrastructure/fake/FakeClock";
 import { FakeConversationGateway } from "../infrastructure/fake/FakeConversationGateway";
 import { FakeDestructiveRunLock } from "../infrastructure/fake/FakeDestructiveRunLock";
@@ -68,6 +69,27 @@ class DeferredProtectedConversationStore implements ProtectedConversationStore {
   }
 }
 
+class DeferredRefreshGateway extends FakeConversationGateway {
+  private resolveRefreshStart: (() => void) | null = null;
+
+  public override beginSafetyInventoryRead(): Promise<ReadResult<null>> {
+    const result = super.beginSafetyInventoryRead();
+    if (this.safetyInventoryReadCount === 1) return result;
+    return new Promise((resolve) => {
+      this.resolveRefreshStart = () =>
+        resolve({ kind: "success", value: null });
+    });
+  }
+
+  public continueRefresh(): void {
+    if (this.resolveRefreshStart === null) {
+      throw new Error("No pending Refresh inventory read");
+    }
+    this.resolveRefreshStart();
+    this.resolveRefreshStart = null;
+  }
+}
+
 function fixture(
   conversations: readonly Record<string, unknown>[],
   deleteOutcomes: FakeGatewayFixture["deleteOutcomes"] = {},
@@ -119,37 +141,42 @@ function fixtureWithProjects(input?: {
 
 function renderManager(input?: {
   readonly gatewayFixture?: FakeGatewayFixture;
+  readonly gateway?: FakeConversationGateway;
   readonly protectedIds?: readonly string[];
   readonly protectedConversationStore?: ProtectedConversationStore;
+  readonly settingsStore?: FakeSettingsStore;
   readonly clock?: FakeClock;
 }) {
   const clock = input?.clock ?? new FakeClock(FIXED_NOW);
-  const gateway = new FakeConversationGateway(
-    input?.gatewayFixture ??
-      fixture([
-        {
-          id: "alpha",
-          title: "Alpha",
-          createdAt: FIXED_NOW - 20 * DAY_MS,
-          updatedAt: FIXED_NOW - 20 * DAY_MS,
-        },
-        {
-          id: "beta",
-          title: "Beta",
-          createdAt: FIXED_NOW - DAY_MS,
-          updatedAt: FIXED_NOW - DAY_MS,
-        },
-        { id: "unknown", title: "Unknown dates" },
-      ]),
-    clock,
-  );
+  const gateway =
+    input?.gateway ??
+    new FakeConversationGateway(
+      input?.gatewayFixture ??
+        fixture([
+          {
+            id: "alpha",
+            title: "Alpha",
+            createdAt: FIXED_NOW - 20 * DAY_MS,
+            updatedAt: FIXED_NOW - 20 * DAY_MS,
+          },
+          {
+            id: "beta",
+            title: "Beta",
+            createdAt: FIXED_NOW - DAY_MS,
+            updatedAt: FIXED_NOW - DAY_MS,
+          },
+          { id: "unknown", title: "Unknown dates" },
+        ]),
+      clock,
+    );
   const protectedConversationStore =
     input?.protectedConversationStore ??
     new FakeProtectedConversationStore(input?.protectedIds ?? []);
+  const settingsStore = input?.settingsStore ?? new FakeSettingsStore(60);
   const dependencies: ManagerDependencies = {
     gateway,
     protectedConversationStore,
-    settingsStore: new FakeSettingsStore(60),
+    settingsStore,
     clock,
     destructiveRunLock: new FakeDestructiveRunLock(),
   };
@@ -166,7 +193,12 @@ function renderManager(input?: {
   };
 
   render(<ManagerPage composition={composition} />);
-  return { gateway, protectedConversationStore, openConversation };
+  return {
+    gateway,
+    protectedConversationStore,
+    settingsStore,
+    openConversation,
+  };
 }
 
 async function waitForInventory(): Promise<void> {
@@ -200,6 +232,69 @@ afterEach(() => {
 });
 
 describe("ManagerPage inventory controls", () => {
+  it("atomically replaces the snapshot and clears selection after Refresh", async () => {
+    const user = userEvent.setup();
+    const gatewayFixture = fixture([{ id: "alpha", title: "Alpha" }]);
+    const gateway = new DeferredRefreshGateway(
+      gatewayFixture,
+      new FakeClock(FIXED_NOW),
+    );
+    renderManager({ gateway });
+    await waitForInventory();
+    await selectConversation(user, "Alpha");
+    await user.click(
+      screen.getByRole("button", { name: "Delete selected (1)" }),
+    );
+    expect(screen.getByText("Confirm deletion")).toBeInTheDocument();
+
+    (gatewayFixture.standalonePages as Record<string, unknown>).first = {
+      conversations: [{ id: "fresh", title: "Fresh snapshot" }],
+      nextCursor: null,
+    };
+    await user.click(screen.getByRole("button", { name: "Refresh inventory" }));
+
+    expect(screen.getByText(/Refreshing inventory/)).toBeInTheDocument();
+    expect(screen.getByText("Alpha")).toBeInTheDocument();
+    expect(screen.queryByText("Fresh snapshot")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete 1" })).toBeDisabled();
+
+    gateway.continueRefresh();
+    expect(await screen.findByText("Fresh snapshot")).toBeInTheDocument();
+    expect(screen.queryByText("Alpha")).not.toBeInTheDocument();
+    expect(screen.queryByText("Confirm deletion")).not.toBeInTheDocument();
+    expect(screen.getByTestId("selected-count")).toHaveTextContent("0");
+    expect(gateway.safetyInventoryReadCount).toBe(2);
+    expect(gateway.standalonePageReadCount).toBe(2);
+    expect(gateway.projectDiscoveryReadCount).toBe(2);
+  });
+
+  it("preserves the previous valid snapshot when Refresh is incomplete", async () => {
+    const user = userEvent.setup();
+    const gatewayFixture = fixture([{ id: "alpha", title: "Alpha" }]);
+    renderManager({ gatewayFixture });
+    await waitForInventory();
+    await selectConversation(user, "Alpha");
+
+    (gatewayFixture.standalonePages as Record<string, unknown>).first = {
+      conversations: [{ id: "partial", title: "Partial refresh" }],
+      nextCursor: null,
+    };
+    (gatewayFixture.projects as unknown[]).push({ id: "project" });
+    (gatewayFixture.projectConversationPages as Record<string, unknown>)[
+      "project:first"
+    ] = { conversations: [], nextCursor: "missing" };
+
+    await user.click(screen.getByRole("button", { name: "Refresh inventory" }));
+    expect(
+      await screen.findByText(
+        "Refresh failed. The previous inventory is still active.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Alpha")).toBeInTheDocument();
+    expect(screen.queryByText("Partial refresh")).not.toBeInTheDocument();
+    expect(screen.getByTestId("selected-count")).toHaveTextContent("1");
+  });
+
   it("defaults to standalone rows and exposes Projects only in the read-only view", async () => {
     const user = userEvent.setup();
     const { openConversation } = renderManager({

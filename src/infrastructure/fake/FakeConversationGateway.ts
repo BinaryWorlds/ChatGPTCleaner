@@ -117,6 +117,10 @@ function deleteResult(outcome: FakeDeleteOutcome): DeleteAttemptResult {
 export class FakeConversationGateway implements ConversationGateway {
   private readonly outcomeIndexes = new Map<string, number>();
   public readonly deleteAttempts: { id: string; startedAt: number }[] = [];
+  public safetyInventoryReadCount = 0;
+  public standalonePageReadCount = 0;
+  public projectDiscoveryReadCount = 0;
+  public projectConversationPageReadCount = 0;
 
   public constructor(
     private readonly fixture: FakeGatewayFixture,
@@ -124,16 +128,14 @@ export class FakeConversationGateway implements ConversationGateway {
   ) {}
 
   public beginSafetyInventoryRead(): Promise<ReadResult<null>> {
+    this.safetyInventoryReadCount += 1;
     return Promise.resolve({ kind: "success", value: null });
-  }
-
-  public completeStandaloneInventoryRead(committedPageCount: number): void {
-    void committedPageCount;
   }
 
   public fetchStandaloneConversationPage(
     cursor: string | null,
   ): Promise<ReadResult<ConversationPage>> {
+    this.standalonePageReadCount += 1;
     const rawPage = this.fixture.standalonePages[cursor ?? "first"];
     const parsedPage = rawConversationPageSchema.safeParse(rawPage);
     if (!parsedPage.success) {
@@ -155,6 +157,7 @@ export class FakeConversationGateway implements ConversationGateway {
   }
 
   public fetchProjects(): Promise<ReadResult<readonly ProjectReference[]>> {
+    this.projectDiscoveryReadCount += 1;
     const parsedProjects = projectsSchema.safeParse(this.fixture.projects);
     return Promise.resolve(
       parsedProjects.success
@@ -167,6 +170,7 @@ export class FakeConversationGateway implements ConversationGateway {
     projectId: string,
     cursor: string | null,
   ): Promise<ReadResult<ProjectConversationPage>> {
+    this.projectConversationPageReadCount += 1;
     const key = `${projectId}:${cursor ?? "first"}`;
     const parsedPage = projectConversationPageSchema.safeParse(
       this.fixture.projectConversationPages[key],

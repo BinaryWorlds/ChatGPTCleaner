@@ -52,11 +52,13 @@ webRequest permission is added.
 
 Never require users to paste tokens and never persist auth secrets.
 
-The manager validates and binds its single source tab once at the start of each
-initial inventory, preflight, Resume, or Retry Failed operation. Pagination
-reuses that exact tab ID without silently rebinding; an actual request failure
-stops the operation fail-closed. The MVP does not add a separate
-identity-context mechanism.
+The manager validates and binds its single source tab at the start of the
+initial inventory load and each explicit Refresh. The snapshot deletion preview
+and destructive-run start perform no inventory request. Pagination reuses the
+validated tab ID without silently rebinding. The narrow DELETE transport still
+validates the bound source tab and may perform authentication/session requests;
+those checks do not refresh inventory membership. The MVP does not add a
+separate identity-context mechanism.
 
 ## Alternatives considered
 
@@ -78,5 +80,7 @@ failures block inventory loading.
 Standalone inventory may keep at most three fixed-offset GETs in flight. The
 Application scheduler commits validated results by ascending offset and waits
 for the bounded window before scheduling another, which makes retry throttling
-conservative. Project reads remain sequential. This concurrency changes only
-read throughput and does not affect destructive execution or its rate limiter.
+conservative. Different Projects may be enumerated with the same bounded
+concurrency while pages within one Project remain sequential. This concurrency
+changes only read throughput and does not affect destructive execution or its
+rate limiter.

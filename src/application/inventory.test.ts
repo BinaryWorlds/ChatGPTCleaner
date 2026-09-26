@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { ConversationPage, ReadResult } from "./ports/ConversationGateway";
+import type {
+  ConversationPage,
+  ProjectConversationPage,
+  ReadResult,
+} from "./ports/ConversationGateway";
 import { FakeClock } from "../infrastructure/fake/FakeClock";
 import { FakeConversationGateway } from "../infrastructure/fake/FakeConversationGateway";
 import {
@@ -12,7 +16,7 @@ import {
   type FakeGatewayFixture,
 } from "../infrastructure/fake/fixtures";
 import { loadInventory, loadSafetyInventory } from "./inventory";
-import { runPreflight } from "./preflight";
+import { buildDeletionPlan } from "../domain/deletionPlan";
 
 async function settleAsyncWork(): Promise<void> {
   await Promise.resolve();
@@ -68,28 +72,78 @@ class DeferredStandaloneGateway extends FakeConversationGateway {
   }
 }
 
-class SequentialProjectGateway extends FakeConversationGateway {
+class DeferredProjectGateway extends FakeConversationGateway {
   public activeProjectReads = 0;
   public maxActiveProjectReads = 0;
   public readonly projectReadOrder: string[] = [];
+  private readonly resolvers = new Map<
+    string,
+    (result: ReadResult<ProjectConversationPage>) => void
+  >();
 
-  public override async fetchProjectConversationPage(
+  public constructor(projectIds: readonly string[]) {
+    super(
+      {
+        standalonePages: {
+          first: { conversations: [], nextCursor: null },
+        },
+        projects: projectIds.map((id) => ({ id })),
+        projectConversationPages: {},
+      },
+      new FakeClock(),
+    );
+  }
+
+  public override fetchProjectConversationPage(
     projectId: string,
     cursor: string | null,
-  ) {
+  ): Promise<ReadResult<ProjectConversationPage>> {
+    const key = `${projectId}:${cursor ?? "first"}`;
     this.activeProjectReads += 1;
     this.maxActiveProjectReads = Math.max(
       this.maxActiveProjectReads,
       this.activeProjectReads,
     );
-    this.projectReadOrder.push(`${projectId}:${cursor ?? "first"}`);
-    await Promise.resolve();
-    try {
-      return await super.fetchProjectConversationPage(projectId, cursor);
-    } finally {
-      this.activeProjectReads -= 1;
-    }
+    this.projectReadOrder.push(key);
+    return new Promise((resolve) => {
+      this.resolvers.set(key, (result) => {
+        this.activeProjectReads -= 1;
+        resolve(result);
+      });
+    });
   }
+
+  public resolveProjectPage(
+    key: string,
+    result: ReadResult<ProjectConversationPage>,
+  ): void {
+    const resolve = this.resolvers.get(key);
+    if (resolve === undefined) {
+      throw new Error(`No pending Project request for ${key}`);
+    }
+    this.resolvers.delete(key);
+    resolve(result);
+  }
+}
+
+function projectPage(
+  conversationId: string,
+  nextCursor: string | null = null,
+): ReadResult<ProjectConversationPage> {
+  return {
+    kind: "success",
+    value: {
+      conversations: [
+        {
+          id: conversationId,
+          title: conversationId,
+          createdAt: null,
+          updatedAt: null,
+        },
+      ],
+      nextCursor,
+    },
+  };
 }
 
 function standalonePage(
@@ -115,7 +169,7 @@ function standalonePage(
   };
 }
 
-describe("inventory and preflight", () => {
+describe("inventory and deletion planning", () => {
   it("loads standalone windows with at most three reads and commits out-of-order pages by offset", async () => {
     const gateway = new DeferredStandaloneGateway();
     const progress: number[] = [];
@@ -199,18 +253,51 @@ describe("inventory and preflight", () => {
     await expect(loading).resolves.toMatchObject({ kind: "ready" });
   });
 
-  it("keeps Project conversation enumeration sequential", async () => {
-    const gateway = new SequentialProjectGateway(DEMO_FIXTURE, new FakeClock());
+  it("bounds concurrent Projects while keeping each Project sequential", async () => {
+    const gateway = new DeferredProjectGateway(["a", "b", "c", "d"]);
+    const loading = loadSafetyInventory(gateway);
+    await settleAsyncWork();
 
-    await expect(loadSafetyInventory(gateway)).resolves.toMatchObject({
-      kind: "ready",
-    });
-    expect(gateway.maxActiveProjectReads).toBe(1);
+    expect(gateway.maxActiveProjectReads).toBe(3);
+    expect(gateway.projectReadOrder).toEqual(["a:first", "b:first", "c:first"]);
+    gateway.resolveProjectPage("a:first", projectPage("a-1", "a-next"));
+    await settleAsyncWork();
     expect(gateway.projectReadOrder).toEqual([
-      "project-alpha:first",
-      "project-alpha:project-alpha-page-2",
-      "project-beta:first",
+      "a:first",
+      "b:first",
+      "c:first",
+      "a:a-next",
     ]);
+
+    gateway.resolveProjectPage("a:a-next", projectPage("a-2"));
+    await settleAsyncWork();
+    expect(gateway.projectReadOrder.at(-1)).toBe("d:first");
+    gateway.resolveProjectPage("b:first", projectPage("b-1"));
+    gateway.resolveProjectPage("c:first", projectPage("c-1"));
+    gateway.resolveProjectPage("d:first", projectPage("d-1"));
+
+    await expect(loading).resolves.toMatchObject({ kind: "ready" });
+    expect(gateway.maxActiveProjectReads).toBe(3);
+  });
+
+  it("fails the whole Project enumeration without scheduling new Projects", async () => {
+    const gateway = new DeferredProjectGateway(["a", "b", "c", "d"]);
+    const loading = loadSafetyInventory(gateway);
+    await settleAsyncWork();
+
+    gateway.resolveProjectPage("a:first", {
+      kind: "failure",
+      reason: "authentication",
+    });
+    await settleAsyncWork();
+    gateway.resolveProjectPage("b:first", projectPage("partial-b"));
+    gateway.resolveProjectPage("c:first", projectPage("partial-c"));
+
+    await expect(loading).resolves.toEqual({
+      kind: "blocked",
+      reason: "authentication",
+    });
+    expect(gateway.projectReadOrder).toEqual(["a:first", "b:first", "c:first"]);
   });
   it("loads and deduplicates paginated standalone and Project fixtures", async () => {
     const clock = new FakeClock();
@@ -226,7 +313,6 @@ describe("inventory and preflight", () => {
     expect(result.kind).toBe("ready");
     if (result.kind !== "ready") return;
     expect(result.inventory.standaloneConversations).toHaveLength(64);
-    expect(result.inventory.projectConversationIds.size).toBe(4);
     expect(result.inventory.projectConversations).toHaveLength(4);
     expect(
       result.inventory.projectConversations.find(
@@ -460,24 +546,34 @@ describe("inventory and preflight", () => {
     expect(blocked).toEqual({ kind: "blocked", reason: "protected-storage" });
   });
 
-  it("builds a fresh plan that excludes Project, protected, and missing IDs", async () => {
-    const result = await runPreflight({
+  it("builds a snapshot plan that excludes Project, protected, and missing IDs", () => {
+    const plan = buildDeletionPlan({
       selectedConversationIds: [
-        "standalone-001",
-        "standalone-010",
-        "project-overlap",
+        "standalone",
+        "protected",
+        "project",
         "missing",
       ],
-      gateway: new FakeConversationGateway(DEMO_FIXTURE, new FakeClock()),
-      protectedConversationStore: new FakeProtectedConversationStore([
-        "standalone-010",
-      ]),
+      standaloneConversations: [
+        {
+          id: "standalone",
+          title: "Standalone",
+          createdAt: null,
+          updatedAt: null,
+        },
+        {
+          id: "protected",
+          title: "Protected",
+          createdAt: null,
+          updatedAt: null,
+        },
+      ],
+      projectConversationIds: new Set(["project"]),
+      protectedConversationIds: new Set(["protected"]),
     });
-    expect(result.kind).toBe("ready");
-    if (result.kind !== "ready") return;
-    expect(result.plan.eligibleConversationIds).toEqual(["standalone-001"]);
-    expect(result.plan.excludedProjectIds).toEqual(["project-overlap"]);
-    expect(result.plan.excludedProtectedIds).toEqual(["standalone-010"]);
-    expect(result.plan.missingConversationIds).toEqual(["missing"]);
+    expect(plan.eligibleConversationIds).toEqual(["standalone"]);
+    expect(plan.excludedProjectIds).toEqual(["project"]);
+    expect(plan.excludedProtectedIds).toEqual(["protected"]);
+    expect(plan.missingConversationIds).toEqual(["missing"]);
   });
 });

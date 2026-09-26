@@ -5,6 +5,7 @@ import {
   ChatGptOperation,
   type ReadResult,
 } from "../../application/ports/ConversationGateway";
+import { ApiRequestLifecycleEvent } from "../../application/ports/Observability";
 import type { SourceTabValidator } from "../browser/SourceTab";
 import { executeReadWithRetry } from "./readRetry";
 import {
@@ -14,12 +15,10 @@ import {
   type PageReadOperation,
   type ReadTransportPayload,
 } from "./PageContextReadContracts";
-import { logReadEvent } from "../observability/readLogging";
 import { createOperationId, logger } from "../observability/logger";
 
 export class PageContextReadTransport {
   private boundSourceTabId: number | null = null;
-  private pendingSourceTabMs = 0;
   private operationId = createOperationId();
 
   public constructor(
@@ -32,12 +31,7 @@ export class PageContextReadTransport {
     this.operationId = createOperationId();
     this.boundSourceTabId = null;
     this.executor.beginInventoryRun?.();
-    logger.debug("sourceTab.validation.started", {
-      operationId: this.operationId,
-    });
-    const startedAt = performance.now();
     const source = await this.sourceTab.validate();
-    this.pendingSourceTabMs = performance.now() - startedAt;
     if (source.kind !== "valid") {
       logger.warn("sourceTab.validation.failed", {
         operationId: this.operationId,
@@ -46,10 +40,6 @@ export class PageContextReadTransport {
       return sourceFailure();
     }
     this.boundSourceTabId = source.tabId;
-    logger.debug("sourceTab.validation.succeeded", {
-      operationId: this.operationId,
-      durationMs: Math.round(this.pendingSourceTabMs),
-    });
     return { kind: "success", value: null };
   }
 
@@ -96,27 +86,20 @@ export class PageContextReadTransport {
       const sourceResult = await this.beginSafetyInventoryRead();
       if (sourceResult.kind === "failure") return sourceResult;
     }
-    const sourceTabMs = this.pendingSourceTabMs;
-    this.pendingSourceTabMs = 0;
+    const operationName =
+      operation === "standalone"
+        ? ChatGptOperation.StandaloneConversationsList
+        : operation === "projects"
+          ? ChatGptOperation.ProjectsList
+          : ChatGptOperation.ProjectConversationsList;
     return executeReadWithRetry<ReadTransportPayload>({
       clock: this.clock,
       operationId: this.operationId,
       page: paginationStep,
-      operation:
-        operation === "standalone"
-          ? ChatGptOperation.StandaloneConversationsList
-          : operation === "projects"
-            ? ChatGptOperation.ProjectsList
-            : ChatGptOperation.ProjectConversationsList,
+      operation: operationName,
       attempt: async () => {
         const sourceTabId = this.boundSourceTabId;
         if (sourceTabId === null) {
-          logReadEvent({
-            operation,
-            page: paginationStep,
-            stage: "REQUEST_NOT_STARTED",
-            responseReceived: false,
-          });
           return sourceFailure();
         }
 
@@ -124,20 +107,16 @@ export class PageContextReadTransport {
         try {
           rawResult = await execute(sourceTabId);
         } catch {
-          logReadEvent({
-            operation,
+          logger.warn(ApiRequestLifecycleEvent.Failed, {
+            operationId: this.operationId,
+            operation: operationName,
             page: paginationStep,
             stage: "TRANSPORT_ERROR",
             responseReceived: false,
           });
           return { kind: "network-error" };
         }
-        return normalizeExecutionResult(
-          rawResult,
-          operation,
-          paginationStep,
-          sourceTabMs,
-        );
+        return normalizeExecutionResult(rawResult, operation, paginationStep);
       },
     });
   }

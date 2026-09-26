@@ -44,16 +44,18 @@ Infrastructure -> Application ports
 - User-protected chats must never be deletable.
 - Raw UI selection never reaches DELETE.
 - Only a validated `DeletionPlan` reaches destructive execution.
-- A new destructive batch requires fresh preflight + typed `DELETE N`.
+- A new destructive batch requires a complete loaded-inventory snapshot,
+  current local protection state, and typed `DELETE N`.
 - Resume/Retry may only shrink the already-confirmed ID set.
 - Protection mutations must be serialized. Resume must not begin while a
   protection write is pending.
-- After acquiring the destructive run lock, freshly revalidate the confirmed
-  remaining set before the first DELETE. Revalidation may only shrink it.
+- Starting, resuming, or retrying a destructive run must not reload ChatGPT
+  inventory. Project exclusion is guaranteed according to the last successful
+  initial load or explicit Refresh.
 - Standalone pagination has one canonical progress contract. Application must
   follow the gateway cursor and must not infer completion from a hard-coded page
   size when the backend reports a different effective limit.
-- Incomplete Project protection blocks deletion.
+- Incomplete Project protection blocks accepting a new inventory snapshot.
 - API incompatibility blocks deletion.
 - Source-tab instability blocks or stops deletion.
 - Only one destructive executor may run.

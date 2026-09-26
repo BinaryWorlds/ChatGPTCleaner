@@ -62,9 +62,10 @@ export function ManagerPage({ composition }: ManagerPageProps) {
     conversations,
     projectConversations,
     conversationTitles,
-    projectConversationCount,
     protectedConversationIds,
     requestsPerMinute,
+    refreshing,
+    refreshInventory,
     resetInventory,
     removeConversations,
     setProtectedConversationIds,
@@ -99,24 +100,25 @@ export function ManagerPage({ composition }: ManagerPageProps) {
   const [protectionMutationPending, setProtectionMutationPending] =
     useState(false);
   const protectionMutationPendingRef = useRef(false);
-  const settingsWriter = useMemo(
+  const rateWriter = useMemo(
     () =>
       dependencies === null
         ? null
         : new SerializedRequestsPerMinuteWriter(dependencies.settingsStore),
     [dependencies],
   );
+  const projectConversationIds = useMemo(
+    () => new Set(projectConversations.map(({ id }) => id)),
+    [projectConversations],
+  );
   const {
-    preflightRunning,
-    preflightPlan,
-    confirmationText,
+    previewPlan,
     runState,
     runActive,
     protectionLocked: protectionLockedByRun,
     safetyOverride,
     currentConversationId,
-    setConfirmationText,
-    beginPreflight,
+    beginDeletionPreview,
     confirmAndStartDeletion,
     retryFailed,
     resumeRun,
@@ -127,17 +129,20 @@ export function ManagerPage({ composition }: ManagerPageProps) {
     blockSafety,
   } = useDeletionWorkflow({
     dependencies,
-    inventoryReady: inventoryState.kind === "ready",
+    inventoryReady: inventoryState.kind === "ready" && !refreshing,
+    standaloneConversations: conversations,
+    projectConversationIds,
+    protectedConversationIds,
     selectedConversationIds,
     requestsPerMinute,
     isProtectionMutationPending: () => protectionMutationPendingRef.current,
-    onConversationIdsRemoved: (removedIds) => {
-      removeConversations(removedIds);
+    onConversationRemoved: (removedId) => {
+      removeConversations(new Set([removedId]));
       setSelectedConversationIds(
         (currentSelection) =>
           new Set(
             [...currentSelection].filter(
-              (conversationId) => !removedIds.has(conversationId),
+              (conversationId) => conversationId !== removedId,
             ),
           ),
       );
@@ -184,7 +189,7 @@ export function ManagerPage({ composition }: ManagerPageProps) {
     visibleProjectConversations.length,
     projectPageSize,
   );
-  const selectionLocked = runActive;
+  const selectionLocked = runActive || refreshing;
   const protectionLocked = protectionLockedByRun || protectionMutationPending;
   const safetyState: SafetyStatusState = (() => {
     if (inventoryState.kind === "loading") {
@@ -223,8 +228,8 @@ export function ManagerPage({ composition }: ManagerPageProps) {
   const changeScenario = (nextScenarioId: string) => {
     if (
       runActive ||
-      preflightRunning ||
-      preflightPlan !== null ||
+      refreshing ||
+      previewPlan !== null ||
       protectionMutationPendingRef.current
     ) {
       return;
@@ -292,13 +297,33 @@ export function ManagerPage({ composition }: ManagerPageProps) {
   };
 
   const handleRateChange = (value: number | null) => {
-    if (settingsWriter === null || value === null || runActive) return;
-    settingsWriter
+    if (rateWriter === null || value === null || runActive) return;
+    rateWriter
       .save(value)
       .then((saved) => {
         if (saved) setRequestsPerMinute(value);
       })
       .catch(() => setNotice("Could not save the deletion rate."));
+  };
+
+  const handleRefresh = () => {
+    if (runActive || refreshing || protectionMutationPendingRef.current) {
+      return;
+    }
+    setNotice(null);
+    refreshInventory()
+      .then((refreshed) => {
+        if (!refreshed) {
+          setNotice("Refresh failed. The previous inventory is still active.");
+          return;
+        }
+        setSelectedConversationIds(new Set());
+        cancelConfirmation();
+        setNotice("Inventory refreshed.");
+      })
+      .catch(() =>
+        setNotice("Refresh failed. The previous inventory is still active."),
+      );
   };
 
   const currentConversationLabel =
@@ -321,12 +346,7 @@ export function ManagerPage({ composition }: ManagerPageProps) {
               <Select
                 aria-label="Demo scenario"
                 value={scenarioId}
-                disabled={
-                  runActive ||
-                  preflightRunning ||
-                  preflightPlan !== null ||
-                  protectionMutationPending
-                }
+                disabled={runActive || refreshing || protectionMutationPending}
                 options={composition.scenarios.map((scenario) => ({
                   value: scenario.id,
                   label: scenario.label,
@@ -368,6 +388,23 @@ export function ManagerPage({ composition }: ManagerPageProps) {
 
       {inventoryState.kind === "ready" && (
         <>
+          <Card size="small">
+            <Space>
+              <Button
+                aria-label="Refresh inventory"
+                disabled={runActive || refreshing || protectionMutationPending}
+                onClick={handleRefresh}
+              >
+                Refresh
+              </Button>
+              {refreshing && (
+                <Typography.Text type="secondary">
+                  <Spin size="small" /> Refreshing inventory…
+                </Typography.Text>
+              )}
+            </Space>
+          </Card>
+
           <Row gutter={[12, 12]}>
             <Col xs={12} md={6}>
               <Card size="small" data-testid="standalone-summary">
@@ -381,7 +418,7 @@ export function ManagerPage({ composition }: ManagerPageProps) {
               <Card size="small" data-testid="project-summary">
                 <Statistic
                   title="Project conversations protected"
-                  value={projectConversationCount}
+                  value={projectConversations.length}
                 />
               </Card>
             </Col>
@@ -512,21 +549,12 @@ export function ManagerPage({ composition }: ManagerPageProps) {
                   disabled={
                     selectionLocked ||
                     selectedConversationIds.size === 0 ||
-                    safetyState.kind !== "ready" ||
-                    preflightRunning
+                    safetyState.kind !== "ready"
                   }
-                  onClick={beginPreflight}
+                  onClick={beginDeletionPreview}
                 >
                   Delete selected ({selectedConversationIds.size})
                 </Button>
-                {preflightRunning && (
-                  <Space>
-                    <Spin size="small" />
-                    <Typography.Text>
-                      Running fresh safety preflight...
-                    </Typography.Text>
-                  </Space>
-                )}
               </Space>
             </Card>
           )}
@@ -606,13 +634,14 @@ export function ManagerPage({ composition }: ManagerPageProps) {
         </>
       )}
 
-      <DeletionConfirmationModal
-        plan={preflightPlan}
-        confirmationText={confirmationText}
-        onConfirmationTextChange={setConfirmationText}
-        onCancel={cancelConfirmation}
-        onConfirm={confirmAndStartDeletion}
-      />
+      {previewPlan !== null && (
+        <DeletionConfirmationModal
+          plan={previewPlan}
+          disabled={refreshing}
+          onCancel={cancelConfirmation}
+          onConfirm={confirmAndStartDeletion}
+        />
+      )}
     </Space>
   );
 }

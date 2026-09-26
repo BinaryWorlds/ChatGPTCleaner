@@ -17,7 +17,6 @@ import type { SafetyBlockReason } from "./SafetyBlockReason";
 export interface SafetyInventory {
   readonly standaloneConversations: readonly Conversation[];
   readonly projectConversations: readonly Conversation[];
-  readonly projectConversationIds: ReadonlySet<string>;
 }
 
 export type SafetyInventoryResult =
@@ -69,6 +68,7 @@ async function loadStandaloneConversations(
   | {
       readonly kind: "success";
       readonly conversations: readonly Conversation[];
+      readonly pageCount: number;
     }
   | {
       readonly kind: "failure";
@@ -108,7 +108,6 @@ async function loadStandaloneConversations(
 
     const nextCursor = pageResult.value.nextCursor;
     if (nextCursor === null) {
-      gateway.completeStandaloneInventoryRead(committedPageCount);
       return { kind: "complete" };
     }
     if (
@@ -131,6 +130,7 @@ async function loadStandaloneConversations(
     return {
       kind: "success",
       conversations: [...conversationsById.values()],
+      pageCount: committedPageCount,
     };
   }
 
@@ -148,6 +148,7 @@ async function loadStandaloneConversations(
         return {
           kind: "success",
           conversations: [...conversationsById.values()],
+          pageCount: committedPageCount,
         };
       }
       nextCursor = committedPage.nextCursor;
@@ -185,6 +186,7 @@ async function loadStandaloneConversations(
         return {
           kind: "success",
           conversations: [...conversationsById.values()],
+          pageCount: committedPageCount,
         };
       }
 
@@ -221,45 +223,97 @@ async function loadProjectConversationIds(
 
   const conversationIds = new Set<string>();
   const conversationsById = new Map<string, Conversation>();
-  let totalPages = 0;
+  const observedConversationIds = new Set<string>();
+  const conversationsByProject: (readonly Conversation[] | undefined)[] =
+    Array.from({ length: projectsResult.value.length });
+  let reservedPageCount = 0;
+  let nextProjectIndex = 0;
+  let failure:
+    | Extract<ReadResult<never>, { readonly kind: "failure" }>
+    | { readonly kind: "failure"; readonly reason: "pagination" }
+    | null = null;
 
-  for (const project of projectsResult.value) {
+  const enumerateProject = async (
+    project: (typeof projectsResult.value)[number],
+    projectIndex: number,
+  ): Promise<void> => {
     const visitedCursors = new Set<string>();
+    const projectConversations: Conversation[] = [];
     let cursor: string | null = null;
     let projectPage = 1;
 
-    while (totalPages < AppConfig.inventory.maxPages) {
+    while (failure === null) {
+      if (reservedPageCount >= AppConfig.inventory.maxPages) {
+        failure = { kind: "failure", reason: "pagination" };
+        return;
+      }
+      reservedPageCount += 1;
       const pageResult = await gateway.fetchProjectConversationPage(
         project.id,
         cursor,
         projectPage,
       );
-      if (pageResult.kind === "failure") return pageResult;
-      totalPages += 1;
+      if (pageResult.kind === "failure") {
+        failure ??= pageResult;
+        return;
+      }
+      if (failure !== null) return;
       projectPage += 1;
 
       for (const conversation of pageResult.value.conversations) {
-        conversationIds.add(conversation.id);
-        conversationsById.set(conversation.id, conversation);
-        if (conversationIds.size > AppConfig.inventory.maxRecords) {
-          return { kind: "failure", reason: "pagination" };
+        projectConversations.push(conversation);
+        observedConversationIds.add(conversation.id);
+        if (observedConversationIds.size > AppConfig.inventory.maxRecords) {
+          failure = { kind: "failure", reason: "pagination" };
+          return;
         }
       }
 
       const nextCursor = pageResult.value.nextCursor;
-      if (nextCursor === null) break;
+      if (nextCursor === null) {
+        conversationsByProject[projectIndex] = projectConversations;
+        return;
+      }
       if (nextCursor === cursor || visitedCursors.has(nextCursor)) {
-        return { kind: "failure", reason: "pagination" };
+        failure = { kind: "failure", reason: "pagination" };
+        return;
       }
       visitedCursors.add(nextCursor);
       cursor = nextCursor;
     }
+  };
 
-    if (cursor !== null && totalPages >= AppConfig.inventory.maxPages) {
-      return { kind: "failure", reason: "pagination" };
+  const enumerateProjects = async (): Promise<void> => {
+    while (failure === null) {
+      const project = projectsResult.value[nextProjectIndex];
+      if (project === undefined) return;
+      const projectIndex = nextProjectIndex;
+      nextProjectIndex += 1;
+      await enumerateProject(project, projectIndex);
+    }
+  };
+
+  const workerCount = Math.min(
+    AppConfig.inventory.standaloneReadConcurrency,
+    projectsResult.value.length,
+  );
+  await Promise.all(
+    Array.from({ length: workerCount }, () => enumerateProjects()),
+  );
+
+  if (failure === null) {
+    for (const projectConversations of conversationsByProject) {
+      if (projectConversations === undefined) {
+        failure = { kind: "failure", reason: "pagination" };
+        break;
+      }
+      for (const conversation of projectConversations) {
+        conversationIds.add(conversation.id);
+        conversationsById.set(conversation.id, conversation);
+      }
     }
   }
-
+  if (failure !== null) return failure;
   return {
     kind: "success",
     conversations: [...conversationsById.values()],
@@ -319,7 +373,6 @@ export async function loadSafetyInventory(
         projectResult.conversationIds,
       ),
       projectConversations: projectResult.conversations,
-      projectConversationIds: projectResult.conversationIds,
     },
   };
 }
@@ -342,10 +395,12 @@ export async function loadInventory(input: {
     return { kind: "blocked", reason: "protected-storage" };
   }
 
+  const requestsPerMinute = await loadRequestsPerMinute(input.settingsStore);
+
   return {
     kind: "ready",
     inventory: safetyInventoryResult.inventory,
     protectedConversationIds: protectedIdsResult.protectedConversationIds,
-    requestsPerMinute: await loadRequestsPerMinute(input.settingsStore),
+    requestsPerMinute,
   };
 }

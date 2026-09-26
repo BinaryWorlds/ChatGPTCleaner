@@ -38,7 +38,11 @@ const executionEnvelopeSchema = z
     z.object({
       result: z.discriminatedUnion("kind", [
         responseEnvelopeSchema,
-        z.object({ kind: z.literal("network-failure") }).strict(),
+        z
+          .object({
+            kind: z.literal("network-failure"),
+          })
+          .strict(),
         z
           .object({
             kind: z.literal("failure"),
@@ -63,7 +67,10 @@ export function createDeleteConversationOperation(
   ) {
     return null;
   }
-  return { kind: "delete-conversation", conversationId };
+  return {
+    kind: "delete-conversation",
+    conversationId,
+  };
 }
 
 export function classifyDeleteResponse(input: {
@@ -171,6 +178,12 @@ export class PageContextDeleteTransport {
   ) {}
 
   public async deleteConversation(
+    conversationId: string,
+  ): Promise<DeleteAttemptResult> {
+    return this.executeDeleteConversation(conversationId);
+  }
+
+  private async executeDeleteConversation(
     conversationId: string,
   ): Promise<DeleteAttemptResult> {
     const operation = createDeleteConversationOperation(conversationId);

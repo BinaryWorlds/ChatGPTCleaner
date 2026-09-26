@@ -10,14 +10,15 @@ Relying only on the current behavior of a standalone-conversation endpoint is fr
 
 ## Decision
 
-Before destructive execution, enumerate conversation IDs belonging to every discovered ChatGPT Project.
+Before accepting an initial-load or Refresh snapshot, enumerate conversation
+IDs belonging to every discovered ChatGPT Project.
 
 Do not rely solely on the standalone endpoint to exclude Project chats.
 
 Project chats do not appear as deletable rows. They may be displayed in a
 separate read-only view that has no selection or deletion path.
 
-Any incomplete Project enumeration blocks deletion.
+Any incomplete Project enumeration blocks accepting the replacement snapshot.
 
 ## Alternatives considered
 
@@ -29,4 +30,5 @@ Rejected because they weaken the primary safety invariant.
 
 ## Consequences
 
-Preflight requires additional read requests and may fail closed when Project enumeration cannot complete.
+Snapshot loading requires additional read requests and fails closed when
+Project enumeration cannot complete.

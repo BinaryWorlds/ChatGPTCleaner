@@ -201,7 +201,7 @@ export function ConversationTable(props: ConversationTableProps) {
             : "Project conversations"
         }
         rowKey="id"
-        dataSource={[...conversations]}
+        dataSource={conversations}
         columns={columns}
         onChange={handleChange}
         {...(view === "standalone"

@@ -91,7 +91,6 @@ export type DeleteAttemptResult =
 
 export interface ConversationGateway {
   beginSafetyInventoryRead(): Promise<ReadResult<null>>;
-  completeStandaloneInventoryRead(committedPageCount: number): void;
   fetchStandaloneConversationPage(
     cursor: string | null,
   ): Promise<ReadResult<ConversationPage>>;

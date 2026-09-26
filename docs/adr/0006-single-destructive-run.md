@@ -12,11 +12,11 @@ At most one destructive execution may run across extension manager contexts.
 
 Prefer the Web Locks API with a stable extension-origin lock.
 
-Acquire the lock atomically after typed confirmation and immediately before destructive execution.
-
-After acquiring the lock, freshly revalidate the remaining confirmed set before
-the first DELETE. This revalidation may only shrink the set. If it fails, release
-the lock without issuing a DELETE.
+Acquire the lock atomically after typed confirmation and immediately before
+destructive execution. Inside the lock, freshly load local protected IDs and
+shrink the confirmed remaining set before issuing DELETE. Starting the run
+performs no standalone or Project inventory reads; Project eligibility comes
+from the last successful inventory snapshot.
 
 Hold the lock while running and paused. Release it on completion, Stop, fatal termination, or manager-context teardown.
 
@@ -35,5 +35,5 @@ Rejected because browser-managed locking has simpler crash/release semantics.
 ## Consequences
 
 A second manager cannot begin destructive work until the active run ends.
-Protection changes made between the earlier preflight and lock acquisition are
-observed before the first destructive request.
+The lock serializes destructive execution and protection writes, but does not
+provide fresh ChatGPT inventory membership.

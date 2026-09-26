@@ -161,9 +161,13 @@ afterEach(() => {
 describe("ManagerPage destructive flow", () => {
   it("requires the exact DELETE N confirmation", async () => {
     const user = userEvent.setup();
-    renderManager();
+    const { gateway } = renderManager();
     await waitForInventory();
+    const standaloneReadsAfterInventory = gateway.standalonePageReadCount;
+    const projectReadsAfterInventory = gateway.projectDiscoveryReadCount;
     await openConfirmation(user, "Alpha");
+    expect(gateway.standalonePageReadCount).toBe(standaloneReadsAfterInventory);
+    expect(gateway.projectDiscoveryReadCount).toBe(projectReadsAfterInventory);
 
     const confirmButton = screen.getByRole("button", { name: "Delete 1" });
     expect(confirmButton).toBeDisabled();
@@ -172,6 +176,67 @@ describe("ManagerPage destructive flow", () => {
     await user.clear(screen.getByLabelText("Deletion confirmation"));
     await user.type(screen.getByLabelText("Deletion confirmation"), "DELETE 1");
     expect(confirmButton).toBeEnabled();
+  });
+
+  it("updates the local snapshot after DELETE without refreshing inventory", async () => {
+    const user = userEvent.setup();
+    const { gateway } = renderManager({
+      gatewayFixture: fixture([{ id: "alpha", title: "Alpha" }]),
+    });
+    await waitForInventory();
+    const inventoryReads = {
+      safety: gateway.safetyInventoryReadCount,
+      standalone: gateway.standalonePageReadCount,
+      projects: gateway.projectDiscoveryReadCount,
+      projectPages: gateway.projectConversationPageReadCount,
+    };
+
+    await openConfirmation(user, "Alpha");
+    await user.type(screen.getByLabelText("Deletion confirmation"), "DELETE 1");
+    await user.click(screen.getByRole("button", { name: "Delete 1" }));
+
+    expect(await screen.findByText("FINISHED")).toBeInTheDocument();
+    expect(screen.queryByText("Alpha")).not.toBeInTheDocument();
+    expect(screen.getByTestId("standalone-summary")).toHaveTextContent("0");
+    expect(screen.getByTestId("selected-count")).toHaveTextContent("0");
+    expect(gateway.safetyInventoryReadCount).toBe(inventoryReads.safety);
+    expect(gateway.standalonePageReadCount).toBe(inventoryReads.standalone);
+    expect(gateway.projectDiscoveryReadCount).toBe(inventoryReads.projects);
+    expect(gateway.projectConversationPageReadCount).toBe(
+      inventoryReads.projectPages,
+    );
+  });
+
+  it("applies current local protection when confirming a stale preview", async () => {
+    const user = userEvent.setup();
+    const protectedConversationStore = new DeferredProtectedConversationStore();
+    const { gateway } = renderManager({ protectedConversationStore });
+    await waitForInventory();
+    await selectConversation(user, "Alpha");
+
+    const alphaRow = screen.getByText("Alpha").closest("tr");
+    if (alphaRow === null) throw new Error("Alpha row not found");
+    await user.click(within(alphaRow).getByRole("button", { name: "Protect" }));
+    await waitFor(() =>
+      expect(protectedConversationStore.pendingSaves).toHaveLength(1),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Delete selected (1)" }),
+    );
+    protectedConversationStore.resolveNextSave();
+    await waitFor(() =>
+      expect(within(alphaRow).getByText("Protected")).toBeInTheDocument(),
+    );
+
+    await user.type(screen.getByLabelText("Deletion confirmation"), "DELETE 1");
+    await user.click(screen.getByRole("button", { name: "Delete 1" }));
+
+    expect(
+      await screen.findByText(
+        "No confirmed conversations remain eligible for deletion.",
+      ),
+    ).toBeInTheDocument();
+    expect(gateway.deleteAttempts).toEqual([]);
   });
 
   it("disables mutations while running and supports Pause, Resume, and Stop", async () => {
@@ -196,6 +261,9 @@ describe("ManagerPage destructive flow", () => {
 
     const pauseButton = await screen.findByRole("button", { name: "Pause" });
     expect(screen.getByLabelText("Requests per minute")).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Refresh inventory" }),
+    ).toBeDisabled();
     expect(
       screen.getByRole("button", { name: "Select all matching" }),
     ).toBeDisabled();
@@ -280,10 +348,12 @@ describe("ManagerPage destructive flow", () => {
     });
     expect(screen.getByText("Failed conversations")).toBeInTheDocument();
     expect(screen.getAllByText("network")).toHaveLength(2);
+    expect(screen.getByText("Network failure")).toBeInTheDocument();
     expect(gateway.deleteAttempts).toHaveLength(5);
     await user.click(retryButton);
     await waitFor(() => expect(gateway.deleteAttempts).toHaveLength(6));
     expect(screen.getByText("FINISHED")).toBeInTheDocument();
+    expect(screen.queryByText("Network failure")).not.toBeInTheDocument();
   });
 
   it("displays a fatal 403 safety stop", async () => {

@@ -3,14 +3,16 @@ import { loadSafetyInventory } from "../../application/inventory";
 import { FakeClock } from "../fake/FakeClock";
 import {
   IsolatedFirstPageContextReadExecutor,
-  PageContextReadTransport,
   createChromePageContextReadExecutor,
+} from "./PageContextReadExecutor";
+import {
   createProjectConversationOperation,
   createProjectDiscoveryOperation,
   type PageContextReadExecutor,
   type PageReadOperation,
   type PageScriptRunner,
-} from "./PageContextReadTransport";
+} from "./PageContextReadContracts";
+import { PageContextReadTransport } from "./SourceBoundPageContextReadTransport";
 import { ProductionConversationGateway } from "./ProductionConversationGateway";
 import { STANDALONE_CONVERSATION_PAGE_LIMIT } from "../../application/ports/ConversationGateway";
 import { MAX_SAFETY_CRITICAL_IDENTIFIER_LENGTH } from "../../domain/identifier";

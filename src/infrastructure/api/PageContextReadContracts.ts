@@ -5,15 +5,6 @@ import { createReadDiagnostic } from "./readDiagnostics";
 export interface ReadTransportPayload {
   readonly body: unknown;
   readonly httpStatus: number;
-  readonly timing: ReadPageTiming;
-}
-
-export interface ReadPageTiming {
-  readonly sourceTabMs: number;
-  readonly executeScriptMs: number;
-  readonly authSessionMs: number;
-  readonly backendFetchMs: number;
-  readonly jsonParseMs: number;
 }
 
 export type PageReadOperation =
@@ -104,14 +95,6 @@ const pageResponseSchema = z.object({
   redirected: z.boolean(),
   contentType: z.string().nullable(),
   jsonParsed: z.boolean(),
-  timing: z
-    .object({
-      executeScriptMs: z.number().nonnegative().optional(),
-      authSessionMs: z.number().nonnegative().optional(),
-      backendFetchMs: z.number().nonnegative().optional(),
-      jsonParseMs: z.number().nonnegative().optional(),
-    })
-    .optional(),
 });
 
 const transportErrorSchema = z.object({
@@ -186,7 +169,6 @@ export function normalizeExecutionResult(
   rawResult: unknown,
   operation: PageReadOperation["kind"],
   paginationStep: number,
-  sourceTabMs: number,
 ): ReadAttemptResult<ReadTransportPayload> {
   const parsed = executionResultSchema.safeParse(rawResult);
   if (!parsed.success || parsed.data[0]?.result === undefined) {
@@ -243,13 +225,6 @@ export function normalizeExecutionResult(
       body: {
         body: result.body,
         httpStatus: result.status,
-        timing: {
-          sourceTabMs,
-          executeScriptMs: result.timing?.executeScriptMs ?? 0,
-          authSessionMs: result.timing?.authSessionMs ?? 0,
-          backendFetchMs: result.timing?.backendFetchMs ?? 0,
-          jsonParseMs: result.timing?.jsonParseMs ?? 0,
-        },
       },
     };
   }
@@ -274,13 +249,6 @@ export function normalizeExecutionResult(
     body: {
       body: result.body,
       httpStatus: result.status,
-      timing: {
-        sourceTabMs,
-        executeScriptMs: result.timing?.executeScriptMs ?? 0,
-        authSessionMs: result.timing?.authSessionMs ?? 0,
-        backendFetchMs: result.timing?.backendFetchMs ?? 0,
-        jsonParseMs: result.timing?.jsonParseMs ?? 0,
-      },
     },
   };
 }

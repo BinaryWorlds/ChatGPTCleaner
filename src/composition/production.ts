@@ -1,9 +1,7 @@
 import { ProductionConversationGateway } from "../infrastructure/api/ProductionConversationGateway";
-import {
-  createChromePageContextReadExecutor,
-  PageContextReadTransport,
-  type PageContextReadExecutor,
-} from "../infrastructure/api/PageContextReadTransport";
+import { createChromePageContextReadExecutor } from "../infrastructure/api/PageContextReadExecutor";
+import type { PageContextReadExecutor } from "../infrastructure/api/PageContextReadContracts";
+import { PageContextReadTransport } from "../infrastructure/api/SourceBoundPageContextReadTransport";
 import {
   createChromePageContextDeleteExecutor,
   PageContextDeleteTransport,
