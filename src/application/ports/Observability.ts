@@ -1,8 +1,6 @@
 import type { AppErrorCode } from "../AppError";
 
 export const ApiRequestLifecycleEvent = {
-  Started: "api.request.started",
-  Succeeded: "api.request.succeeded",
   Failed: "api.request.failed",
   Retry: "api.request.retry",
 } as const;
@@ -14,7 +12,6 @@ export type ObservabilityFields = Readonly<
 
 export interface ApplicationObservability {
   createOperationId(): string;
-  debug(event: string, fields?: ObservabilityFields): void;
   info(event: string, fields?: ObservabilityFields): void;
   warn(event: string, fields?: ObservabilityFields): void;
   error(

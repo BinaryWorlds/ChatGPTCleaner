@@ -90,7 +90,7 @@ class UnreadableProtectedConversationStore implements ProtectedConversationStore
 
 class CapturingObservability implements ApplicationObservability {
   public readonly entries: {
-    readonly level: "debug" | "info" | "warn" | "error";
+    readonly level: "info" | "warn" | "error";
     readonly event: string;
     readonly errorCode?: string;
     readonly fields?: ObservabilityFields;
@@ -100,14 +100,6 @@ class CapturingObservability implements ApplicationObservability {
   public createOperationId(): string {
     this.sequence += 1;
     return `operation-${this.sequence}`;
-  }
-
-  public debug(event: string, fields?: ObservabilityFields): void {
-    this.entries.push({
-      level: "debug",
-      event,
-      ...(fields === undefined ? {} : { fields }),
-    });
   }
 
   public info(event: string, fields?: ObservabilityFields): void {
@@ -177,50 +169,6 @@ describe("destructive run", () => {
       ).toThrow(RangeError);
     },
   );
-
-  it("logs the privacy-safe API lifecycle for a successful DELETE attempt", async () => {
-    const clock = new FakeClock();
-    const observability = new CapturingObservability();
-    const run = new DeletionRun({
-      confirmedPlan: confirmedPlan(["PRIVATE_CONVERSATION_ID_SENTINEL"]),
-      requestsPerMinute: 60,
-      gateway: new FakeConversationGateway(
-        fixtureForDeletion(["PRIVATE_CONVERSATION_ID_SENTINEL"], {}),
-        clock,
-      ),
-      protectedConversationStore: new FakeProtectedConversationStore(),
-      clock,
-      destructiveRunLock: new FakeDestructiveRunLock(),
-      observability,
-    });
-
-    await run.startDeletion();
-
-    expect(
-      observability.entries.some(
-        ({ level, event, fields }) =>
-          level === "debug" &&
-          event === "api.request.started" &&
-          fields?.operation === "conversation.delete" &&
-          fields.ordinal === 1 &&
-          fields.attempt === 1,
-      ),
-    ).toBe(true);
-    expect(
-      observability.entries.some(
-        ({ level, event, fields }) =>
-          level === "debug" &&
-          event === "api.request.succeeded" &&
-          fields?.operation === "conversation.delete" &&
-          fields.status === 204 &&
-          fields.ordinal === 1 &&
-          fields.attempt === 1,
-      ),
-    ).toBe(true);
-    expect(JSON.stringify(observability.entries)).not.toContain(
-      "PRIVATE_CONVERSATION_ID_SENTINEL",
-    );
-  });
 
   it("keeps DELETE strictly sequential with one request in flight", async () => {
     const ids = ["one", "two", "three"];

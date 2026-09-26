@@ -35,8 +35,6 @@ function capturingSink() {
 describe("privacy-safe logger", () => {
   it("keeps the shared API request lifecycle vocabulary canonical", () => {
     expect(ApiRequestLifecycleEvent).toEqual({
-      Started: "api.request.started",
-      Succeeded: "api.request.succeeded",
       Failed: "api.request.failed",
       Retry: "api.request.retry",
     });
@@ -149,8 +147,6 @@ describe("privacy-safe logger", () => {
     "runLock.acquire.succeeded",
     "runLock.released",
     "deletion.run.started",
-    "api.request.started",
-    "api.request.succeeded",
   ])("accepts the intended camel-case event contract: %s", (event) => {
     const capture = capturingSink();
     createLogger("debug", capture.sink).debug(event, {
@@ -174,7 +170,7 @@ describe("privacy-safe logger", () => {
   it("never emits privacy sentinel values", () => {
     const capture = capturingSink();
     const debugLogger = createLogger("debug", capture.sink);
-    debugLogger.debug("api.request.started", {
+    debugLogger.debug("api.request.failed", {
       token: "SUPER_SECRET_TOKEN_SENTINEL",
       conversationId: "PRIVATE_CONVERSATION_ID_SENTINEL",
       projectId: "PRIVATE_PROJECT_ID_SENTINEL",

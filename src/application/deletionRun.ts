@@ -9,13 +9,11 @@ import type {
   ConversationGateway,
   DeleteAttemptResult,
 } from "./ports/ConversationGateway";
-import { ChatGptOperation } from "./ports/ConversationGateway";
 import { appErrorCode, type AppErrorCode } from "./AppError";
 import type { DestructiveRunLock } from "./ports/DestructiveRunLock";
 import type { LockResult } from "./ports/DestructiveRunLock";
 import type { ProtectedConversationStore } from "./ports/ProtectedConversationStore";
 import type { ApplicationObservability } from "./ports/Observability";
-import { ApiRequestLifecycleEvent } from "./ports/Observability";
 import { isValidRequestsPerMinute } from "./settings";
 import type { SafetyBlockReason } from "./SafetyBlockReason";
 
@@ -114,14 +112,12 @@ export class DeletionRun {
     if (this.state.kind !== "running") return;
 
     this.command = "pause";
-    this.logInfo("deletion.run.pausing");
     this.publish("pausing", null);
     this.waitAbortController?.abort();
   }
 
   public resumeDeletion(): void {
     if (this.state.kind !== "paused") return;
-    this.logInfo("deletion.run.resumeRequested");
     this.resolveResumeDecision?.("resume");
   }
 
@@ -135,7 +131,6 @@ export class DeletionRun {
     }
 
     this.command = "stop";
-    this.logInfo("deletion.run.stopping");
     this.publish("stopping", null);
     this.waitAbortController?.abort();
     this.resolveResumeDecision?.("stop");
@@ -327,46 +322,13 @@ export class DeletionRun {
       this.publish("running", conversationId);
       const progressBeforeAttempt = this.progress(conversationId, false);
       const ordinal = progressBeforeAttempt.processed + 1;
-      const attemptStartedAt = this.input.clock.now();
-      this.logDebug("deletion.attempt.started", {
-        ordinal,
-        total: progressBeforeAttempt.total,
-        attempt,
-      });
-      this.logDebug(ApiRequestLifecycleEvent.Started, {
-        operation: ChatGptOperation.ConversationDelete,
-        ordinal,
-        attempt,
-      });
       const result =
         await this.input.gateway.deleteConversation(conversationId);
-      const requestDurationMs = this.input.clock.now() - attemptStartedAt;
-      if (result.status !== undefined) {
-        this.logDebug(ApiRequestLifecycleEvent.Succeeded, {
-          operation: ChatGptOperation.ConversationDelete,
-          status: result.status,
-          durationMs: requestDurationMs,
-          ordinal,
-          attempt,
-        });
-      }
 
       if (result.kind === "deleted") {
-        this.logDebug("deletion.attempt.succeeded", {
-          ordinal,
-          total: progressBeforeAttempt.total,
-          attempt,
-          durationMs: requestDurationMs,
-        });
         return result;
       }
       if (result.kind === "skipped") {
-        this.logInfo("deletion.attempt.skipped", {
-          ordinal,
-          total: progressBeforeAttempt.total,
-          attempt,
-          status: result.status,
-        });
         return result;
       }
       if (result.kind === "fatal") {
@@ -445,9 +407,6 @@ export class DeletionRun {
 
     this.finishActivePeriod();
     this.publish("paused", null);
-    this.logInfo("deletion.run.paused", {
-      remainingCount: this.remainingConversationIds.length,
-    });
     const decision = await new Promise<ResumeDecision>((resolve) => {
       this.resolveResumeDecision = resolve;
     });
@@ -466,9 +425,6 @@ export class DeletionRun {
     this.command = "run";
     this.activeStartedAt = this.input.clock.now();
     this.publish("running", null);
-    this.logInfo("deletion.run.resumed", {
-      remainingCount: this.remainingConversationIds.length,
-    });
     return true;
   }
 
@@ -539,13 +495,6 @@ export class DeletionRun {
       ...(this.operationId === null ? {} : { operationId: this.operationId }),
       ...fields,
     };
-  }
-
-  private logDebug(
-    event: string,
-    fields?: Readonly<Record<string, string | number | boolean | null>>,
-  ): void {
-    this.input.observability?.debug(event, this.logFields(fields));
   }
 
   private logInfo(
