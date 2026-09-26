@@ -19,7 +19,11 @@ import type {
   ApplicationObservability,
   ObservabilityFields,
 } from "./ports/Observability";
-import type { ProtectedConversationStore } from "./ports/ProtectedConversationStore";
+import type {
+  ProtectedConversationIdsResult,
+  ProtectedConversationStore,
+} from "./ports/ProtectedConversationStore";
+import { mutateProtectedConversationIds } from "./protection";
 
 function confirmedPlan(ids: readonly string[]): ConfirmedDeletionPlan {
   const conversations: Conversation[] = ids.map((id) => ({
@@ -85,6 +89,67 @@ class UnreadableProtectedConversationStore implements ProtectedConversationStore
 
   public saveProtectedConversationIds(): Promise<void> {
     return Promise.resolve();
+  }
+}
+
+class DeferredSaveProtectedConversationStore implements ProtectedConversationStore {
+  public loadCount = 0;
+  public saveCount = 0;
+  private protectedIds = new Set<string>();
+  private pendingSave:
+    | {
+        readonly protectedIds: ReadonlySet<string>;
+        readonly resolve: () => void;
+        readonly reject: () => void;
+      }
+    | undefined;
+
+  public loadProtectedConversationIds(): Promise<ProtectedConversationIdsResult> {
+    this.loadCount += 1;
+    return Promise.resolve({
+      kind: "success",
+      protectedConversationIds: new Set(this.protectedIds),
+    });
+  }
+
+  public saveProtectedConversationIds(
+    protectedConversationIds: ReadonlySet<string>,
+  ): Promise<void> {
+    this.saveCount += 1;
+    return new Promise((resolve, reject) => {
+      const savedIds = new Set(protectedConversationIds);
+      this.pendingSave = {
+        protectedIds: savedIds,
+        resolve: () => {
+          this.protectedIds = savedIds;
+          resolve();
+        },
+        reject: () => reject(new Error("Storage unavailable")),
+      };
+    });
+  }
+
+  public hasPendingSave(): boolean {
+    return this.pendingSave !== undefined;
+  }
+
+  public resolveSave(): void {
+    const pendingSave = this.takePendingSave();
+    pendingSave.resolve();
+  }
+
+  public rejectSave(): void {
+    const pendingSave = this.takePendingSave();
+    pendingSave.reject();
+  }
+
+  private takePendingSave(): NonNullable<
+    DeferredSaveProtectedConversationStore["pendingSave"]
+  > {
+    const pendingSave = this.pendingSave;
+    if (pendingSave === undefined) throw new Error("No pending save");
+    this.pendingSave = undefined;
+    return pendingSave;
   }
 }
 
@@ -617,6 +682,203 @@ describe("destructive run", () => {
     run.stopDeletion();
     expect((await completion).kind).toBe("stopped");
     expect(sharedLockState.active).toBe(false);
+  });
+
+  it("holds the destructive lock until a paused protection write settles after Stop", async () => {
+    const ids = ["a", "b"];
+    const clock = new FakeClock(0, false);
+    const gateway = new FakeConversationGateway(
+      fixtureForDeletion(ids, {}),
+      clock,
+    );
+    const store = new DeferredSaveProtectedConversationStore();
+    const sharedLockState = { active: false };
+    const lock = new FakeDestructiveRunLock(sharedLockState);
+    const run = new DeletionRun({
+      confirmedPlan: confirmedPlan(ids),
+      requestsPerMinute: 60,
+      gateway,
+      protectedConversationStore: store,
+      clock,
+      destructiveRunLock: lock,
+    });
+
+    const completion = run.startDeletion();
+    await settleAsyncWork();
+    run.pauseDeletion();
+    await settleAsyncWork();
+    expect(run.getState().kind).toBe("paused");
+
+    const mutation = mutateProtectedConversationIds({
+      mutation: { kind: "protect", conversationId: "b" },
+      protectedConversationStore: store,
+      destructiveRunLock: lock,
+      currentRunLockOwner: run,
+    });
+    await settleAsyncWork();
+    expect(store.hasPendingSave()).toBe(true);
+
+    run.stopDeletion();
+    await settleAsyncWork();
+    expect(run.getState().kind).toBe("stopping");
+    expect(sharedLockState.active).toBe(true);
+    await expect(
+      lock.runExclusive(() => Promise.resolve("competing executor")),
+    ).resolves.toEqual({ kind: "unavailable" });
+    expect(gateway.deleteAttempts.map(({ id }) => id)).toEqual(["a"]);
+
+    store.resolveSave();
+    await expect(mutation).resolves.toMatchObject({ kind: "saved" });
+    await expect(completion).resolves.toMatchObject({ kind: "stopped" });
+    expect(sharedLockState.active).toBe(false);
+    await expect(
+      lock.runExclusive(() => Promise.resolve("after stop")),
+    ).resolves.toEqual({ kind: "acquired", value: "after stop" });
+    expect(gateway.deleteAttempts.map(({ id }) => id)).toEqual(["a"]);
+  });
+
+  it("rejects programmatic Resume while a paused protection mutation is pending", async () => {
+    const ids = ["a", "b"];
+    const clock = new FakeClock(0, false);
+    const gateway = new FakeConversationGateway(
+      fixtureForDeletion(ids, {}),
+      clock,
+    );
+    const store = new DeferredSaveProtectedConversationStore();
+    const sharedLockState = { active: false };
+    const lock = new FakeDestructiveRunLock(sharedLockState);
+    const run = new DeletionRun({
+      confirmedPlan: confirmedPlan(ids),
+      requestsPerMinute: 60,
+      gateway,
+      protectedConversationStore: store,
+      clock,
+      destructiveRunLock: lock,
+    });
+
+    const completion = run.startDeletion();
+    await settleAsyncWork();
+    run.pauseDeletion();
+    await settleAsyncWork();
+    expect(run.getState().kind).toBe("paused");
+
+    const mutation = mutateProtectedConversationIds({
+      mutation: { kind: "unprotect", conversationId: "b" },
+      protectedConversationStore: store,
+      destructiveRunLock: lock,
+      currentRunLockOwner: run,
+    });
+    await settleAsyncWork();
+    expect(store.hasPendingSave()).toBe(true);
+
+    run.resumeDeletion();
+    await settleAsyncWork();
+    clock.advanceBy(1_000);
+    await settleAsyncWork();
+    expect(run.getState().kind).toBe("paused");
+    expect(gateway.deleteAttempts.map(({ id }) => id)).toEqual(["a"]);
+    expect(sharedLockState.active).toBe(true);
+
+    store.resolveSave();
+    await expect(mutation).resolves.toMatchObject({ kind: "saved" });
+    run.resumeDeletion();
+    await settleAsyncWork();
+    clock.advanceBy(1_000);
+    await settleAsyncWork();
+
+    await expect(completion).resolves.toMatchObject({ kind: "finished" });
+    expect(gateway.deleteAttempts.map(({ id }) => id)).toEqual(["a", "b"]);
+    expect(sharedLockState.active).toBe(false);
+  });
+
+  it("rejects a run-owned protection mutation when Stop wins registration", async () => {
+    const ids = ["a", "b"];
+    const clock = new FakeClock(0, false);
+    const gateway = new FakeConversationGateway(
+      fixtureForDeletion(ids, {}),
+      clock,
+    );
+    const store = new DeferredSaveProtectedConversationStore();
+    const sharedLockState = { active: false };
+    const lock = new FakeDestructiveRunLock(sharedLockState);
+    const run = new DeletionRun({
+      confirmedPlan: confirmedPlan(ids),
+      requestsPerMinute: 60,
+      gateway,
+      protectedConversationStore: store,
+      clock,
+      destructiveRunLock: lock,
+    });
+
+    const completion = run.startDeletion();
+    await settleAsyncWork();
+    run.pauseDeletion();
+    await settleAsyncWork();
+    expect(run.getState().kind).toBe("paused");
+    const loadCountBeforeMutation = store.loadCount;
+    const saveCountBeforeMutation = store.saveCount;
+
+    run.stopDeletion();
+    const mutation = mutateProtectedConversationIds({
+      mutation: { kind: "protect", conversationId: "b" },
+      protectedConversationStore: store,
+      destructiveRunLock: lock,
+      currentRunLockOwner: run,
+    });
+
+    await expect(mutation).rejects.toMatchObject({ code: "STORAGE_FAILURE" });
+    await expect(completion).resolves.toMatchObject({ kind: "stopped" });
+    expect(store.loadCount).toBe(loadCountBeforeMutation);
+    expect(store.saveCount).toBe(saveCountBeforeMutation);
+    expect(store.hasPendingSave()).toBe(false);
+    expect(gateway.deleteAttempts.map(({ id }) => id)).toEqual(["a"]);
+    expect(sharedLockState.active).toBe(false);
+  });
+
+  it("blocks a paused run until a failed protection write reaches a safe terminal state", async () => {
+    const ids = ["a", "b"];
+    const clock = new FakeClock(0, false);
+    const gateway = new FakeConversationGateway(
+      fixtureForDeletion(ids, {}),
+      clock,
+    );
+    const store = new DeferredSaveProtectedConversationStore();
+    const sharedLockState = { active: false };
+    const lock = new FakeDestructiveRunLock(sharedLockState);
+    const run = new DeletionRun({
+      confirmedPlan: confirmedPlan(ids),
+      requestsPerMinute: 60,
+      gateway,
+      protectedConversationStore: store,
+      clock,
+      destructiveRunLock: lock,
+    });
+
+    const completion = run.startDeletion();
+    await settleAsyncWork();
+    run.pauseDeletion();
+    await settleAsyncWork();
+
+    const mutation = mutateProtectedConversationIds({
+      mutation: { kind: "protect", conversationId: "b" },
+      protectedConversationStore: store,
+      destructiveRunLock: lock,
+      currentRunLockOwner: run,
+    });
+    const rejectedMutation = expect(mutation).rejects.toThrow(
+      "Storage unavailable",
+    );
+    await settleAsyncWork();
+    run.stopDeletion();
+    store.rejectSave();
+
+    await rejectedMutation;
+    await expect(completion).resolves.toMatchObject({
+      kind: "blocked",
+      reason: "protected-storage",
+    });
+    expect(sharedLockState.active).toBe(false);
+    expect(gateway.deleteAttempts.map(({ id }) => id)).toEqual(["a"]);
   });
 
   it("stop cancels a local wait and starts no further attempt", async () => {

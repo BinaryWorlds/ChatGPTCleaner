@@ -9,13 +9,14 @@ import type {
   ConversationGateway,
   DeleteAttemptResult,
 } from "./ports/ConversationGateway";
-import { appErrorCode, type AppErrorCode } from "./AppError";
+import { appErrorCode, createAppError, type AppErrorCode } from "./AppError";
 import type { DestructiveRunLock } from "./ports/DestructiveRunLock";
 import type { LockResult } from "./ports/DestructiveRunLock";
 import type { ProtectedConversationStore } from "./ports/ProtectedConversationStore";
 import type { ApplicationObservability } from "./ports/Observability";
 import { isValidRequestsPerMinute } from "./settings";
 import type { SafetyBlockReason } from "./SafetyBlockReason";
+import type { ProtectionMutationLockOwner } from "./protection";
 
 const MILLISECONDS_PER_MINUTE = 60_000;
 
@@ -54,7 +55,7 @@ interface MutableRunCounts {
   retries: number;
 }
 
-export class DeletionRun {
+export class DeletionRun implements ProtectionMutationLockOwner {
   private state: DeletionRunState;
   private command: ControlCommand = "run";
   private waitAbortController: AbortController | null = null;
@@ -73,6 +74,7 @@ export class DeletionRun {
   private activeStartedAt: number | null = null;
   private lastAttemptStartedAt: number | null = null;
   private operationId: string | null = null;
+  private pendingProtectionMutation: Promise<void> | null = null;
 
   public constructor(
     private readonly input: {
@@ -117,8 +119,41 @@ export class DeletionRun {
   }
 
   public resumeDeletion(): void {
-    if (this.state.kind !== "paused") return;
+    if (
+      this.state.kind !== "paused" ||
+      this.pendingProtectionMutation !== null
+    ) {
+      return;
+    }
     this.resolveResumeDecision?.("resume");
+  }
+
+  public async runProtectionMutation<T>(work: () => Promise<T>): Promise<T> {
+    if (
+      this.state.kind !== "paused" ||
+      this.command !== "pause" ||
+      this.pendingProtectionMutation !== null
+    ) {
+      throw createAppError("StorageFailure", {
+        operation: "protectedStore.mutate",
+      });
+    }
+
+    const mutation = Promise.resolve().then(work);
+    const barrier = mutation.then(
+      () => undefined,
+      () => this.blockForPendingProtectionFailure(),
+    );
+    this.pendingProtectionMutation = barrier;
+
+    try {
+      return await mutation;
+    } finally {
+      await barrier;
+      if (this.pendingProtectionMutation === barrier) {
+        this.pendingProtectionMutation = null;
+      }
+    }
   }
 
   public stopDeletion(): void {
@@ -163,16 +198,20 @@ export class DeletionRun {
   private async runWithLock(): Promise<DeletionRunState> {
     const lockResult: LockResult<void> =
       await this.input.destructiveRunLock.runExclusive(async () => {
-        this.beginExecution();
-        const protectionResult =
-          await this.removeCurrentlyProtectedRemainingIds();
-        if (protectionResult === "blocked") return;
-        if (protectionResult === "empty") {
-          this.finishActivePeriod();
-          this.completeRun();
-          return;
+        try {
+          this.beginExecution();
+          const protectionResult =
+            await this.removeCurrentlyProtectedRemainingIds();
+          if (protectionResult === "blocked") return;
+          if (protectionResult === "empty") {
+            this.finishActivePeriod();
+            this.completeRun();
+            return;
+          }
+          await this.executeRemainingConversations();
+        } finally {
+          await this.waitForPendingProtectionMutation();
         }
-        await this.executeRemainingConversations();
       });
     if (lockResult.kind === "unavailable") {
       this.logWarn("deletion.run.blocked", { lockReason: "unavailable" });
@@ -217,6 +256,18 @@ export class DeletionRun {
     this.logWarn("deletion.run.protectedStateBlocked");
     this.publish("blocked", null, "protected-storage");
     return "blocked";
+  }
+
+  private blockForPendingProtectionFailure(): void {
+    this.command = "stop";
+    this.finishActivePeriod();
+    this.logWarn("deletion.run.protectedStateBlocked");
+    this.publish("blocked", null, "protected-storage");
+    this.resolveResumeDecision?.("stop");
+  }
+
+  private async waitForPendingProtectionMutation(): Promise<void> {
+    await this.pendingProtectionMutation;
   }
 
   private async executeRemainingConversations(): Promise<void> {
@@ -264,6 +315,8 @@ export class DeletionRun {
     this.finishActivePeriod();
     if (this.state.kind === "blocked") return;
     if (this.isStopRequested()) {
+      await this.waitForPendingProtectionMutation();
+      if (this.isBlocked()) return;
       this.publish("stopped", null);
       this.logInfo("deletion.run.stopped", {
         processedCount: this.progress(null, false).processed,
@@ -436,6 +489,10 @@ export class DeletionRun {
 
   private isStopRequested(): boolean {
     return this.command === "stop";
+  }
+
+  private isBlocked(): boolean {
+    return this.state.kind === "blocked";
   }
 
   private resetCurrentRun(): void {

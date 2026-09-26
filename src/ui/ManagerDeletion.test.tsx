@@ -27,6 +27,7 @@ class DeferredProtectedConversationStore implements ProtectedConversationStore {
   public readonly pendingSaves: {
     readonly protectedConversationIds: ReadonlySet<string>;
     readonly resolve: () => void;
+    readonly reject: () => void;
   }[] = [];
 
   private storedProtectedConversationIds: ReadonlySet<string>;
@@ -49,13 +50,14 @@ class DeferredProtectedConversationStore implements ProtectedConversationStore {
     protectedConversationIds: ReadonlySet<string>,
   ): Promise<void> {
     const savedIds = new Set(protectedConversationIds);
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       this.pendingSaves.push({
         protectedConversationIds: savedIds,
         resolve: () => {
           this.storedProtectedConversationIds = savedIds;
           resolve();
         },
+        reject: () => reject(new Error("Storage unavailable")),
       });
     });
   }
@@ -66,6 +68,14 @@ class DeferredProtectedConversationStore implements ProtectedConversationStore {
       throw new Error("No pending protection save");
     }
     pendingSave.resolve();
+  }
+
+  public rejectNextSave(): void {
+    const pendingSave = this.pendingSaves.shift();
+    if (pendingSave === undefined) {
+      throw new Error("No pending protection save");
+    }
+    pendingSave.reject();
   }
 }
 
@@ -323,6 +333,51 @@ describe("ManagerPage destructive flow", () => {
     expect(enabledResumeButton).toBeEnabled();
     await user.click(screen.getByRole("button", { name: "Stop" }));
     await screen.findByText("STOPPED");
+    expect(gateway.deleteAttempts.map(({ id }) => id)).toEqual(["alpha"]);
+  });
+
+  it("does not commit UI protection or resume after a paused protection write fails", async () => {
+    const user = userEvent.setup();
+    const controlledClock = new FakeClock(0, false);
+    const protectedConversationStore = new DeferredProtectedConversationStore();
+    const { gateway } = renderManager({
+      clock: controlledClock,
+      protectedConversationStore,
+      gatewayFixture: fixture([
+        { id: "alpha", title: "Alpha", updatedAt: 200 },
+        { id: "beta", title: "Beta", updatedAt: 100 },
+      ]),
+    });
+    await waitForInventory();
+    await user.click(
+      screen.getByRole("button", { name: "Select all matching" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Delete selected (2)" }),
+    );
+    await user.type(screen.getByLabelText("Deletion confirmation"), "DELETE 2");
+    await user.click(screen.getByRole("button", { name: "Delete 2" }));
+    await user.click(await screen.findByRole("button", { name: "Pause" }));
+
+    const betaRow = screen.getByText("Beta").closest("tr");
+    if (betaRow === null) throw new Error("Beta row not found");
+    await user.click(within(betaRow).getByRole("button", { name: "Protect" }));
+    await waitFor(() =>
+      expect(protectedConversationStore.pendingSaves).toHaveLength(1),
+    );
+
+    protectedConversationStore.rejectNextSave();
+
+    expect(
+      await screen.findByText("Protected-ID storage invalid"),
+    ).toBeInTheDocument();
+    expect(within(betaRow).queryByText("Protected")).not.toBeInTheDocument();
+    expect(
+      within(betaRow).getByRole("button", { name: "Protect" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Resume" }),
+    ).not.toBeInTheDocument();
     expect(gateway.deleteAttempts.map(({ id }) => id)).toEqual(["alpha"]);
   });
 

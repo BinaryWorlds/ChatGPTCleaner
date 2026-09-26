@@ -167,6 +167,8 @@ export function useDeletionWorkflow({
     runState,
     runActive,
     protectionLocked,
+    protectionMutationLockOwner:
+      runState?.kind === "paused" ? currentRun : null,
     safetyOverride,
     currentConversationId: runState?.progress.currentConversationId ?? null,
     beginDeletionPreview,

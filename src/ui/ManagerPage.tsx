@@ -13,7 +13,10 @@ import {
 } from "antd";
 import { useMemo, useRef, useState } from "react";
 import { AppConfig } from "../config";
-import { saveProtectedConversationIds } from "../application/protection";
+import {
+  mutateProtectedConversationIds,
+  type ProtectionMutation,
+} from "../application/protection";
 import { SerializedRequestsPerMinuteWriter } from "../application/settings";
 import type {
   ManagerComposition,
@@ -29,7 +32,6 @@ import {
 } from "../domain/conversation";
 import {
   invertMatchingSelection,
-  protectConversation,
   selectAllMatching,
 } from "../domain/selection";
 import { ConversationFiltersBar } from "./ConversationFilters";
@@ -113,6 +115,7 @@ export function ManagerPage({
     runState,
     runActive,
     protectionLocked: protectionLockedByRun,
+    protectionMutationLockOwner,
     safetyOverride,
     currentConversationId,
     beginDeletionPreview,
@@ -218,26 +221,29 @@ export function ManagerPage({
     setPage(1);
   };
 
-  const persistProtection = (
-    nextProtectedIds: ReadonlySet<string>,
-    nextSelection: ReadonlySet<string>,
-  ) => {
+  const persistProtection = (mutation: ProtectionMutation) => {
     if (protectionMutationPendingRef.current) return;
     protectionMutationPendingRef.current = true;
     setProtectionMutationPending(true);
-    saveProtectedConversationIds({
-      protectedConversationIds: nextProtectedIds,
+    mutateProtectedConversationIds({
+      mutation,
       protectedConversationStore: dependencies.protectedConversationStore,
       destructiveRunLock: dependencies.destructiveRunLock,
-      currentRunOwnsLock: runState?.kind === "paused",
+      currentRunLockOwner: protectionMutationLockOwner,
     })
       .then((result) => {
-        if (result === "locked") {
+        if (result.kind === "locked") {
           blockSafety("destructive-run-lock");
           return;
         }
-        setProtectedConversationIds(nextProtectedIds);
-        setSelectedConversationIds(nextSelection);
+        setProtectedConversationIds(result.protectedConversationIds);
+        if (mutation.kind === "protect") {
+          setSelectedConversationIds((currentSelection) => {
+            const nextSelection = new Set(currentSelection);
+            nextSelection.delete(mutation.conversationId);
+            return nextSelection;
+          });
+        }
       })
       .catch(() => blockSafety("protected-storage"))
       .finally(() => {
@@ -248,22 +254,12 @@ export function ManagerPage({
 
   const handleProtect = (conversationId: string) => {
     if (protectionLocked || protectionMutationPendingRef.current) return;
-    const result = protectConversation(
-      protectedConversationIds,
-      selectedConversationIds,
-      conversationId,
-    );
-    persistProtection(
-      result.protectedConversationIds,
-      result.selectedConversationIds,
-    );
+    persistProtection({ kind: "protect", conversationId });
   };
 
   const handleUnprotect = (conversationId: string) => {
     if (protectionLocked || protectionMutationPendingRef.current) return;
-    const nextProtectedIds = new Set(protectedConversationIds);
-    nextProtectedIds.delete(conversationId);
-    persistProtection(nextProtectedIds, selectedConversationIds);
+    persistProtection({ kind: "unprotect", conversationId });
   };
 
   const handleRateChange = (value: number | null) => {
