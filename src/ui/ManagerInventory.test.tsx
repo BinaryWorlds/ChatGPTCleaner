@@ -207,6 +207,14 @@ function conversationRows(): HTMLElement[] {
     .slice(1);
 }
 
+function expectConversationOrder(...titles: readonly string[]): void {
+  const rows = conversationRows();
+  expect(rows).toHaveLength(titles.length);
+  titles.forEach((title, index) =>
+    expect(rows[index]).toHaveTextContent(title),
+  );
+}
+
 async function selectConversation(
   user: ReturnType<typeof userEvent.setup>,
   title: string,
@@ -228,6 +236,77 @@ afterEach(() => {
 });
 
 describe("ManagerPage inventory controls", () => {
+  it("immediately reverses the initial sort and keeps alternating directions", async () => {
+    const user = userEvent.setup();
+    renderManager();
+    await waitForInventory();
+    const updatedHeader = screen.getByRole("columnheader", {
+      name: "Updated",
+    });
+
+    expect(updatedHeader).toHaveAttribute("aria-sort", "descending");
+    expectConversationOrder("Beta", "Alpha", "Unknown dates");
+
+    await user.click(updatedHeader);
+    expect(updatedHeader).toHaveAttribute("aria-sort", "ascending");
+    expectConversationOrder("Alpha", "Beta", "Unknown dates");
+
+    await user.click(updatedHeader);
+    expect(updatedHeader).toHaveAttribute("aria-sort", "descending");
+    expectConversationOrder("Beta", "Alpha", "Unknown dates");
+
+    await user.click(updatedHeader);
+    expect(updatedHeader).toHaveAttribute("aria-sort", "ascending");
+    expectConversationOrder("Alpha", "Beta", "Unknown dates");
+
+    await user.click(updatedHeader);
+    expect(updatedHeader).toHaveAttribute("aria-sort", "descending");
+    expectConversationOrder("Beta", "Alpha", "Unknown dates");
+  });
+
+  it("switches sortable columns on every click", async () => {
+    const user = userEvent.setup();
+    renderManager();
+    await waitForInventory();
+    const titleHeader = screen.getByRole("columnheader", { name: "Title" });
+    const createdHeader = screen.getByRole("columnheader", {
+      name: "Created",
+    });
+
+    await user.click(titleHeader);
+    expect(titleHeader).toHaveAttribute("aria-sort", "ascending");
+    expect(createdHeader).not.toHaveAttribute("aria-sort");
+
+    await user.click(createdHeader);
+    expect(createdHeader).toHaveAttribute("aria-sort", "ascending");
+    expect(titleHeader).not.toHaveAttribute("aria-sort");
+
+    await user.click(titleHeader);
+    expect(titleHeader).toHaveAttribute("aria-sort", "ascending");
+    expect(createdHeader).not.toHaveAttribute("aria-sort");
+  });
+
+  it("uses the same two-direction sorter cycle for Project conversations", async () => {
+    const user = userEvent.setup();
+    renderManager({ gatewayFixture: fixtureWithProjects() });
+    await waitForInventory();
+    await showProjectConversations(user);
+    const updatedHeader = screen.getByRole("columnheader", {
+      name: "Updated",
+    });
+
+    expect(updatedHeader).toHaveAttribute("aria-sort", "descending");
+    expectConversationOrder("Project overlap", "Project planning");
+
+    await user.click(updatedHeader);
+    expect(updatedHeader).toHaveAttribute("aria-sort", "ascending");
+    expectConversationOrder("Project planning", "Project overlap");
+
+    await user.click(updatedHeader);
+    expect(updatedHeader).toHaveAttribute("aria-sort", "descending");
+    expectConversationOrder("Project overlap", "Project planning");
+  });
+
   it("atomically replaces the snapshot and clears selection after Refresh", async () => {
     const user = userEvent.setup();
     const gatewayFixture = fixture([{ id: "alpha", title: "Alpha" }]);

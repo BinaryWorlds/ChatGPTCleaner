@@ -203,6 +203,7 @@ export function ConversationTable(props: ConversationTableProps) {
         rowKey="id"
         dataSource={conversations}
         columns={columns}
+        sortDirections={["ascend", "descend", "ascend"]}
         onChange={handleChange}
         {...(view === "standalone"
           ? {
