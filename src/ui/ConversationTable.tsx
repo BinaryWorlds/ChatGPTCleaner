@@ -1,4 +1,6 @@
 import { Button, Space, Table, Tag, Typography, type TableProps } from "antd";
+import { useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import type {
   Conversation,
   ConversationSortField,
@@ -51,11 +53,6 @@ interface ProjectConversationTableProps extends CommonConversationTableProps {
 type ConversationTableProps =
   StandaloneConversationTableProps | ProjectConversationTableProps;
 
-function formatDate(timestamp: number | null): string {
-  if (timestamp === null) return "Unknown";
-  return new Date(timestamp).toLocaleString();
-}
-
 export function clampTablePage(
   requestedPage: number,
   recordCount: number,
@@ -66,6 +63,19 @@ export function clampTablePage(
 }
 
 export function ConversationTable(props: ConversationTableProps) {
+  const { t, i18n } = useTranslation();
+  const dateTimeFormatter = useMemo(
+    () =>
+      new Intl.DateTimeFormat(i18n.resolvedLanguage, {
+        dateStyle: "short",
+        timeStyle: "medium",
+      }),
+    [i18n.resolvedLanguage],
+  );
+  const formatDate = (timestamp: number | null): string => {
+    if (timestamp === null) return t("table.unknownDate");
+    return dateTimeFormatter.format(timestamp);
+  };
   const {
     view,
     conversations,
@@ -79,7 +89,7 @@ export function ConversationTable(props: ConversationTableProps) {
   } = props;
   const columns: TableProps<Conversation>["columns"] = [
     {
-      title: "Title",
+      title: t("table.title"),
       dataIndex: "title",
       key: "title",
       sorter: true,
@@ -91,7 +101,7 @@ export function ConversationTable(props: ConversationTableProps) {
           : null,
     },
     {
-      title: "Created",
+      title: t("table.created"),
       dataIndex: "createdAt",
       key: "createdAt",
       sorter: true,
@@ -104,7 +114,7 @@ export function ConversationTable(props: ConversationTableProps) {
       render: (timestamp: number | null) => formatDate(timestamp),
     },
     {
-      title: "Updated",
+      title: t("table.updated"),
       dataIndex: "updatedAt",
       key: "updatedAt",
       sorter: true,
@@ -117,33 +127,33 @@ export function ConversationTable(props: ConversationTableProps) {
       render: (timestamp: number | null) => formatDate(timestamp),
     },
     {
-      title: "ID",
+      title: t("table.id"),
       dataIndex: "id",
       key: "id",
       render: (id: string) => <Typography.Text code>{id}</Typography.Text>,
     },
     {
-      title: "Protection/status",
+      title: t("table.protectionStatus"),
       key: "protection",
       render: (_, conversation) => {
         if (view === "projects") {
           return (
             <Tag color="blue" variant="filled">
-              Project protected
+              {t("table.projectProtected")}
             </Tag>
           );
         }
         return props.protectedConversationIds.has(conversation.id) ? (
           <Tag color="blue" variant="filled">
-            Protected
+            {t("table.protected")}
           </Tag>
         ) : (
-          <Tag variant="filled">Unprotected</Tag>
+          <Tag variant="filled">{t("table.unprotected")}</Tag>
         );
       },
     },
     {
-      title: "Actions",
+      title: t("table.actions"),
       key: "actions",
       render: (_, conversation) => {
         const protectedConversation =
@@ -152,7 +162,7 @@ export function ConversationTable(props: ConversationTableProps) {
         return (
           <Space>
             <Button size="small" onClick={() => onOpen(conversation.id)}>
-              Open
+              {t("table.open")}
             </Button>
             {view === "standalone" && (
               <Button
@@ -164,7 +174,9 @@ export function ConversationTable(props: ConversationTableProps) {
                     : props.onProtect(conversation.id)
                 }
               >
-                {protectedConversation ? "Unprotect" : "Protect"}
+                {protectedConversation
+                  ? t("table.unprotect")
+                  : t("table.protect")}
               </Button>
             )}
           </Space>
@@ -202,9 +214,7 @@ export function ConversationTable(props: ConversationTableProps) {
     <div data-testid="conversation-table">
       <Table<Conversation>
         aria-label={
-          view === "standalone"
-            ? "Standalone conversations"
-            : "Project conversations"
+          view === "standalone" ? t("view.standalone") : t("view.projects")
         }
         rowKey="id"
         dataSource={conversations}
@@ -215,7 +225,7 @@ export function ConversationTable(props: ConversationTableProps) {
           ? {
               rowSelection: {
                 type: "checkbox",
-                columnTitle: "Selection",
+                columnTitle: t("selection.title"),
                 hideSelectAll: true,
                 selectedRowKeys: [...props.selectedConversationIds],
                 preserveSelectedRowKeys: true,
@@ -223,7 +233,9 @@ export function ConversationTable(props: ConversationTableProps) {
                   disabled:
                     props.selectionDisabled ||
                     props.protectedConversationIds.has(conversation.id),
-                  "aria-label": `Select ${conversation.title}`,
+                  "aria-label": t("table.selectConversation", {
+                    title: conversation.title,
+                  }),
                 }),
                 onChange: (selectedRowKeys) => {
                   props.onSelectionChange(
@@ -243,7 +255,7 @@ export function ConversationTable(props: ConversationTableProps) {
           defaultPageSize: CONVERSATION_TABLE_PAGINATION.defaultPageSize,
           pageSizeOptions: [...CONVERSATION_TABLE_PAGINATION.pageSizeOptions],
           showSizeChanger: true,
-          showTotal: (total) => `${total} conversations`,
+          showTotal: (total) => t("table.total", { count: total }),
         }}
         scroll={{ x: 980 }}
       />

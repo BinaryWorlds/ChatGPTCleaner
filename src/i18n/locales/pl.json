@@ -1,0 +1,238 @@
+{
+  "app": {
+    "title": "ChatGPTCleaner",
+    "subtitle": "Przeglądaj i usuwaj rozmowy poza projektami dzięki jednoznacznym kontrolom bezpieczeństwa.",
+    "openChatGpt": "Otwórz ChatGPT w karcie i uruchom ChatGPTCleaner z tej karty.",
+    "displayError": "ChatGPTCleaner nie może wyświetlić menedżera. Nie rozpoczęto żadnej nowej operacji usuwania.",
+    "errorCode": "Kod błędu: {{code}}"
+  },
+  "language": {
+    "label": "Język",
+    "polish": "PL",
+    "english": "EN"
+  },
+  "theme": {
+    "label": "Motyw",
+    "auto": "Auto",
+    "light": "Jasny",
+    "dark": "Ciemny"
+  },
+  "refresh": {
+    "button": "Odśwież",
+    "ariaLabel": "Odśwież listę rozmów",
+    "loading": "Odświeżanie listy rozmów…",
+    "success": "Lista rozmów została odświeżona.",
+    "failure": "Odświeżanie nie powiodło się. Poprzednia lista rozmów jest nadal aktywna."
+  },
+  "demo": {
+    "title": "Tryb demonstracyjny",
+    "description": "Aktywna jest deterministyczna infrastruktura testowa. Żadne żądanie nie dotrze do ChatGPT i nie zostanie wysłane prawdziwe żądanie DELETE.",
+    "openAction": "Demonstracyjna akcja Otwórz: {{id}}"
+  },
+  "inventory": {
+    "checkingCompatibility": "Sprawdzanie zgodności interfejsu odczytu…",
+    "loading_one": "Wczytywanie rozmów… Wczytano {{count}} rozmowę",
+    "loading_few": "Wczytywanie rozmów… Wczytano {{count}} rozmowy",
+    "loading_many": "Wczytywanie rozmów… Wczytano {{count}} rozmów",
+    "loading_other": "Wczytywanie rozmów… Wczytano {{count}} rozmowy",
+    "buildingProtection_one": "Wczytano {{count}} rozmowę. Tworzenie ochrony rozmów w projektach…",
+    "buildingProtection_few": "Wczytano {{count}} rozmowy. Tworzenie ochrony rozmów w projektach…",
+    "buildingProtection_many": "Wczytano {{count}} rozmów. Tworzenie ochrony rozmów w projektach…",
+    "buildingProtection_other": "Wczytano {{count}} rozmowy. Tworzenie ochrony rozmów w projektach…"
+  },
+  "summary": {
+    "title": "Rozmowy",
+    "standalone": "Rozmowy poza projektami",
+    "projectProtected": "Chronione rozmowy w projektach",
+    "userProtected": "Chronione przez użytkownika",
+    "selected": "Zaznaczone"
+  },
+  "view": {
+    "label": "Widok:",
+    "ariaLabel": "Widok rozmów",
+    "standalone": "Rozmowy poza projektami",
+    "projects": "Rozmowy w projektach"
+  },
+  "rate": {
+    "label": "Tempo usuwania",
+    "ariaHelp": "Informacje o tempie usuwania",
+    "tooltip": "Maksymalna liczba żądań DELETE wysyłanych na minutę podczas usuwania.",
+    "unit": "/ min",
+    "saveFailure": "Nie udało się zapisać tempa usuwania."
+  },
+  "filters": {
+    "title": "Filtry",
+    "searchTitles": "Szukaj w tytułach",
+    "dateField": "Pole daty",
+    "dateOperator": "Operator daty",
+    "created": "Utworzono",
+    "updated": "Zaktualizowano",
+    "beforeAfter": "Przed / Po",
+    "before": "Przed",
+    "after": "Po",
+    "cutoffDate": "Data graniczna",
+    "selectDate": "Wybierz datę",
+    "reset": "Wyczyść filtry",
+    "olderThanDays_one": "Starsze niż {{count}} dzień",
+    "olderThanDays_few": "Starsze niż {{count}} dni",
+    "olderThanDays_many": "Starsze niż {{count}} dni",
+    "olderThanDays_other": "Starsze niż {{count}} dnia",
+    "olderThanMonths_one": "Starsze niż {{count}} miesiąc",
+    "olderThanMonths_few": "Starsze niż {{count}} miesiące",
+    "olderThanMonths_many": "Starsze niż {{count}} miesięcy",
+    "olderThanMonths_other": "Starsze niż {{count}} miesiąca",
+    "olderThanYears_one": "Starsze niż {{count}} rok",
+    "olderThanYears_few": "Starsze niż {{count}} lata",
+    "olderThanYears_many": "Starsze niż {{count}} lat",
+    "olderThanYears_other": "Starsze niż {{count}} roku"
+  },
+  "selection": {
+    "title": "Zaznaczenie",
+    "currentPage": "Zaznacz bieżącą stronę",
+    "allMatching": "Zaznacz wszystkie pasujące",
+    "clear": "Wyczyść zaznaczenie",
+    "invert": "Odwróć zaznaczenie",
+    "protectSelected": "Chroń zaznaczone",
+    "deleteSelected": "Usuń zaznaczone ({{count}})"
+  },
+  "table": {
+    "title": "Tytuł",
+    "created": "Utworzono",
+    "updated": "Zaktualizowano",
+    "id": "ID",
+    "protectionStatus": "Ochrona/stan",
+    "actions": "Działania",
+    "projectProtected": "Chroniona przez projekt",
+    "protected": "Chroniona",
+    "unprotected": "Niechroniona",
+    "open": "Otwórz",
+    "protect": "Chroń",
+    "unprotect": "Wyłącz ochronę",
+    "selectConversation": "Zaznacz: {{title}}",
+    "total_one": "{{count}} rozmowa",
+    "total_few": "{{count}} rozmowy",
+    "total_many": "{{count}} rozmów",
+    "total_other": "{{count}} rozmowy",
+    "unknownDate": "Nieznana"
+  },
+  "confirmation": {
+    "title": "Potwierdź usunięcie",
+    "deleteCount": "Usuń: {{count}}",
+    "originallySelected": "Pierwotnie zaznaczone",
+    "stillEligible": "Nadal kwalifikujące się",
+    "excludedProject": "Wykluczone jako projektowe",
+    "excludedProtected": "Wykluczone jako chronione przez użytkownika",
+    "missing": "Brakujące/już usunięte",
+    "finalCount": "Ostateczna liczba do usunięcia",
+    "instruction": "Aby kontynuować, wpisz „{{token}}”.",
+    "ariaLabel": "Potwierdzenie usunięcia"
+  },
+  "deletion": {
+    "noEligibleSelected": "Żadna z zaznaczonych rozmów nie kwalifikuje się już do usunięcia.",
+    "noEligibleConfirmed": "Żadna z potwierdzonych rozmów nie kwalifikuje się już do usunięcia.",
+    "panelTitle": "Bieżąca operacja usuwania",
+    "stoppedForSafety": "Usuwanie zatrzymano ze względów bezpieczeństwa",
+    "blocked": "Usuwanie zablokowane",
+    "reason": "Powód: {{reason}}",
+    "failedConversations": "Rozmowy z błędami",
+    "failedCount": "Niepowodzenie: {{count}}",
+    "moreFailed": "+{{count}} więcej",
+    "state": "Stan",
+    "processedTotal": "Przetworzone / wszystkie",
+    "deleted": "Usunięte",
+    "failed": "Nieudane",
+    "skipped": "Pominięte",
+    "remaining": "Pozostałe",
+    "retries": "Ponowienia",
+    "configuredRate": "Ustawione tempo",
+    "perMinute": "{{count}}/minutę",
+    "activeElapsed": "Aktywny czas",
+    "eta": "Pozostały czas",
+    "currentConversation": "Bieżąca rozmowa",
+    "none": "Brak",
+    "untitled": "(Bez tytułu)",
+    "unknown": "Nieznany",
+    "pause": "Wstrzymaj",
+    "resume": "Wznów",
+    "stop": "Zatrzymaj",
+    "retryFailed": "Ponów nieudane",
+    "durationMinutesSeconds": "{{minutes}} min {{seconds}} s",
+    "durationSeconds": "{{seconds}} s",
+    "states": {
+      "running": "W TOKU",
+      "pausing": "WSTRZYMYWANIE",
+      "paused": "WSTRZYMANE",
+      "stopping": "ZATRZYMYWANIE",
+      "stopped": "ZATRZYMANE",
+      "finished": "ZAKOŃCZONE",
+      "blocked": "ZABLOKOWANE",
+      "fatal": "BŁĄD KRYTYCZNY"
+    }
+  },
+  "safety": {
+    "title": "Stan bezpieczeństwa",
+    "about": "Informacje: {{label}}",
+    "indicators": {
+      "ok": "OK",
+      "ready": "GOTOWE",
+      "checking": "SPRAWDZANIE",
+      "notChecked": "NIESPRAWDZONE",
+      "blocked": "ZABLOKOWANE"
+    },
+    "checks": {
+      "connection": {
+        "label": "Połączenie z ChatGPT",
+        "help": "W karcie źródłowej jest dostępna aktywna sesja ChatGPT."
+      },
+      "sourceTab": {
+        "label": "Dostęp do karty źródłowej",
+        "help": "Rozszerzenie ma dostęp do karty ChatGPT, z której je uruchomiono."
+      },
+      "compatibility": {
+        "label": "Zgodność interfejsu odczytu",
+        "help": "Odpowiedzi ChatGPT są zgodne z formatami obsługiwanymi przez tę wersję."
+      },
+      "projectProtection": {
+        "label": "Ochrona projektów",
+        "help": "Rozmowy w projektach z wczytanej listy są wykluczone z usuwania."
+      },
+      "runLock": {
+        "label": "Blokada operacji",
+        "help": "Zapobiega równoczesnemu uruchomieniu kilku operacji usuwania. Sprawdzana przy rozpoczęciu usuwania."
+      },
+      "deletion": {
+        "label": "Bezpieczeństwo usuwania",
+        "help": "Główna kontrola bezpieczeństwa. Stan GOTOWE pozwala usuwać, a ZABLOKOWANE temu zapobiega."
+      }
+    },
+    "reasons": {
+      "authentication": "Uwierzytelnienie jest niedostępne",
+      "authorization": "Brak uprawnień",
+      "compatibility": "Kontrola zgodności interfejsu odczytu nie powiodła się",
+      "network": "Sieć jest niedostępna",
+      "request": "ChatGPT odrzucił żądanie listy rozmów",
+      "retryLater": "Spróbuj ponownie później",
+      "server": "ChatGPT zwrócił tymczasowy błąd serwera",
+      "sourceUnavailable": "Karta źródłowa jest niedostępna. Wróć do prawidłowej karty ChatGPT i ponownie uruchom ChatGPTCleaner.",
+      "pagination": "Lista rozmów jest niekompletna",
+      "protectedStorage": "Dane chronionych identyfikatorów są nieprawidłowe",
+      "destructiveRunLock": "Inna operacja usuwania jest aktywna",
+      "client": "ChatGPT odrzucił żądanie usunięcia",
+      "responseAnomaly": "ChatGPT zwrócił niezgodną odpowiedź na żądanie usunięcia",
+      "unexpectedRunError": "Operacja usuwania nieoczekiwanie się zatrzymała"
+    },
+    "diagnostic": {
+      "standalone": "Rozmowy poza projektami",
+      "projects": "Wykrywanie projektów",
+      "projectConversations": "Rozmowy w projekcie",
+      "context": "{{operation}} ({{endpointFamily}}), strona {{page}}",
+      "jsonParsed": "Przetworzono JSON: {{value}}",
+      "yes": "tak",
+      "no": "nie",
+      "missingField": "{{context}}: brak wymaganego pola {{field}}{{response}}",
+      "typeMismatch": "{{context}}: pole {{field}} — oczekiwano typu {{expected}}, otrzymano {{actual}}{{response}}",
+      "category": "{{context}}: {{category}}{{response}}",
+      "responseSeparator": "; {{response}}"
+    }
+  }
+}

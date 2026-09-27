@@ -1,5 +1,6 @@
 import { Descriptions, Input, Modal, Typography } from "antd";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   confirmDeletionPlan,
   type ConfirmedDeletionPlan,
@@ -19,15 +20,18 @@ export function DeletionConfirmationModal({
   onCancel,
   onConfirm,
 }: DeletionConfirmationModalProps) {
+  const { t } = useTranslation();
   const [confirmationText, setConfirmationText] = useState("");
   const expectedText = `DELETE ${plan.eligibleConversationIds.length}`;
   const confirmation = confirmDeletionPlan(plan, confirmationText);
 
   return (
     <Modal
-      title="Confirm deletion"
+      title={t("confirmation.title")}
       open
-      okText={`Delete ${plan.eligibleConversationIds.length}`}
+      okText={t("confirmation.deleteCount", {
+        count: plan.eligibleConversationIds.length,
+      })}
       okButtonProps={{
         danger: true,
         disabled:
@@ -43,30 +47,30 @@ export function DeletionConfirmationModal({
       }}
     >
       <Descriptions size="small" column={1} bordered>
-        <Descriptions.Item label="Originally selected">
+        <Descriptions.Item label={t("confirmation.originallySelected")}>
           {plan.originallySelectedCount}
         </Descriptions.Item>
-        <Descriptions.Item label="Still eligible">
+        <Descriptions.Item label={t("confirmation.stillEligible")}>
           {plan.eligibleConversationIds.length}
         </Descriptions.Item>
-        <Descriptions.Item label="Excluded as Project">
+        <Descriptions.Item label={t("confirmation.excludedProject")}>
           {plan.excludedProjectIds.length}
         </Descriptions.Item>
-        <Descriptions.Item label="Excluded as user-protected">
+        <Descriptions.Item label={t("confirmation.excludedProtected")}>
           {plan.excludedProtectedIds.length}
         </Descriptions.Item>
-        <Descriptions.Item label="Missing/already gone">
+        <Descriptions.Item label={t("confirmation.missing")}>
           {plan.missingConversationIds.length + plan.invalidSelectionCount}
         </Descriptions.Item>
-        <Descriptions.Item label="Final delete count">
+        <Descriptions.Item label={t("confirmation.finalCount")}>
           {plan.eligibleConversationIds.length}
         </Descriptions.Item>
       </Descriptions>
       <Typography.Paragraph className="confirmation-instruction">
-        Type <Typography.Text code>{expectedText}</Typography.Text> to continue.
+        {t("confirmation.instruction", { token: expectedText })}
       </Typography.Paragraph>
       <Input
-        aria-label="Deletion confirmation"
+        aria-label={t("confirmation.ariaLabel")}
         autoComplete="off"
         disabled={disabled}
         value={confirmationText}

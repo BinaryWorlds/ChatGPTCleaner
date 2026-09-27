@@ -1,5 +1,6 @@
-import { Button, DatePicker, Input, Select, Space } from "antd";
+import { Button, DatePicker, Flex, Input, Select, Space } from "antd";
 import dayjs, { type Dayjs } from "dayjs";
+import { useTranslation } from "react-i18next";
 import {
   EMPTY_CONVERSATION_FILTERS,
   olderThanCalendarPreset,
@@ -30,6 +31,7 @@ export function ConversationFiltersBar({
   onChange,
   currentDate = () => new Date(),
 }: ConversationFiltersProps) {
+  const { t } = useTranslation();
   const setPreset = (days: 7 | 30 | 90) => {
     onChange({
       ...filters,
@@ -50,42 +52,45 @@ export function ConversationFiltersBar({
 
   return (
     <Space orientation="vertical" size="small" className="full-width">
-      <Space wrap>
+      <Flex className="filter-primary-controls" wrap gap="small">
         <Input.Search
-          aria-label="Search titles"
+          className="filter-title-search"
+          aria-label={t("filters.searchTitles")}
           allowClear
-          placeholder="Search titles"
-          style={{ width: 320, maxWidth: "100%" }}
+          placeholder={t("filters.searchTitles")}
           value={filters.titleQuery}
           onChange={(event) =>
             onChange({ ...filters, titleQuery: event.target.value })
           }
         />
         <Select<ConversationDateField>
-          aria-label="Date field"
-          placeholder="Date field"
+          className="filter-date-field"
+          aria-label={t("filters.dateField")}
+          placeholder={t("filters.dateField")}
           value={filters.dateField}
           options={[
-            { value: "createdAt", label: "Created" },
-            { value: "updatedAt", label: "Updated" },
+            { value: "createdAt", label: t("filters.created") },
+            { value: "updatedAt", label: t("filters.updated") },
           ]}
           onChange={(dateField) => onChange({ ...filters, dateField })}
         />
         <Select<DateComparison>
-          aria-label="Date operator"
-          placeholder="Before / After"
+          className="filter-date-comparison"
+          aria-label={t("filters.dateOperator")}
+          placeholder={t("filters.beforeAfter")}
           value={filters.dateComparison}
           options={[
-            { value: "before", label: "Before" },
-            { value: "after", label: "After" },
+            { value: "before", label: t("filters.before") },
+            { value: "after", label: t("filters.after") },
           ]}
           onChange={(dateComparison) =>
             onChange({ ...filters, dateComparison })
           }
         />
         <DatePicker
-          aria-label="Cutoff date"
-          placeholder="Select date"
+          className="filter-date-picker"
+          aria-label={t("filters.cutoffDate")}
+          placeholder={t("filters.selectDate")}
           value={toDayjs(filters.cutoffLocalDay)}
           onChange={(date) =>
             onChange({
@@ -102,20 +107,26 @@ export function ConversationFiltersBar({
           }
         />
         <Button onClick={() => onChange(EMPTY_CONVERSATION_FILTERS)}>
-          Reset filters
+          {t("filters.reset")}
         </Button>
-      </Space>
-      <Space wrap>
-        <Button onClick={() => setPreset(7)}>Older than 7 days</Button>
-        <Button onClick={() => setPreset(30)}>Older than 30 days</Button>
-        <Button onClick={() => setPreset(90)}>Older than 90 days</Button>
+      </Flex>
+      <Flex className="filter-preset-controls" wrap gap="small">
+        <Button onClick={() => setPreset(7)}>
+          {t("filters.olderThanDays", { count: 7 })}
+        </Button>
+        <Button onClick={() => setPreset(30)}>
+          {t("filters.olderThanDays", { count: 30 })}
+        </Button>
+        <Button onClick={() => setPreset(90)}>
+          {t("filters.olderThanDays", { count: 90 })}
+        </Button>
         <Button onClick={() => setCalendarPreset("six-months")}>
-          Older than 6 months
+          {t("filters.olderThanMonths", { count: 6 })}
         </Button>
         <Button onClick={() => setCalendarPreset("one-year")}>
-          Older than 1 year
+          {t("filters.olderThanYears", { count: 1 })}
         </Button>
-      </Space>
+      </Flex>
     </Space>
   );
 }

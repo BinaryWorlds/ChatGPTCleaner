@@ -27,6 +27,7 @@ import {
   Typography,
 } from "antd";
 import { useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { AppConfig } from "../config";
 import type { ThemePreference } from "../application/themePreference";
 import {
@@ -73,10 +74,6 @@ interface ManagerPageProps {
   readonly openConversation: ManagerComposition["openConversation"];
 }
 
-function loadedConversationCountLabel(count: number): string {
-  return `${count} ${count === 1 ? "conversation" : "conversations"} loaded`;
-}
-
 export function ManagerPage({
   mode,
   dependencies,
@@ -85,6 +82,7 @@ export function ManagerPage({
   onThemePreferenceChange = () => undefined,
   openConversation,
 }: ManagerPageProps) {
+  const { t } = useTranslation();
   const { token } = theme.useToken();
   const [conversationView, setConversationView] =
     useState<ConversationView>("standalone");
@@ -332,12 +330,14 @@ export function ManagerPage({
       .then((saved) => {
         if (saved) setRequestsPerMinute(value);
       })
-      .catch(() => setNotice("Could not save the deletion rate."));
+      .catch(() => setNotice(t("rate.saveFailure")));
   };
 
   const handleOpenConversation = (conversationId: string) => {
     openConversation(conversationId);
-    setNotice(mode === "demo" ? `Demo Open action: ${conversationId}` : null);
+    setNotice(
+      mode === "demo" ? t("demo.openAction", { id: conversationId }) : null,
+    );
   };
 
   const handleRefresh = () => {
@@ -348,22 +348,20 @@ export function ManagerPage({
     refreshInventory()
       .then((refreshed) => {
         if (!refreshed) {
-          setNotice("Refresh failed. The previous inventory is still active.");
+          setNotice(t("refresh.failure"));
           return;
         }
         setSelectedConversationIds(new Set());
         cancelConfirmation();
-        setNotice("Inventory refreshed.");
+        setNotice(t("refresh.success"));
       })
-      .catch(() =>
-        setNotice("Refresh failed. The previous inventory is still active."),
-      );
+      .catch(() => setNotice(t("refresh.failure")));
   };
 
   const currentConversationLabel =
     currentConversationId === null
-      ? "None"
-      : `${conversationTitles.get(currentConversationId) ?? "(Untitled)"} (${currentConversationId})`;
+      ? t("deletion.none")
+      : `${conversationTitles.get(currentConversationId) ?? t("deletion.untitled")} (${currentConversationId})`;
 
   return (
     <Space orientation="vertical" size="middle" className="manager-panel">
@@ -373,7 +371,7 @@ export function ManagerPage({
         onThemePreferenceChange={onThemePreferenceChange}
       >
         <Button
-          aria-label="Refresh inventory"
+          aria-label={t("refresh.ariaLabel")}
           icon={<ReloadOutlined aria-hidden />}
           disabled={
             inventoryState.kind !== "ready" ||
@@ -383,11 +381,11 @@ export function ManagerPage({
           }
           onClick={handleRefresh}
         >
-          Refresh
+          {t("refresh.button")}
         </Button>
         {refreshing && (
           <Typography.Text type="secondary">
-            <Spin size="small" /> Refreshing inventory…
+            <Spin size="small" /> {t("refresh.loading")}
           </Typography.Text>
         )}
       </ManagerHeader>
@@ -396,8 +394,8 @@ export function ManagerPage({
         <Alert
           type="success"
           showIcon
-          title="Demo mode"
-          description="Deterministic fake infrastructure is active. No request can reach ChatGPT and no real DELETE can be issued."
+          title={t("demo.title")}
+          description={t("demo.description")}
         />
       )}
 
@@ -416,10 +414,14 @@ export function ManagerPage({
         <Card>
           <Spin />{" "}
           {inventoryState.stage === "compatibility"
-            ? "Checking read API compatibility…"
+            ? t("inventory.checkingCompatibility")
             : inventoryState.stage === "inventory"
-              ? `Loading conversations… ${loadedConversationCountLabel(inventoryState.loadedConversationCount)}`
-              : `${loadedConversationCountLabel(inventoryState.loadedConversationCount)}. Building Project protection…`}
+              ? t("inventory.loading", {
+                  count: inventoryState.loadedConversationCount,
+                })
+              : t("inventory.buildingProtection", {
+                  count: inventoryState.loadedConversationCount,
+                })}
         </Card>
       )}
 
@@ -431,7 +433,7 @@ export function ManagerPage({
                 aria-hidden
                 style={{ color: token.colorPrimary }}
               />
-              <span>Conversations</span>
+              <span>{t("summary.title")}</span>
             </Space>
           }
           size="small"
@@ -453,7 +455,7 @@ export function ManagerPage({
                       aria-hidden
                       style={{ color: token.colorPrimary, opacity: 0.65 }}
                     />
-                    <span>Standalone conversations</span>
+                    <span>{t("summary.standalone")}</span>
                   </Space>
                 }
                 value={conversations.length}
@@ -474,7 +476,7 @@ export function ManagerPage({
                       aria-hidden
                       style={{ color: token.colorPrimary, opacity: 0.65 }}
                     />
-                    <span>Project conversations protected</span>
+                    <span>{t("summary.projectProtected")}</span>
                   </Space>
                 }
                 value={projectConversations.length}
@@ -495,7 +497,7 @@ export function ManagerPage({
                       aria-hidden
                       style={{ color: token.colorPrimary, opacity: 0.65 }}
                     />
-                    <span>User protected</span>
+                    <span>{t("summary.userProtected")}</span>
                   </Space>
                 }
                 value={protectedConversationIds.size}
@@ -516,7 +518,7 @@ export function ManagerPage({
                       aria-hidden
                       style={{ color: token.colorPrimary, opacity: 0.65 }}
                     />
-                    <span>Selected</span>
+                    <span>{t("summary.selected")}</span>
                   </Space>
                 }
                 value={selectedConversationIds.size}
@@ -536,20 +538,31 @@ export function ManagerPage({
             size={token.marginMD}
             className="full-width"
           >
-            <Flex justify="space-between" align="center" wrap gap="small">
-              <Space wrap>
-                <Typography.Text>View:</Typography.Text>
+            <Flex
+              className="workspace-toolbar"
+              justify="space-between"
+              align="center"
+              wrap
+              gap="small"
+            >
+              <Flex
+                className="view-control-group"
+                align="center"
+                wrap
+                gap="small"
+              >
+                <Typography.Text>{t("view.label")}</Typography.Text>
                 <Segmented
                   className="view-segmented"
-                  aria-label="Conversation view"
+                  aria-label={t("view.ariaLabel")}
                   value={conversationView}
                   options={[
                     {
-                      label: "Standalone conversations",
+                      label: t("view.standalone"),
                       value: "standalone",
                     },
                     {
-                      label: "Project conversations",
+                      label: t("view.projects"),
                       value: "projects",
                     },
                   ]}
@@ -559,17 +572,17 @@ export function ManagerPage({
                     }
                   }}
                 />
-              </Space>
+              </Flex>
               {conversationView === "standalone" && (
-                <Space>
+                <Flex className="delete-rate-group" align="center" gap="small">
                   <Space size={token.marginXXS}>
-                    <Typography.Text>Delete rate</Typography.Text>
+                    <Typography.Text>{t("rate.label")}</Typography.Text>
                     <Tooltip
-                      title="Maximum DELETE requests sent per minute during a deletion run."
+                      title={t("rate.tooltip")}
                       trigger={["hover", "focus"]}
                     >
                       <span
-                        aria-label="About Delete rate"
+                        aria-label={t("rate.ariaHelp")}
                         tabIndex={0}
                         style={{
                           color: token.colorTextTertiary,
@@ -582,17 +595,17 @@ export function ManagerPage({
                     </Tooltip>
                   </Space>
                   <InputNumber
-                    aria-label="Delete rate"
+                    aria-label={t("rate.label")}
                     min={AppConfig.deletion.requestsPerMinute.min}
                     max={AppConfig.deletion.requestsPerMinute.max}
                     precision={0}
                     style={{ width: 128 }}
-                    suffix="/ min"
+                    suffix={t("rate.unit")}
                     value={requestsPerMinute}
                     disabled={runActive}
                     onChange={handleRateChange}
                   />
-                </Space>
+                </Flex>
               )}
             </Flex>
             <div>
@@ -605,7 +618,7 @@ export function ManagerPage({
                     aria-hidden
                     style={{ color: token.colorPrimary }}
                   />
-                  <span>Filters</span>
+                  <span>{t("filters.title")}</span>
                 </Space>
               </Typography.Title>
               <ConversationFiltersBar
@@ -629,11 +642,17 @@ export function ManagerPage({
                   aria-hidden
                   style={{ color: token.colorPrimary }}
                 />
-                <span>Selection</span>
+                <span>{t("selection.title")}</span>
               </Space>
             </Typography.Title>
-            <Flex justify="space-between" align="center" wrap gap="small">
-              <Space wrap>
+            <Flex
+              className="selection-toolbar"
+              justify="space-between"
+              align="center"
+              wrap
+              gap="small"
+            >
+              <Flex className="selection-actions" wrap gap="small">
                 <Button
                   disabled={conversationView === "projects" || selectionLocked}
                   onClick={() =>
@@ -646,7 +665,7 @@ export function ManagerPage({
                     )
                   }
                 >
-                  Select current page
+                  {t("selection.currentPage")}
                 </Button>
                 <Button
                   disabled={conversationView === "projects" || selectionLocked}
@@ -660,13 +679,13 @@ export function ManagerPage({
                     )
                   }
                 >
-                  Select all matching
+                  {t("selection.allMatching")}
                 </Button>
                 <Button
                   disabled={conversationView === "projects" || selectionLocked}
                   onClick={() => setSelectedConversationIds(new Set())}
                 >
-                  Clear selection
+                  {t("selection.clear")}
                 </Button>
                 <Button
                   disabled={conversationView === "projects" || selectionLocked}
@@ -680,10 +699,10 @@ export function ManagerPage({
                     )
                   }
                 >
-                  Invert matching
+                  {t("selection.invert")}
                 </Button>
-              </Space>
-              <Space wrap>
+              </Flex>
+              <Flex className="selection-primary-actions" wrap gap="small">
                 <Button
                   icon={<LockOutlined aria-hidden />}
                   disabled={
@@ -693,7 +712,7 @@ export function ManagerPage({
                   }
                   onClick={handleProtectSelected}
                 >
-                  Protect selected
+                  {t("selection.protectSelected")}
                 </Button>
                 <Button
                   danger
@@ -707,9 +726,11 @@ export function ManagerPage({
                   }
                   onClick={beginDeletionPreview}
                 >
-                  Delete selected ({selectedConversationIds.size})
+                  {t("selection.deleteSelected", {
+                    count: selectedConversationIds.size,
+                  })}
                 </Button>
-              </Space>
+              </Flex>
             </Flex>
           </Space>
 

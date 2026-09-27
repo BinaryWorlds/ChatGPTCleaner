@@ -2,18 +2,11 @@ import {
   InfoCircleOutlined,
   SafetyCertificateOutlined,
 } from "@ant-design/icons";
-import {
-  Alert,
-  Badge,
-  Card,
-  Descriptions,
-  Space,
-  Tag,
-  theme,
-  Tooltip,
-} from "antd";
+import { Alert, Badge, Card, Space, Tag, theme, Tooltip } from "antd";
 import type { ReadFailureDiagnostic } from "../application/ports/ConversationGateway";
 import type { SafetyBlockReason } from "../application/SafetyBlockReason";
+import i18n from "../i18n/i18n";
+import { useTranslation } from "react-i18next";
 import type { InventoryStage } from "./useManagerInventory";
 
 export type SafetyStatusState =
@@ -50,27 +43,34 @@ interface SafetyIndicators {
   readonly deletion: SafetyIndicatorStatus;
 }
 
-const blockedReasonLabels: Readonly<Record<SafetyBlockReason, string>> = {
-  authentication: "Authentication unavailable",
-  authorization: "Authorization denied",
-  compatibility: "Read API compatibility failed",
-  network: "Network unavailable",
-  request: "ChatGPT rejected an inventory request",
-  "retry-later": "Retry later",
-  server: "ChatGPT returned a temporary server error",
-  "source-unavailable":
-    "Source tab unavailable. Return to a valid ChatGPT tab and relaunch ChatGPTCleaner.",
-  pagination: "Inventory pagination incomplete",
-  "protected-storage": "Protected-ID storage invalid",
-  "destructive-run-lock": "Another destructive run is active",
-  client: "ChatGPT rejected the deletion request",
-  "response-anomaly": "ChatGPT returned an incompatible deletion response",
-  "unexpected-run-error": "The destructive run stopped unexpectedly",
+const blockedReasonKeys: Readonly<Record<SafetyBlockReason, string>> = {
+  authentication: "safety.reasons.authentication",
+  authorization: "safety.reasons.authorization",
+  compatibility: "safety.reasons.compatibility",
+  network: "safety.reasons.network",
+  request: "safety.reasons.request",
+  "retry-later": "safety.reasons.retryLater",
+  server: "safety.reasons.server",
+  "source-unavailable": "safety.reasons.sourceUnavailable",
+  pagination: "safety.reasons.pagination",
+  "protected-storage": "safety.reasons.protectedStorage",
+  "destructive-run-lock": "safety.reasons.destructiveRunLock",
+  client: "safety.reasons.client",
+  "response-anomaly": "safety.reasons.responseAnomaly",
+  "unexpected-run-error": "safety.reasons.unexpectedRunError",
 };
 
 export function safetyBlockReasonLabel(reason: SafetyBlockReason): string {
-  return blockedReasonLabels[reason];
+  return i18n.t(blockedReasonKeys[reason]);
 }
+
+const indicatorKeys: Readonly<Record<SafetyIndicatorStatus, string>> = {
+  OK: "safety.indicators.ok",
+  READY: "safety.indicators.ready",
+  CHECKING: "safety.indicators.checking",
+  "NOT CHECKED": "safety.indicators.notChecked",
+  BLOCKED: "safety.indicators.blocked",
+};
 
 function indicatorColor(value: SafetyIndicatorStatus): string {
   if (value === "OK" || value === "READY") {
@@ -89,21 +89,17 @@ function indicatorBadgeStatus(
 }
 
 function SafetyCheckLabel({ label, help }: SafetyCheckLabelProps) {
+  const { t } = useTranslation();
   const { token } = theme.useToken();
 
   return (
     <Tooltip title={help} trigger={["hover", "focus"]}>
       <span
-        aria-label={`About ${label}`}
+        className="safety-check-label"
+        aria-label={t("safety.about", { label })}
         tabIndex={0}
-        style={{
-          alignItems: "center",
-          color: token.colorText,
-          columnGap: token.marginXXS,
-          display: "inline-flex",
-        }}
+        style={{ color: token.colorText, columnGap: token.marginXXS }}
       >
-        <span>{label}</span>
         <InfoCircleOutlined
           aria-hidden
           style={{
@@ -111,6 +107,7 @@ function SafetyCheckLabel({ label, help }: SafetyCheckLabelProps) {
             fontSize: token.fontSizeSM,
           }}
         />
+        <span>{label}</span>
       </span>
     </Tooltip>
   );
@@ -185,8 +182,15 @@ export function deriveSafetyIndicators(
 }
 
 export function SafetyStatus({ state }: SafetyStatusProps) {
+  const { t } = useTranslation();
   const { token } = theme.useToken();
   const indicators = deriveSafetyIndicators(state);
+  const safetyCheckCellStyle = {
+    backgroundColor: token.colorFillAlter,
+    border: `${token.lineWidth}px ${token.lineType} ${token.colorSplit}`,
+    borderRadius: token.borderRadiusSM,
+    padding: token.paddingXS,
+  };
 
   return (
     <Card
@@ -196,35 +200,29 @@ export function SafetyStatus({ state }: SafetyStatusProps) {
             aria-hidden
             style={{ color: token.colorPrimary }}
           />
-          <span>Safety status</span>
+          <span>{t("safety.title")}</span>
         </Space>
       }
       size="small"
     >
-      <Descriptions size="small" column={{ xs: 1, sm: 2, lg: 3, xl: 6 }}>
-        <Descriptions.Item
-          label={
-            <SafetyCheckLabel
-              label="ChatGPT connection"
-              help="A usable ChatGPT session is available in the source tab."
-            />
-          }
-        >
+      <div className="safety-check-grid">
+        <div className="safety-check-item" style={safetyCheckCellStyle}>
+          <SafetyCheckLabel
+            label={t("safety.checks.connection.label")}
+            help={t("safety.checks.connection.help")}
+          />
           <Tag color={indicatorColor(indicators.connection)} variant="outlined">
             <Space size={token.marginXXS}>
               <Badge status={indicatorBadgeStatus(indicators.connection)} />
-              {indicators.connection}
+              {t(indicatorKeys[indicators.connection])}
             </Space>
           </Tag>
-        </Descriptions.Item>
-        <Descriptions.Item
-          label={
-            <SafetyCheckLabel
-              label="Source tab access"
-              help="The extension can access the ChatGPT tab it was launched from."
-            />
-          }
-        >
+        </div>
+        <div className="safety-check-item" style={safetyCheckCellStyle}>
+          <SafetyCheckLabel
+            label={t("safety.checks.sourceTab.label")}
+            help={t("safety.checks.sourceTab.help")}
+          />
           <Tag
             color={indicatorColor(indicators.sourceTab)}
             variant="outlined"
@@ -232,18 +230,15 @@ export function SafetyStatus({ state }: SafetyStatusProps) {
           >
             <Space size={token.marginXXS}>
               <Badge status={indicatorBadgeStatus(indicators.sourceTab)} />
-              {indicators.sourceTab}
+              {t(indicatorKeys[indicators.sourceTab])}
             </Space>
           </Tag>
-        </Descriptions.Item>
-        <Descriptions.Item
-          label={
-            <SafetyCheckLabel
-              label="Read API compatibility"
-              help="ChatGPT responses match the formats this version supports."
-            />
-          }
-        >
+        </div>
+        <div className="safety-check-item" style={safetyCheckCellStyle}>
+          <SafetyCheckLabel
+            label={t("safety.checks.compatibility.label")}
+            help={t("safety.checks.compatibility.help")}
+          />
           <Tag
             color={indicatorColor(indicators.readCompatibility)}
             variant="outlined"
@@ -253,18 +248,15 @@ export function SafetyStatus({ state }: SafetyStatusProps) {
               <Badge
                 status={indicatorBadgeStatus(indicators.readCompatibility)}
               />
-              {indicators.readCompatibility}
+              {t(indicatorKeys[indicators.readCompatibility])}
             </Space>
           </Tag>
-        </Descriptions.Item>
-        <Descriptions.Item
-          label={
-            <SafetyCheckLabel
-              label="Project protection"
-              help="Project conversations in the loaded snapshot are excluded from deletion."
-            />
-          }
-        >
+        </div>
+        <div className="safety-check-item" style={safetyCheckCellStyle}>
+          <SafetyCheckLabel
+            label={t("safety.checks.projectProtection.label")}
+            help={t("safety.checks.projectProtection.help")}
+          />
           <Tag
             color={indicatorColor(indicators.projectProtection)}
             variant="outlined"
@@ -274,18 +266,15 @@ export function SafetyStatus({ state }: SafetyStatusProps) {
               <Badge
                 status={indicatorBadgeStatus(indicators.projectProtection)}
               />
-              {indicators.projectProtection}
+              {t(indicatorKeys[indicators.projectProtection])}
             </Space>
           </Tag>
-        </Descriptions.Item>
-        <Descriptions.Item
-          label={
-            <SafetyCheckLabel
-              label="Run lock"
-              help="Prevents multiple deletion runs from running at the same time. Checked when deletion starts."
-            />
-          }
-        >
+        </div>
+        <div className="safety-check-item" style={safetyCheckCellStyle}>
+          <SafetyCheckLabel
+            label={t("safety.checks.runLock.label")}
+            help={t("safety.checks.runLock.help")}
+          />
           <Tag
             color={indicatorColor(indicators.runLock)}
             variant="outlined"
@@ -293,18 +282,15 @@ export function SafetyStatus({ state }: SafetyStatusProps) {
           >
             <Space size={token.marginXXS}>
               <Badge status={indicatorBadgeStatus(indicators.runLock)} />
-              {indicators.runLock}
+              {t(indicatorKeys[indicators.runLock])}
             </Space>
           </Tag>
-        </Descriptions.Item>
-        <Descriptions.Item
-          label={
-            <SafetyCheckLabel
-              label="Deletion safety"
-              help="Overall safety gate. READY allows deletion; BLOCKED prevents it."
-            />
-          }
-        >
+        </div>
+        <div className="safety-check-item" style={safetyCheckCellStyle}>
+          <SafetyCheckLabel
+            label={t("safety.checks.deletion.label")}
+            help={t("safety.checks.deletion.help")}
+          />
           <Tag
             color={indicatorColor(indicators.deletion)}
             variant="outlined"
@@ -312,11 +298,11 @@ export function SafetyStatus({ state }: SafetyStatusProps) {
           >
             <Space size={token.marginXXS}>
               <Badge status={indicatorBadgeStatus(indicators.deletion)} />
-              {indicators.deletion}
+              {t(indicatorKeys[indicators.deletion])}
             </Space>
           </Tag>
-        </Descriptions.Item>
-      </Descriptions>
+        </div>
+      </div>
       {state.kind === "blocked" && (
         <Alert
           type="error"
@@ -335,33 +321,66 @@ export function SafetyStatus({ state }: SafetyStatusProps) {
 }
 
 function operationLabel(operation: ReadFailureDiagnostic["operation"]): string {
-  if (operation === "standalone") return "Standalone conversations";
-  if (operation === "projects") return "Project discovery";
-  return "Project conversations";
+  if (operation === "standalone") return i18n.t("safety.diagnostic.standalone");
+  if (operation === "projects") return i18n.t("safety.diagnostic.projects");
+  return i18n.t("safety.diagnostic.projectConversations");
 }
 
 function formatReadDiagnostic(diagnostic: ReadFailureDiagnostic): string {
-  const context = `${operationLabel(diagnostic.operation)} (${diagnostic.endpointFamily}), page ${diagnostic.paginationStep}`;
+  const context = i18n.t("safety.diagnostic.context", {
+    operation: operationLabel(diagnostic.operation),
+    endpointFamily: diagnostic.endpointFamily,
+    page: diagnostic.paginationStep,
+  });
   const response = [
     diagnostic.httpStatus === undefined
       ? null
       : `HTTP ${diagnostic.httpStatus}`,
     diagnostic.jsonParsed === undefined
       ? null
-      : `JSON parsed: ${diagnostic.jsonParsed ? "yes" : "no"}`,
+      : i18n.t("safety.diagnostic.jsonParsed", {
+          value: i18n.t(
+            diagnostic.jsonParsed
+              ? "safety.diagnostic.yes"
+              : "safety.diagnostic.no",
+          ),
+        }),
   ]
     .filter((part): part is string => part !== null)
     .join(", ");
 
   if (diagnostic.missingRequiredField !== undefined) {
-    return `${context}: missing required field ${diagnostic.missingRequiredField}${response.length === 0 ? "" : `; ${response}`}`;
+    return i18n.t("safety.diagnostic.missingField", {
+      context,
+      field: diagnostic.missingRequiredField,
+      response:
+        response.length === 0
+          ? ""
+          : i18n.t("safety.diagnostic.responseSeparator", { response }),
+    });
   }
   if (
     diagnostic.fieldPath !== undefined &&
     diagnostic.expectedType !== undefined &&
     diagnostic.actualType !== undefined
   ) {
-    return `${context}: ${diagnostic.fieldPath} expected ${diagnostic.expectedType}, received ${diagnostic.actualType}${response.length === 0 ? "" : `; ${response}`}`;
+    return i18n.t("safety.diagnostic.typeMismatch", {
+      context,
+      field: diagnostic.fieldPath,
+      expected: diagnostic.expectedType,
+      actual: diagnostic.actualType,
+      response:
+        response.length === 0
+          ? ""
+          : i18n.t("safety.diagnostic.responseSeparator", { response }),
+    });
   }
-  return `${context}: ${diagnostic.category}${response.length === 0 ? "" : `; ${response}`}`;
+  return i18n.t("safety.diagnostic.category", {
+    context,
+    category: diagnostic.category,
+    response:
+      response.length === 0
+        ? ""
+        : i18n.t("safety.diagnostic.responseSeparator", { response }),
+  });
 }

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { DeletionRun, type DeletionRunState } from "../application/deletionRun";
 import type { ManagerDependencies } from "../composition/types";
 import type { Conversation } from "../domain/conversation";
@@ -52,6 +53,7 @@ export function useDeletionWorkflow({
   onConversationRemoved,
   onNotice,
 }: UseDeletionWorkflowOptions) {
+  const { t } = useTranslation();
   const [previewPlan, setPreviewPlan] = useState<DeletionPlan | null>(null);
   const [currentRun, setCurrentRun] = useState<DeletionRun | null>(null);
   const [runState, setRunState] = useState<DeletionRunState | null>(null);
@@ -93,7 +95,7 @@ export function useDeletionWorkflow({
         plan.missingConversationIds.length + plan.invalidSelectionCount,
     });
     if (plan.eligibleConversationIds.length === 0) {
-      onNotice("No selected conversations remain eligible for deletion.");
+      onNotice(t("deletion.noEligibleSelected"));
       return;
     }
     setPreviewPlan(plan);
@@ -118,7 +120,7 @@ export function useDeletionWorkflow({
     });
     setPreviewPlan(null);
     if (snapshotConfirmedPlan.confirmedConversationIds.length === 0) {
-      onNotice("No confirmed conversations remain eligible for deletion.");
+      onNotice(t("deletion.noEligibleConfirmed"));
       return;
     }
 

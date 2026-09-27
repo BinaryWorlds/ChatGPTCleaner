@@ -28,8 +28,10 @@
     "@ant-design/icons": "6.3.4",
     "antd": "6.6.5",
     "dayjs": "1.11.23",
+    "i18next": "26.4.2",
     "react": "19.3.0",
     "react-dom": "19.3.0",
+    "react-i18next": "17.0.15",
     "zod": "4.6.5"
   },
   "devDependencies": {

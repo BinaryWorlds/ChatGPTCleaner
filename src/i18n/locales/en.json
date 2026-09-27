@@ -1,0 +1,238 @@
+{
+  "app": {
+    "title": "ChatGPTCleaner",
+    "subtitle": "Review and delete standalone conversations with explicit safety checks.",
+    "openChatGpt": "Open ChatGPT in a tab and launch ChatGPTCleaner from that tab.",
+    "displayError": "ChatGPTCleaner could not display the manager. No new destructive operation was started.",
+    "errorCode": "Error code: {{code}}"
+  },
+  "language": {
+    "label": "Language",
+    "polish": "PL",
+    "english": "EN"
+  },
+  "theme": {
+    "label": "Theme preference",
+    "auto": "Auto",
+    "light": "Light",
+    "dark": "Dark"
+  },
+  "refresh": {
+    "button": "Refresh",
+    "ariaLabel": "Refresh inventory",
+    "loading": "Refreshing inventory…",
+    "success": "Inventory refreshed.",
+    "failure": "Refresh failed. The previous inventory is still active."
+  },
+  "demo": {
+    "title": "Demo mode",
+    "description": "Deterministic fake infrastructure is active. No request can reach ChatGPT and no real DELETE can be issued.",
+    "openAction": "Demo Open action: {{id}}"
+  },
+  "inventory": {
+    "checkingCompatibility": "Checking read API compatibility…",
+    "loading_one": "Loading conversations… {{count}} conversation loaded",
+    "loading_few": "Loading conversations… {{count}} conversations loaded",
+    "loading_many": "Loading conversations… {{count}} conversations loaded",
+    "loading_other": "Loading conversations… {{count}} conversations loaded",
+    "buildingProtection_one": "{{count}} conversation loaded. Building Project protection…",
+    "buildingProtection_few": "{{count}} conversations loaded. Building Project protection…",
+    "buildingProtection_many": "{{count}} conversations loaded. Building Project protection…",
+    "buildingProtection_other": "{{count}} conversations loaded. Building Project protection…"
+  },
+  "summary": {
+    "title": "Conversations",
+    "standalone": "Standalone conversations",
+    "projectProtected": "Project conversations protected",
+    "userProtected": "User protected",
+    "selected": "Selected"
+  },
+  "view": {
+    "label": "View:",
+    "ariaLabel": "Conversation view",
+    "standalone": "Standalone conversations",
+    "projects": "Project conversations"
+  },
+  "rate": {
+    "label": "Delete rate",
+    "ariaHelp": "About Delete rate",
+    "tooltip": "Maximum DELETE requests sent per minute during a deletion run.",
+    "unit": "/ min",
+    "saveFailure": "Could not save the deletion rate."
+  },
+  "filters": {
+    "title": "Filters",
+    "searchTitles": "Search titles",
+    "dateField": "Date field",
+    "dateOperator": "Date operator",
+    "created": "Created",
+    "updated": "Updated",
+    "beforeAfter": "Before / After",
+    "before": "Before",
+    "after": "After",
+    "cutoffDate": "Cutoff date",
+    "selectDate": "Select date",
+    "reset": "Reset filters",
+    "olderThanDays_one": "Older than {{count}} day",
+    "olderThanDays_few": "Older than {{count}} days",
+    "olderThanDays_many": "Older than {{count}} days",
+    "olderThanDays_other": "Older than {{count}} days",
+    "olderThanMonths_one": "Older than {{count}} month",
+    "olderThanMonths_few": "Older than {{count}} months",
+    "olderThanMonths_many": "Older than {{count}} months",
+    "olderThanMonths_other": "Older than {{count}} months",
+    "olderThanYears_one": "Older than {{count}} year",
+    "olderThanYears_few": "Older than {{count}} years",
+    "olderThanYears_many": "Older than {{count}} years",
+    "olderThanYears_other": "Older than {{count}} years"
+  },
+  "selection": {
+    "title": "Selection",
+    "currentPage": "Select current page",
+    "allMatching": "Select all matching",
+    "clear": "Clear selection",
+    "invert": "Invert matching",
+    "protectSelected": "Protect selected",
+    "deleteSelected": "Delete selected ({{count}})"
+  },
+  "table": {
+    "title": "Title",
+    "created": "Created",
+    "updated": "Updated",
+    "id": "ID",
+    "protectionStatus": "Protection/status",
+    "actions": "Actions",
+    "projectProtected": "Project protected",
+    "protected": "Protected",
+    "unprotected": "Unprotected",
+    "open": "Open",
+    "protect": "Protect",
+    "unprotect": "Unprotect",
+    "selectConversation": "Select {{title}}",
+    "total_one": "{{count}} conversation",
+    "total_few": "{{count}} conversations",
+    "total_many": "{{count}} conversations",
+    "total_other": "{{count}} conversations",
+    "unknownDate": "Unknown"
+  },
+  "confirmation": {
+    "title": "Confirm deletion",
+    "deleteCount": "Delete {{count}}",
+    "originallySelected": "Originally selected",
+    "stillEligible": "Still eligible",
+    "excludedProject": "Excluded as Project",
+    "excludedProtected": "Excluded as user-protected",
+    "missing": "Missing/already gone",
+    "finalCount": "Final delete count",
+    "instruction": "Type \"{{token}}\" to continue.",
+    "ariaLabel": "Deletion confirmation"
+  },
+  "deletion": {
+    "noEligibleSelected": "No selected conversations remain eligible for deletion.",
+    "noEligibleConfirmed": "No confirmed conversations remain eligible for deletion.",
+    "panelTitle": "Current deletion run",
+    "stoppedForSafety": "Deletion stopped for safety",
+    "blocked": "Deletion blocked",
+    "reason": "Reason: {{reason}}",
+    "failedConversations": "Failed conversations",
+    "failedCount": "{{count}} failed",
+    "moreFailed": "+{{count}} more",
+    "state": "State",
+    "processedTotal": "Processed / total",
+    "deleted": "Deleted",
+    "failed": "Failed",
+    "skipped": "Skipped",
+    "remaining": "Remaining",
+    "retries": "Retries",
+    "configuredRate": "Configured rate",
+    "perMinute": "{{count}}/minute",
+    "activeElapsed": "Active elapsed",
+    "eta": "ETA",
+    "currentConversation": "Current conversation",
+    "none": "None",
+    "untitled": "(Untitled)",
+    "unknown": "Unknown",
+    "pause": "Pause",
+    "resume": "Resume",
+    "stop": "Stop",
+    "retryFailed": "Retry Failed",
+    "durationMinutesSeconds": "{{minutes}}m {{seconds}}s",
+    "durationSeconds": "{{seconds}}s",
+    "states": {
+      "running": "RUNNING",
+      "pausing": "PAUSING",
+      "paused": "PAUSED",
+      "stopping": "STOPPING",
+      "stopped": "STOPPED",
+      "finished": "FINISHED",
+      "blocked": "BLOCKED",
+      "fatal": "FATAL"
+    }
+  },
+  "safety": {
+    "title": "Safety status",
+    "about": "About {{label}}",
+    "indicators": {
+      "ok": "OK",
+      "ready": "READY",
+      "checking": "CHECKING",
+      "notChecked": "NOT CHECKED",
+      "blocked": "BLOCKED"
+    },
+    "checks": {
+      "connection": {
+        "label": "ChatGPT connection",
+        "help": "A usable ChatGPT session is available in the source tab."
+      },
+      "sourceTab": {
+        "label": "Source tab access",
+        "help": "The extension can access the ChatGPT tab it was launched from."
+      },
+      "compatibility": {
+        "label": "Read API compatibility",
+        "help": "ChatGPT responses match the formats this version supports."
+      },
+      "projectProtection": {
+        "label": "Project protection",
+        "help": "Project conversations in the loaded snapshot are excluded from deletion."
+      },
+      "runLock": {
+        "label": "Run lock",
+        "help": "Prevents multiple deletion runs from running at the same time. Checked when deletion starts."
+      },
+      "deletion": {
+        "label": "Deletion safety",
+        "help": "Overall safety gate. READY allows deletion; BLOCKED prevents it."
+      }
+    },
+    "reasons": {
+      "authentication": "Authentication unavailable",
+      "authorization": "Authorization denied",
+      "compatibility": "Read API compatibility failed",
+      "network": "Network unavailable",
+      "request": "ChatGPT rejected an inventory request",
+      "retryLater": "Retry later",
+      "server": "ChatGPT returned a temporary server error",
+      "sourceUnavailable": "Source tab unavailable. Return to a valid ChatGPT tab and relaunch ChatGPTCleaner.",
+      "pagination": "Inventory pagination incomplete",
+      "protectedStorage": "Protected-ID storage invalid",
+      "destructiveRunLock": "Another destructive run is active",
+      "client": "ChatGPT rejected the deletion request",
+      "responseAnomaly": "ChatGPT returned an incompatible deletion response",
+      "unexpectedRunError": "The destructive run stopped unexpectedly"
+    },
+    "diagnostic": {
+      "standalone": "Standalone conversations",
+      "projects": "Project discovery",
+      "projectConversations": "Project conversations",
+      "context": "{{operation}} ({{endpointFamily}}), page {{page}}",
+      "jsonParsed": "JSON parsed: {{value}}",
+      "yes": "yes",
+      "no": "no",
+      "missingField": "{{context}}: missing required field {{field}}{{response}}",
+      "typeMismatch": "{{context}}: {{field}} expected {{expected}}, received {{actual}}{{response}}",
+      "category": "{{context}}: {{category}}{{response}}",
+      "responseSeparator": "; {{response}}"
+    }
+  }
+}

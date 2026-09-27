@@ -1,11 +1,19 @@
 import { Alert, ConfigProvider, Layout, Space } from "antd";
+import enUS from "antd/locale/en_US";
+import plPL from "antd/locale/pl_PL";
+import dayjs from "dayjs";
+import "dayjs/locale/en";
+import "dayjs/locale/pl";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   normalizeThemePreference,
   type ResolvedThemeMode,
   type ThemePreference,
 } from "../application/themePreference";
 import type { ManagerComposition } from "../composition/types";
+import { detectBrowserLanguage } from "../i18n/detectLanguage";
+import appI18n, { activeAppLanguage } from "../i18n/i18n";
 import { ManagerHeader } from "./ManagerHeader";
 import { ManagerPage } from "./ManagerPage";
 import { createManagerTheme } from "./managerTheme";
@@ -17,6 +25,9 @@ interface AppProps {
 }
 
 export function App({ composition }: AppProps) {
+  const { t, i18n } = useTranslation();
+  const [initialLanguage] = useState(detectBrowserLanguage);
+  const appLanguage = activeAppLanguage(i18n.resolvedLanguage);
   const [themePreference, setThemePreference] =
     useState<ThemePreference>("auto");
   const [systemTheme, setSystemTheme] = useState<ResolvedThemeMode>(() =>
@@ -26,6 +37,10 @@ export function App({ composition }: AppProps) {
   );
   const [themePreferencePending, setThemePreferencePending] = useState(true);
   const themePreferencePendingRef = useRef(true);
+
+  useEffect(() => {
+    void appI18n.changeLanguage(initialLanguage);
+  }, [initialLanguage]);
 
   useEffect(() => {
     let current = true;
@@ -75,6 +90,11 @@ export function App({ composition }: AppProps) {
     };
   }, [resolvedTheme]);
 
+  useEffect(() => {
+    document.documentElement.lang = appLanguage;
+    dayjs.locale(appLanguage);
+  }, [appLanguage]);
+
   const handleThemePreferenceChange = (preference: ThemePreference) => {
     if (themePreferencePendingRef.current) return;
     const previousPreference = themePreference;
@@ -91,7 +111,10 @@ export function App({ composition }: AppProps) {
   };
 
   return (
-    <ConfigProvider theme={managerTheme}>
+    <ConfigProvider
+      locale={appLanguage === "pl" ? plPL : enUS}
+      theme={managerTheme}
+    >
       <Layout className="manager-shell">
         <Content className="manager-content">
           {composition.dependencies !== null ? (
@@ -114,11 +137,7 @@ export function App({ composition }: AppProps) {
                 themePreferencePending={themePreferencePending}
                 onThemePreferenceChange={handleThemePreferenceChange}
               />
-              <Alert
-                type="warning"
-                showIcon
-                title="Open ChatGPT in a tab and launch ChatGPTCleaner from that tab."
-              />
+              <Alert type="warning" showIcon title={t("app.openChatGpt")} />
             </Space>
           )}
         </Content>

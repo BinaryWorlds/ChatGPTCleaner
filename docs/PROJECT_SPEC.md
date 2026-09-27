@@ -1047,6 +1047,15 @@ explicit Light or Dark ignores later system changes. Persist only the validated
 preference value in extension-local storage. Missing or malformed values resolve
 to `Auto`. The resolved mode also sets the document `color-scheme`.
 
+The manager supports exactly English (`en`) and Polish (`pl`). On every fresh
+manager load, inspect `navigator.languages` in order, falling back to
+`navigator.language` only when the list is unavailable or empty. Use the first
+supported base language from an `en`/`en-*` or `pl`/`pl-*` tag; otherwise use
+English. The `PL | EN` header selector changes language for the current session
+only and is not persisted. The active language controls application copy,
+`document.documentElement.lang`, Ant Design locale, and user-visible date/time
+formatting. Translation resources are bundled locally with the extension.
+
 Main table columns:
 
 ```text
