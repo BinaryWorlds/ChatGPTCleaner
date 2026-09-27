@@ -122,6 +122,7 @@ export function ConversationTable(props: ConversationTableProps) {
       title: t("table.created"),
       dataIndex: "createdAt",
       key: "createdAt",
+      width: 180,
       sorter: true,
       sortOrder:
         sortField === "createdAt"
@@ -135,6 +136,7 @@ export function ConversationTable(props: ConversationTableProps) {
       title: t("table.updated"),
       dataIndex: "updatedAt",
       key: "updatedAt",
+      width: 180,
       sorter: true,
       sortOrder:
         sortField === "updatedAt"
@@ -200,6 +202,7 @@ export function ConversationTable(props: ConversationTableProps) {
     {
       title: t("table.actions"),
       key: "actions",
+      width: 250,
       render: (_, conversation) => {
         const protectedConversation =
           view === "standalone" &&
@@ -217,24 +220,6 @@ export function ConversationTable(props: ConversationTableProps) {
               : copyLabel;
         return (
           <Space size="small">
-            <Button size="small" onClick={() => onOpen(conversation.id)}>
-              {t("table.open")}
-            </Button>
-            {view === "standalone" && (
-              <Button
-                size="small"
-                disabled={props.protectionDisabled}
-                onClick={() =>
-                  protectedConversation
-                    ? props.onUnprotect(conversation.id)
-                    : props.onProtect(conversation.id)
-                }
-              >
-                {protectedConversation
-                  ? t("table.unprotect")
-                  : t("table.protect")}
-              </Button>
-            )}
             <Tooltip title={copyFeedbackLabel}>
               <Button
                 aria-label={copyFeedbackLabel}
@@ -266,6 +251,24 @@ export function ConversationTable(props: ConversationTableProps) {
                 }}
               />
             </Tooltip>
+            <Button size="small" onClick={() => onOpen(conversation.id)}>
+              {t("table.open")}
+            </Button>
+            {view === "standalone" && (
+              <Button
+                size="small"
+                disabled={props.protectionDisabled}
+                onClick={() =>
+                  protectedConversation
+                    ? props.onUnprotect(conversation.id)
+                    : props.onProtect(conversation.id)
+                }
+              >
+                {protectedConversation
+                  ? t("table.unprotect")
+                  : t("table.protect")}
+              </Button>
+            )}
           </Space>
         );
       },
@@ -314,6 +317,7 @@ export function ConversationTable(props: ConversationTableProps) {
         rowKey="id"
         dataSource={conversations}
         columns={columns}
+        tableLayout="fixed"
         sortDirections={["ascend", "descend", "ascend"]}
         onChange={handleChange}
         {...(view === "standalone"
@@ -351,7 +355,7 @@ export function ConversationTable(props: ConversationTableProps) {
           showSizeChanger: true,
           showTotal: (total) => t("table.total", { count: total }),
         }}
-        scroll={{ x: 760 }}
+        scroll={{ x: 1050 }}
       />
     </div>
   );

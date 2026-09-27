@@ -110,7 +110,7 @@
     "projectProtectedTooltip": "Rozmowa w projekcie — nie może zostać usunięta.",
     "open": "Otwórz",
     "protect": "Chroń",
-    "unprotect": "Wyłącz ochronę",
+    "unprotect": "Nie chroń",
     "copyId": "Kopiuj ID: {{id}}",
     "copySuccess": "Skopiowano",
     "copyFailure": "Nie udało się skopiować ID rozmowy.",
@@ -206,27 +206,27 @@
     "checks": {
       "connection": {
         "label": "Połączenie z ChatGPT",
-        "help": "W karcie źródłowej jest dostępna aktywna sesja ChatGPT."
+        "help": "Wymaga aktywnej sesji ChatGPT w karcie źródłowej. Jeśli brak połączenia, zaloguj się i odśwież."
       },
       "sourceTab": {
         "label": "Dostęp do karty źródłowej",
-        "help": "Rozszerzenie ma dostęp do karty ChatGPT, z której je uruchomiono."
+        "help": "Rozszerzenie musi mieć dostęp do karty, z której je uruchomiono. Jeśli została zamknięta, otwórz ChatGPT i uruchom rozszerzenie ponownie."
       },
       "compatibility": {
         "label": "Zgodność interfejsu odczytu",
-        "help": "Odpowiedzi ChatGPT są zgodne z formatami obsługiwanymi przez tę wersję."
+        "help": "Sprawdza zgodność odpowiedzi ChatGPT z obsługiwanym formatem. Jeśli kontrola nie przechodzi, odśwież i sprawdź, czy jest nowsza wersja rozszerzenia."
       },
       "projectProtection": {
         "label": "Ochrona projektów",
-        "help": "Rozmowy w projektach z wczytanej listy są wykluczone z usuwania."
+        "help": "Rozmowy w projektach muszą być rozpoznane, aby wykluczyć je z usuwania. Jeśli kontrola jest zablokowana, odśwież."
       },
       "runLock": {
         "label": "Blokada operacji",
-        "help": "Zapobiega równoczesnemu uruchomieniu kilku operacji usuwania. Sprawdzana przy rozpoczęciu usuwania."
+        "help": "Sprawdzana przy rozpoczęciu usuwania. NIESPRAWDZONE przed startem jest normalne; jeśli inna operacja trwa, poczekaj na jej zakończenie."
       },
       "deletion": {
         "label": "Bezpieczeństwo usuwania",
-        "help": "Główna kontrola bezpieczeństwa. Stan GOTOWE pozwala usuwać, a ZABLOKOWANE temu zapobiega."
+        "help": "Zbiorcza kontrola gotowości do usuwania. Jeśli jest ZABLOKOWANE, sprawdź komunikat poniżej."
       }
     },
     "reasons": {

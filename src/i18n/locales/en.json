@@ -206,27 +206,27 @@
     "checks": {
       "connection": {
         "label": "ChatGPT connection",
-        "help": "A usable ChatGPT session is available in the source tab."
+        "help": "Requires an active ChatGPT session in the source tab. If disconnected, sign in and refresh."
       },
       "sourceTab": {
         "label": "Source tab access",
-        "help": "The extension can access the ChatGPT tab it was launched from."
+        "help": "The extension needs access to the tab it was launched from. If it was closed, open ChatGPT and launch the extension again."
       },
       "compatibility": {
         "label": "Read API compatibility",
-        "help": "ChatGPT responses match the formats this version supports."
+        "help": "Checks that ChatGPT responses match a supported format. If it fails, refresh and check for a newer extension version."
       },
       "projectProtection": {
         "label": "Project protection",
-        "help": "Project conversations in the loaded snapshot are excluded from deletion."
+        "help": "Project conversations must be identified so they can be excluded from deletion. If blocked, refresh."
       },
       "runLock": {
         "label": "Run lock",
-        "help": "Prevents multiple deletion runs from running at the same time. Checked when deletion starts."
+        "help": "Checked when deletion starts. NOT CHECKED before starting is normal; if another operation is running, wait for it to finish."
       },
       "deletion": {
         "label": "Deletion safety",
-        "help": "Overall safety gate. READY allows deletion; BLOCKED prevents it."
+        "help": "Overall deletion-readiness check. If BLOCKED, review the message below."
       }
     },
     "reasons": {

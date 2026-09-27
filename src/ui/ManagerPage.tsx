@@ -405,6 +405,18 @@ export function ManagerPage({
     currentConversationId === null
       ? t("deletion.none")
       : `${conversationTitles.get(currentConversationId) ?? t("deletion.untitled")} (${currentConversationId})`;
+  const inventoryLoadingText =
+    inventoryState.kind !== "loading"
+      ? null
+      : inventoryState.stage === "compatibility"
+        ? t("inventory.checkingCompatibility")
+        : inventoryState.stage === "inventory"
+          ? t("inventory.loading", {
+              count: inventoryState.loadedConversationCount,
+            })
+          : t("inventory.buildingProtection", {
+              count: inventoryState.loadedConversationCount,
+            });
 
   return (
     <Space orientation="vertical" size="middle" className="manager-panel">
@@ -427,9 +439,12 @@ export function ManagerPage({
           {t("refresh.button")}
         </Button>
         {refreshing && (
-          <Typography.Text type="secondary">
-            <Spin size="small" /> {t("refresh.loading")}
-          </Typography.Text>
+          <Flex align="center" gap="small" role="status">
+            <Spin size="small" />
+            <Typography.Text type="secondary">
+              {t("refresh.loading")}
+            </Typography.Text>
+          </Flex>
         )}
       </ManagerHeader>
 
@@ -455,16 +470,10 @@ export function ManagerPage({
 
       {inventoryState.kind === "loading" && (
         <Card>
-          <Spin />{" "}
-          {inventoryState.stage === "compatibility"
-            ? t("inventory.checkingCompatibility")
-            : inventoryState.stage === "inventory"
-              ? t("inventory.loading", {
-                  count: inventoryState.loadedConversationCount,
-                })
-              : t("inventory.buildingProtection", {
-                  count: inventoryState.loadedConversationCount,
-                })}
+          <Flex align="center" gap="small" role="status">
+            <Spin />
+            <span>{inventoryLoadingText}</span>
+          </Flex>
         </Card>
       )}
 
