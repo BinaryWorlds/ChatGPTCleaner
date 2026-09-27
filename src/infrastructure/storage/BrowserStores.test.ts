@@ -3,6 +3,7 @@ import { loadRequestsPerMinute } from "../../application/settings";
 import {
   BrowserProtectedConversationStore,
   BrowserSettingsStore,
+  BrowserThemePreferenceStore,
   TrustedStorageAccess,
   type BrowserLocalStorage,
 } from "./BrowserStores";
@@ -92,5 +93,18 @@ describe("browser-backed stores", () => {
       new TrustedStorageAccess(storage),
     );
     await expect(store.loadRequestsPerMinute()).resolves.toBe(30);
+  });
+
+  it("persists only the theme preference value", async () => {
+    const storage = storageWith({ themePreference: "dark" });
+    const store = new BrowserThemePreferenceStore(
+      storage,
+      new TrustedStorageAccess(storage),
+    );
+
+    await expect(store.loadThemePreference()).resolves.toBe("dark");
+    await store.saveThemePreference("light");
+
+    expect(storage.values).toEqual({ themePreference: "light" });
   });
 });

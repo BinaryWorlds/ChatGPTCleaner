@@ -8,11 +8,14 @@ import type {
   ProtectedConversationStore,
 } from "../../application/ports/ProtectedConversationStore";
 import type { SettingsStore } from "../../application/ports/SettingsStore";
+import type { ThemePreferenceStore } from "../../application/ports/ThemePreferenceStore";
+import type { ThemePreference } from "../../application/themePreference";
 import { appErrorCode, createAppError } from "../../application/AppError";
 import { logger, summarizeUnknownError } from "../observability/logger";
 
 const PROTECTED_IDS_KEY = "protectedConversationIds";
 const REQUESTS_PER_MINUTE_KEY = "requestsPerMinute";
+const THEME_PREFERENCE_KEY = "themePreference";
 
 const protectedIdsSchema = z.array(
   z
@@ -145,6 +148,38 @@ export class BrowserSettingsStore implements SettingsStore {
     } catch (cause) {
       throw createAppError("StorageFailure", {
         operation: "settingsStore.save",
+        cause,
+      });
+    }
+  }
+}
+
+export class BrowserThemePreferenceStore implements ThemePreferenceStore {
+  public constructor(
+    private readonly storage: BrowserLocalStorage,
+    private readonly trustedAccess: TrustedStorageAccess,
+  ) {}
+
+  public async loadThemePreference(): Promise<unknown> {
+    try {
+      await this.trustedAccess.ensureRestricted();
+      const stored = await this.storage.get(THEME_PREFERENCE_KEY);
+      return stored[THEME_PREFERENCE_KEY];
+    } catch (cause) {
+      throw createAppError("StorageFailure", {
+        operation: "themePreferenceStore.load",
+        cause,
+      });
+    }
+  }
+
+  public async saveThemePreference(preference: ThemePreference): Promise<void> {
+    try {
+      await this.trustedAccess.ensureRestricted();
+      await this.storage.set({ [THEME_PREFERENCE_KEY]: preference });
+    } catch (cause) {
+      throw createAppError("StorageFailure", {
+        operation: "themePreferenceStore.save",
         cause,
       });
     }

@@ -3,7 +3,7 @@ import type { DestructiveRunLock } from "./ports/DestructiveRunLock";
 import type { ProtectedConversationStore } from "./ports/ProtectedConversationStore";
 
 export type ProtectionMutation =
-  | { readonly kind: "protect"; readonly conversationId: string }
+  | { readonly kind: "protect"; readonly conversationIds: ReadonlySet<string> }
   | { readonly kind: "unprotect"; readonly conversationId: string };
 
 export interface ProtectionMutationLockOwner {
@@ -31,7 +31,9 @@ async function applyCanonicalProtectionMutation(input: {
 
   const nextProtectedIds = new Set(current.protectedConversationIds);
   if (input.mutation.kind === "protect") {
-    nextProtectedIds.add(input.mutation.conversationId);
+    for (const conversationId of input.mutation.conversationIds) {
+      nextProtectedIds.add(conversationId);
+    }
   } else {
     nextProtectedIds.delete(input.mutation.conversationId);
   }

@@ -6,7 +6,10 @@ import type {
   ProtectedConversationIdsResult,
   ProtectedConversationStore,
 } from "../application/ports/ProtectedConversationStore";
-import type { ReadResult } from "../application/ports/ConversationGateway";
+import type {
+  ConversationPage,
+  ReadResult,
+} from "../application/ports/ConversationGateway";
 import { FakeClock } from "../infrastructure/fake/FakeClock";
 import { FakeConversationGateway } from "../infrastructure/fake/FakeConversationGateway";
 import { FakeDestructiveRunLock } from "../infrastructure/fake/FakeDestructiveRunLock";
@@ -25,6 +28,8 @@ const DAY_MS = 86_400_000;
 const FIXED_NOW = Date.UTC(2026, 0, 15, 12);
 
 class DeferredProtectedConversationStore implements ProtectedConversationStore {
+  public loadCount = 0;
+
   public readonly pendingSaves: {
     readonly protectedConversationIds: ReadonlySet<string>;
     readonly resolve: () => void;
@@ -37,6 +42,7 @@ class DeferredProtectedConversationStore implements ProtectedConversationStore {
   }
 
   public loadProtectedConversationIds(): Promise<ProtectedConversationIdsResult> {
+    this.loadCount += 1;
     const protectedConversationIds = new Set(
       this.storedProtectedConversationIds,
     );
@@ -68,6 +74,12 @@ class DeferredProtectedConversationStore implements ProtectedConversationStore {
     }
     pendingSave.resolve();
   }
+
+  public replaceCanonicalIds(
+    protectedConversationIds: readonly string[],
+  ): void {
+    this.storedProtectedConversationIds = new Set(protectedConversationIds);
+  }
 }
 
 class DeferredRefreshGateway extends FakeConversationGateway {
@@ -88,6 +100,15 @@ class DeferredRefreshGateway extends FakeConversationGateway {
     }
     this.resolveRefreshStart();
     this.resolveRefreshStart = null;
+  }
+}
+
+class PendingStandalonePageGateway extends FakeConversationGateway {
+  public override fetchStandaloneConversationPage(
+    cursor: string | null,
+  ): Promise<ReadResult<ConversationPage>> {
+    if (cursor === null) return super.fetchStandaloneConversationPage(cursor);
+    return new Promise(() => undefined);
   }
 }
 
@@ -236,6 +257,34 @@ afterEach(() => {
 });
 
 describe("ManagerPage inventory controls", () => {
+  it("labels the loading value as a conversation count", async () => {
+    const conversations = Array.from({ length: 100 }, (_, index) => ({
+      id: `conversation-${index}`,
+      title: `Conversation ${index}`,
+    }));
+    const gateway = new PendingStandalonePageGateway(
+      {
+        standalonePages: {
+          first: { conversations, nextCursor: "100" },
+        },
+        projects: [],
+        projectConversationPages: {},
+      },
+      new FakeClock(FIXED_NOW),
+    );
+
+    renderManager({ gateway });
+
+    expect(
+      await screen.findByText(
+        "Loading conversations… 100 conversations loaded",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Inventory: Loading 100"),
+    ).not.toBeInTheDocument();
+  });
+
   it("immediately reverses the initial sort and keeps alternating directions", async () => {
     const user = userEvent.setup();
     renderManager();
@@ -416,15 +465,25 @@ describe("ManagerPage inventory controls", () => {
     expect(screen.queryByText("Standalone row")).not.toBeInTheDocument();
     expect(screen.getAllByText("Project protected")).toHaveLength(2);
     expect(screen.queryByLabelText(/Select /)).not.toBeInTheDocument();
+    expect(screen.getByText("Selection")).toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "Select all matching" }),
-    ).not.toBeInTheDocument();
+      screen.getByRole("button", { name: "Select all matching" }),
+    ).toBeDisabled();
     expect(
-      screen.queryByRole("button", { name: "Select current page" }),
-    ).not.toBeInTheDocument();
+      screen.getByRole("button", { name: "Select current page" }),
+    ).toBeDisabled();
     expect(
-      screen.queryByRole("button", { name: /Delete selected/ }),
-    ).not.toBeInTheDocument();
+      screen.getByRole("button", { name: "Clear selection" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Invert matching" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Protect selected" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: /Delete selected/ }),
+    ).toBeDisabled();
     expect(
       screen.queryByRole("button", { name: /^(Unprotect|Protect)$/ }),
     ).not.toBeInTheDocument();
@@ -729,6 +788,36 @@ describe("ManagerPage inventory controls", () => {
     );
   });
 
+  it("bulk protects eligible selection with one canonical mutation", async () => {
+    const user = userEvent.setup();
+    const protectedConversationStore = new DeferredProtectedConversationStore();
+    renderManager({ protectedConversationStore });
+    await waitForInventory();
+
+    expect(
+      screen.getByRole("button", { name: "Protect selected" }),
+    ).toBeDisabled();
+    await selectConversation(user, "Alpha");
+    await selectConversation(user, "Beta");
+    protectedConversationStore.replaceCanonicalIds(["other-manager-id"]);
+
+    await user.click(screen.getByRole("button", { name: "Protect selected" }));
+    await waitFor(() =>
+      expect(protectedConversationStore.pendingSaves).toHaveLength(1),
+    );
+    expect(protectedConversationStore.loadCount).toBe(2);
+    expect(
+      protectedConversationStore.pendingSaves[0]?.protectedConversationIds,
+    ).toEqual(new Set(["other-manager-id", "alpha", "beta"]));
+
+    protectedConversationStore.resolveNextSave();
+    await waitFor(() =>
+      expect(screen.getByTestId("selected-count")).toHaveTextContent("0"),
+    );
+    expect(screen.getByTestId("protected-summary")).toHaveTextContent("3");
+    expect(screen.getAllByText("Protected")).toHaveLength(2);
+  });
+
   it("prevents overlapping protection writes", async () => {
     const user = userEvent.setup();
     const protectedConversationStore = new DeferredProtectedConversationStore();
@@ -741,6 +830,7 @@ describe("ManagerPage inventory controls", () => {
       throw new Error("Expected standalone conversation rows");
     }
 
+    await selectConversation(user, "Beta");
     await user.click(within(alphaRow).getByRole("button", { name: "Protect" }));
     await waitFor(() =>
       expect(protectedConversationStore.pendingSaves).toHaveLength(1),
@@ -750,6 +840,9 @@ describe("ManagerPage inventory controls", () => {
     ).toBeDisabled();
     expect(
       within(betaRow).getByRole("button", { name: "Protect" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Protect selected" }),
     ).toBeDisabled();
 
     await user.click(within(betaRow).getByRole("button", { name: "Protect" }));

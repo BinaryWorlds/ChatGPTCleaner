@@ -4,6 +4,8 @@ import type {
 } from "../../application/ports/ProtectedConversationStore";
 import { AppConfig } from "../../config";
 import type { SettingsStore } from "../../application/ports/SettingsStore";
+import type { ThemePreferenceStore } from "../../application/ports/ThemePreferenceStore";
+import type { ThemePreference } from "../../application/themePreference";
 
 export class FakeProtectedConversationStore implements ProtectedConversationStore {
   public loadCount = 0;
@@ -43,6 +45,22 @@ export class FakeSettingsStore implements SettingsStore {
   public saveRequestsPerMinute(requestsPerMinute: number): Promise<void> {
     this.storedValue = requestsPerMinute;
     this.savedValues.push(requestsPerMinute);
+    return Promise.resolve();
+  }
+}
+
+export class FakeThemePreferenceStore implements ThemePreferenceStore {
+  public savedPreferences: ThemePreference[] = [];
+
+  public constructor(private storedValue: unknown = "auto") {}
+
+  public loadThemePreference(): Promise<unknown> {
+    return Promise.resolve(this.storedValue);
+  }
+
+  public saveThemePreference(preference: ThemePreference): Promise<void> {
+    this.storedValue = preference;
+    this.savedPreferences.push(preference);
     return Promise.resolve();
   }
 }

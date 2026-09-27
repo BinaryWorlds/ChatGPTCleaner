@@ -1,18 +1,32 @@
 import {
+  CheckSquareOutlined,
+  DeleteOutlined,
+  FilterOutlined,
+  FolderOpenOutlined,
+  LockOutlined,
+  MessageOutlined,
+  ReloadOutlined,
+  SafetyCertificateOutlined,
+} from "@ant-design/icons";
+import {
   Alert,
   Button,
   Card,
   Col,
+  Divider,
+  Flex,
   InputNumber,
   Row,
   Segmented,
   Space,
   Spin,
   Statistic,
+  theme,
   Typography,
 } from "antd";
 import { useMemo, useRef, useState } from "react";
 import { AppConfig } from "../config";
+import type { ThemePreference } from "../application/themePreference";
 import {
   mutateProtectedConversationIds,
   type ProtectionMutation,
@@ -43,6 +57,7 @@ import {
 } from "./ConversationTable";
 import { DeletionConfirmationModal } from "./DeletionConfirmationModal";
 import { DeletionProgressPanel } from "./DeletionProgressPanel";
+import { ManagerHeader } from "./ManagerHeader";
 import { SafetyStatus, type SafetyStatusState } from "./SafetyStatus";
 import { useDeletionWorkflow } from "./useDeletionWorkflow";
 import { useManagerInventory } from "./useManagerInventory";
@@ -50,14 +65,25 @@ import { useManagerInventory } from "./useManagerInventory";
 interface ManagerPageProps {
   readonly mode: ManagerComposition["mode"];
   readonly dependencies: ManagerDependencies;
+  readonly themePreference?: ThemePreference;
+  readonly themePreferencePending?: boolean;
+  readonly onThemePreferenceChange?: (preference: ThemePreference) => void;
   readonly openConversation: ManagerComposition["openConversation"];
+}
+
+function loadedConversationCountLabel(count: number): string {
+  return `${count} ${count === 1 ? "conversation" : "conversations"} loaded`;
 }
 
 export function ManagerPage({
   mode,
   dependencies,
+  themePreference = "auto",
+  themePreferencePending = false,
+  onThemePreferenceChange = () => undefined,
   openConversation,
 }: ManagerPageProps) {
+  const { token } = theme.useToken();
   const [conversationView, setConversationView] =
     useState<ConversationView>("standalone");
   const {
@@ -185,6 +211,19 @@ export function ManagerPage({
     visibleProjectConversations.length,
     projectPageSize,
   );
+  const eligibleSelectedConversationIds = useMemo(
+    () =>
+      new Set(
+        conversations
+          .filter(
+            ({ id }) =>
+              selectedConversationIds.has(id) &&
+              !protectedConversationIds.has(id),
+          )
+          .map(({ id }) => id),
+      ),
+    [conversations, protectedConversationIds, selectedConversationIds],
+  );
   const selectionLocked = runActive || refreshing;
   const protectionLocked = protectionLockedByRun || protectionMutationPending;
   const safetyState: SafetyStatusState = (() => {
@@ -238,11 +277,15 @@ export function ManagerPage({
         }
         setProtectedConversationIds(result.protectedConversationIds);
         if (mutation.kind === "protect") {
-          setSelectedConversationIds((currentSelection) => {
-            const nextSelection = new Set(currentSelection);
-            nextSelection.delete(mutation.conversationId);
-            return nextSelection;
-          });
+          setSelectedConversationIds(
+            (currentSelection) =>
+              new Set(
+                [...currentSelection].filter(
+                  (conversationId) =>
+                    !result.protectedConversationIds.has(conversationId),
+                ),
+              ),
+          );
         }
       })
       .catch(() => blockSafety("protected-storage"))
@@ -254,7 +297,25 @@ export function ManagerPage({
 
   const handleProtect = (conversationId: string) => {
     if (protectionLocked || protectionMutationPendingRef.current) return;
-    persistProtection({ kind: "protect", conversationId });
+    persistProtection({
+      kind: "protect",
+      conversationIds: new Set([conversationId]),
+    });
+  };
+
+  const handleProtectSelected = () => {
+    if (
+      conversationView !== "standalone" ||
+      protectionLocked ||
+      protectionMutationPendingRef.current ||
+      eligibleSelectedConversationIds.size === 0
+    ) {
+      return;
+    }
+    persistProtection({
+      kind: "protect",
+      conversationIds: eligibleSelectedConversationIds,
+    });
   };
 
   const handleUnprotect = (conversationId: string) => {
@@ -304,6 +365,31 @@ export function ManagerPage({
 
   return (
     <Space orientation="vertical" size="middle" className="manager-panel">
+      <ManagerHeader
+        themePreference={themePreference}
+        themePreferencePending={themePreferencePending}
+        onThemePreferenceChange={onThemePreferenceChange}
+      >
+        <Button
+          aria-label="Refresh inventory"
+          icon={<ReloadOutlined aria-hidden />}
+          disabled={
+            inventoryState.kind !== "ready" ||
+            runActive ||
+            refreshing ||
+            protectionMutationPending
+          }
+          onClick={handleRefresh}
+        >
+          Refresh
+        </Button>
+        {refreshing && (
+          <Typography.Text type="secondary">
+            <Spin size="small" /> Refreshing inventory…
+          </Typography.Text>
+        )}
+      </ManagerHeader>
+
       {mode === "demo" && (
         <Alert
           type="success"
@@ -330,72 +416,129 @@ export function ManagerPage({
           {inventoryState.stage === "compatibility"
             ? "Checking read API compatibility…"
             : inventoryState.stage === "inventory"
-              ? `Inventory: Loading ${inventoryState.loadedConversationCount}`
-              : `Inventory: Loaded ${inventoryState.loadedConversationCount}. Building Project protection…`}
+              ? `Loading conversations… ${loadedConversationCountLabel(inventoryState.loadedConversationCount)}`
+              : `${loadedConversationCountLabel(inventoryState.loadedConversationCount)}. Building Project protection…`}
         </Card>
       )}
 
       {inventoryState.kind === "ready" && (
-        <>
-          <Card size="small">
-            <Space>
-              <Button
-                aria-label="Refresh inventory"
-                disabled={runActive || refreshing || protectionMutationPending}
-                onClick={handleRefresh}
-              >
-                Refresh
-              </Button>
-              {refreshing && (
-                <Typography.Text type="secondary">
-                  <Spin size="small" /> Refreshing inventory…
-                </Typography.Text>
-              )}
+        <Card
+          title={
+            <Space size={token.marginXS}>
+              <MessageOutlined
+                aria-hidden
+                style={{ color: token.colorPrimary }}
+              />
+              <span>Conversations</span>
             </Space>
-          </Card>
-
-          <Row gutter={[12, 12]}>
+          }
+          size="small"
+        >
+          <Row
+            gutter={[token.marginLG, token.marginSM]}
+            style={{
+              padding: token.paddingSM,
+              background: token.colorFillAlter,
+              borderRadius: token.borderRadiusLG,
+            }}
+          >
             <Col xs={12} md={6}>
-              <Card size="small" data-testid="standalone-summary">
-                <Statistic
-                  title="Standalone conversations"
-                  value={conversations.length}
-                />
-              </Card>
+              <Statistic
+                data-testid="standalone-summary"
+                title={
+                  <Space size={token.marginXS}>
+                    <MessageOutlined
+                      aria-hidden
+                      style={{ color: token.colorPrimary, opacity: 0.65 }}
+                    />
+                    <span>Standalone conversations</span>
+                  </Space>
+                }
+                value={conversations.length}
+                styles={{
+                  content: {
+                    color: token.colorPrimary,
+                    fontSize: token.fontSizeHeading3,
+                  },
+                }}
+              />
             </Col>
             <Col xs={12} md={6}>
-              <Card size="small" data-testid="project-summary">
-                <Statistic
-                  title="Project conversations protected"
-                  value={projectConversations.length}
-                />
-              </Card>
+              <Statistic
+                data-testid="project-summary"
+                title={
+                  <Space size={token.marginXS}>
+                    <FolderOpenOutlined
+                      aria-hidden
+                      style={{ color: token.colorPrimary, opacity: 0.65 }}
+                    />
+                    <span>Project conversations protected</span>
+                  </Space>
+                }
+                value={projectConversations.length}
+                styles={{
+                  content: {
+                    color: token.colorPrimary,
+                    fontSize: token.fontSizeHeading3,
+                  },
+                }}
+              />
             </Col>
             <Col xs={12} md={6}>
-              <Card size="small" data-testid="protected-summary">
-                <Statistic
-                  title="User protected"
-                  value={protectedConversationIds.size}
-                />
-              </Card>
+              <Statistic
+                data-testid="protected-summary"
+                title={
+                  <Space size={token.marginXS}>
+                    <SafetyCertificateOutlined
+                      aria-hidden
+                      style={{ color: token.colorPrimary, opacity: 0.65 }}
+                    />
+                    <span>User protected</span>
+                  </Space>
+                }
+                value={protectedConversationIds.size}
+                styles={{
+                  content: {
+                    color: token.colorPrimary,
+                    fontSize: token.fontSizeHeading3,
+                  },
+                }}
+              />
             </Col>
             <Col xs={12} md={6}>
-              <Card size="small">
-                <div data-testid="selected-count">
-                  <Statistic
-                    title="Selected"
-                    value={selectedConversationIds.size}
-                  />
-                </div>
-              </Card>
+              <Statistic
+                data-testid="selected-count"
+                title={
+                  <Space size={token.marginXS}>
+                    <CheckSquareOutlined
+                      aria-hidden
+                      style={{ color: token.colorPrimary, opacity: 0.65 }}
+                    />
+                    <span>Selected</span>
+                  </Space>
+                }
+                value={selectedConversationIds.size}
+                styles={{
+                  content: {
+                    color: token.colorPrimary,
+                    fontSize: token.fontSizeHeading3,
+                  },
+                }}
+              />
             </Col>
           </Row>
 
-          <Card title="Conversation view and filters" size="small">
-            <Space orientation="vertical" className="full-width">
+          <Divider style={{ marginBlock: token.marginMD }} />
+          <Space
+            orientation="vertical"
+            size={token.marginMD}
+            className="full-width"
+          >
+            <Flex justify="space-between" align="center" wrap gap="small">
               <Space wrap>
                 <Typography.Text>View:</Typography.Text>
                 <Segmented
+                  className="view-segmented"
                   aria-label="Conversation view"
                   value={conversationView}
                   options={[
@@ -415,13 +558,6 @@ export function ManagerPage({
                   }}
                 />
               </Space>
-              <ConversationFiltersBar
-                filters={
-                  conversationView === "standalone" ? filters : projectFilters
-                }
-                onChange={updateFilters}
-                currentDate={() => new Date(dependencies.clock.now())}
-              />
               {conversationView === "standalone" && (
                 <Space>
                   <Typography.Text>Requests per minute</Typography.Text>
@@ -436,14 +572,48 @@ export function ManagerPage({
                   />
                 </Space>
               )}
-            </Space>
-          </Card>
-
-          {conversationView === "standalone" && (
-            <Card title="Selection" size="small">
+            </Flex>
+            <div>
+              <Typography.Title
+                level={5}
+                style={{ marginTop: 0, marginBottom: token.marginXS }}
+              >
+                <Space size={token.marginXS}>
+                  <FilterOutlined
+                    aria-hidden
+                    style={{ color: token.colorPrimary }}
+                  />
+                  <span>Filters</span>
+                </Space>
+              </Typography.Title>
+              <ConversationFiltersBar
+                filters={
+                  conversationView === "standalone" ? filters : projectFilters
+                }
+                onChange={updateFilters}
+                currentDate={() => new Date(dependencies.clock.now())}
+              />
+            </div>
+          </Space>
+          <Divider style={{ marginBlock: token.marginMD }} />
+          <Space
+            orientation="vertical"
+            size={token.marginSM}
+            className="full-width"
+          >
+            <Typography.Title level={5} style={{ margin: 0 }}>
+              <Space size={token.marginXS}>
+                <CheckSquareOutlined
+                  aria-hidden
+                  style={{ color: token.colorPrimary }}
+                />
+                <span>Selection</span>
+              </Space>
+            </Typography.Title>
+            <Flex justify="space-between" align="center" wrap gap="small">
               <Space wrap>
                 <Button
-                  disabled={selectionLocked}
+                  disabled={conversationView === "projects" || selectionLocked}
                   onClick={() =>
                     setSelectedConversationIds(
                       selectAllMatching(
@@ -457,7 +627,7 @@ export function ManagerPage({
                   Select current page
                 </Button>
                 <Button
-                  disabled={selectionLocked}
+                  disabled={conversationView === "projects" || selectionLocked}
                   onClick={() =>
                     setSelectedConversationIds(
                       selectAllMatching(
@@ -471,13 +641,13 @@ export function ManagerPage({
                   Select all matching
                 </Button>
                 <Button
-                  disabled={selectionLocked}
+                  disabled={conversationView === "projects" || selectionLocked}
                   onClick={() => setSelectedConversationIds(new Set())}
                 >
                   Clear selection
                 </Button>
                 <Button
-                  disabled={selectionLocked}
+                  disabled={conversationView === "projects" || selectionLocked}
                   onClick={() =>
                     setSelectedConversationIds(
                       invertMatchingSelection(
@@ -490,10 +660,25 @@ export function ManagerPage({
                 >
                   Invert matching
                 </Button>
+              </Space>
+              <Space wrap>
+                <Button
+                  icon={<LockOutlined aria-hidden />}
+                  disabled={
+                    conversationView === "projects" ||
+                    protectionLocked ||
+                    eligibleSelectedConversationIds.size === 0
+                  }
+                  onClick={handleProtectSelected}
+                >
+                  Protect selected
+                </Button>
                 <Button
                   danger
                   type="primary"
+                  icon={<DeleteOutlined aria-hidden />}
                   disabled={
+                    conversationView === "projects" ||
                     selectionLocked ||
                     selectedConversationIds.size === 0 ||
                     safetyState.kind !== "ready"
@@ -503,8 +688,8 @@ export function ManagerPage({
                   Delete selected ({selectedConversationIds.size})
                 </Button>
               </Space>
-            </Card>
-          )}
+            </Flex>
+          </Space>
 
           {runState !== null && (
             <DeletionProgressPanel
@@ -518,6 +703,7 @@ export function ManagerPage({
             />
           )}
 
+          <Divider style={{ marginBlock: token.marginMD }} />
           {conversationView === "standalone" ? (
             <ConversationTable
               view="standalone"
@@ -564,7 +750,7 @@ export function ManagerPage({
               }}
             />
           )}
-        </>
+        </Card>
       )}
 
       {previewPlan !== null && (

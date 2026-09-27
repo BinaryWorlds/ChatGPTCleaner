@@ -1,4 +1,14 @@
-import { Card, Descriptions, Tag, Typography } from "antd";
+import { SafetyCertificateOutlined } from "@ant-design/icons";
+import {
+  Alert,
+  Badge,
+  Card,
+  Descriptions,
+  Space,
+  Tag,
+  theme,
+  Tooltip,
+} from "antd";
 import type { ReadFailureDiagnostic } from "../application/ports/ConversationGateway";
 import type { SafetyBlockReason } from "../application/SafetyBlockReason";
 import type { InventoryStage } from "./useManagerInventory";
@@ -58,6 +68,14 @@ function indicatorColor(value: SafetyIndicatorStatus): string {
   if (value === "OK" || value === "READY") {
     return "success";
   }
+  if (value === "CHECKING" || value === "NOT CHECKED") return "processing";
+  return "error";
+}
+
+function indicatorBadgeStatus(
+  value: SafetyIndicatorStatus,
+): "success" | "processing" | "error" {
+  if (value === "OK" || value === "READY") return "success";
   if (value === "CHECKING" || value === "NOT CHECKED") return "processing";
   return "error";
 }
@@ -131,69 +149,117 @@ export function deriveSafetyIndicators(
 }
 
 export function SafetyStatus({ state }: SafetyStatusProps) {
+  const { token } = theme.useToken();
   const indicators = deriveSafetyIndicators(state);
 
   return (
-    <Card title="Safety status" size="small">
-      <Descriptions size="small" column={{ xs: 1, sm: 2, lg: 3 }}>
+    <Card
+      title={
+        <Space size={token.marginXS}>
+          <SafetyCertificateOutlined
+            aria-hidden
+            style={{ color: token.colorPrimary }}
+          />
+          <span>Safety status</span>
+        </Space>
+      }
+      size="small"
+    >
+      <Descriptions size="small" column={{ xs: 1, sm: 2, lg: 3, xl: 6 }}>
         <Descriptions.Item label="ChatGPT connection">
-          <Tag color={indicatorColor(indicators.connection)}>
-            {indicators.connection}
+          <Tag color={indicatorColor(indicators.connection)} variant="outlined">
+            <Space size={token.marginXXS}>
+              <Badge status={indicatorBadgeStatus(indicators.connection)} />
+              {indicators.connection}
+            </Space>
           </Tag>
         </Descriptions.Item>
         <Descriptions.Item label="Source tab access">
           <Tag
             color={indicatorColor(indicators.sourceTab)}
+            variant="outlined"
             data-testid="safety-source-tab"
           >
-            {indicators.sourceTab}
+            <Space size={token.marginXXS}>
+              <Badge status={indicatorBadgeStatus(indicators.sourceTab)} />
+              {indicators.sourceTab}
+            </Space>
           </Tag>
         </Descriptions.Item>
         <Descriptions.Item label="Read API compatibility">
           <Tag
             color={indicatorColor(indicators.readCompatibility)}
+            variant="outlined"
             data-testid="safety-read-compatibility"
           >
-            {indicators.readCompatibility}
+            <Space size={token.marginXXS}>
+              <Badge
+                status={indicatorBadgeStatus(indicators.readCompatibility)}
+              />
+              {indicators.readCompatibility}
+            </Space>
           </Tag>
         </Descriptions.Item>
         <Descriptions.Item label="Project protection">
           <Tag
             color={indicatorColor(indicators.projectProtection)}
+            variant="outlined"
             data-testid="safety-project-protection"
           >
-            {indicators.projectProtection}
+            <Space size={token.marginXXS}>
+              <Badge
+                status={indicatorBadgeStatus(indicators.projectProtection)}
+              />
+              {indicators.projectProtection}
+            </Space>
           </Tag>
         </Descriptions.Item>
-        <Descriptions.Item label="Run lock">
+        <Descriptions.Item
+          label={
+            <Tooltip
+              title="Checked when a deletion run starts."
+              trigger={["hover", "focus"]}
+            >
+              <span tabIndex={0}>Run lock</span>
+            </Tooltip>
+          }
+        >
           <Tag
             color={indicatorColor(indicators.runLock)}
+            variant="outlined"
             data-testid="safety-run-lock"
           >
-            {indicators.runLock}
+            <Space size={token.marginXXS}>
+              <Badge status={indicatorBadgeStatus(indicators.runLock)} />
+              {indicators.runLock}
+            </Space>
           </Tag>
         </Descriptions.Item>
         <Descriptions.Item label="Deletion safety">
           <Tag
             color={indicatorColor(indicators.deletion)}
+            variant="outlined"
             data-testid="safety-deletion"
           >
-            {indicators.deletion}
+            <Space size={token.marginXXS}>
+              <Badge status={indicatorBadgeStatus(indicators.deletion)} />
+              {indicators.deletion}
+            </Space>
           </Tag>
         </Descriptions.Item>
       </Descriptions>
       {state.kind === "blocked" && (
-        <Typography.Paragraph type="danger" role="alert">
-          {safetyBlockReasonLabel(state.reason)}
-          {state.diagnostic === undefined ? null : (
-            <>
-              <br />
-              <Typography.Text code>
-                {formatReadDiagnostic(state.diagnostic)}
-              </Typography.Text>
-            </>
-          )}
-        </Typography.Paragraph>
+        <Alert
+          type="error"
+          showIcon
+          title={safetyBlockReasonLabel(state.reason)}
+          description={
+            state.diagnostic === undefined
+              ? undefined
+              : formatReadDiagnostic(state.diagnostic)
+          }
+          style={{ marginTop: token.marginSM }}
+        />
       )}
     </Card>
   );

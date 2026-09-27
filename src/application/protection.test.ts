@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { FakeDestructiveRunLock } from "../infrastructure/fake/FakeDestructiveRunLock";
 import type {
   ProtectedConversationIdsResult,
@@ -39,7 +39,10 @@ describe("protected conversation mutations", () => {
     store.replaceCanonicalIds(new Set(["protected-by-other-manager"]));
 
     const result = await mutateProtectedConversationIds({
-      mutation: { kind: "protect", conversationId: "newly-protected" },
+      mutation: {
+        kind: "protect",
+        conversationIds: new Set(["newly-protected"]),
+      },
       protectedConversationStore: store,
       destructiveRunLock: new FakeDestructiveRunLock(),
       currentRunLockOwner: null,
@@ -50,6 +53,33 @@ describe("protected conversation mutations", () => {
       "newly-protected",
       "protected-by-other-manager",
     ]);
+  });
+
+  it("protects many IDs with one canonical read and save", async () => {
+    const store = new MutableProtectedConversationStore(
+      new Set(["protected-by-other-manager"]),
+    );
+    const load = vi.spyOn(store, "loadProtectedConversationIds");
+    const save = vi.spyOn(store, "saveProtectedConversationIds");
+
+    const result = await mutateProtectedConversationIds({
+      mutation: {
+        kind: "protect",
+        conversationIds: new Set(["alpha", "beta"]),
+      },
+      protectedConversationStore: store,
+      destructiveRunLock: new FakeDestructiveRunLock(),
+      currentRunLockOwner: null,
+    });
+
+    expect(result).toMatchObject({ kind: "saved" });
+    expect(store.ids()).toEqual([
+      "alpha",
+      "beta",
+      "protected-by-other-manager",
+    ]);
+    expect(load).toHaveBeenCalledOnce();
+    expect(save).toHaveBeenCalledOnce();
   });
 
   it("unprotects one ID without overwriting unrelated canonical changes", async () => {
@@ -80,7 +110,10 @@ describe("protected conversation mutations", () => {
 
     await expect(
       mutateProtectedConversationIds({
-        mutation: { kind: "protect", conversationId: "conversation" },
+        mutation: {
+          kind: "protect",
+          conversationIds: new Set(["conversation"]),
+        },
         protectedConversationStore: store,
         destructiveRunLock: new FakeDestructiveRunLock(),
         currentRunLockOwner: null,

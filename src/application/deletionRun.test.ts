@@ -710,7 +710,7 @@ describe("destructive run", () => {
     expect(run.getState().kind).toBe("paused");
 
     const mutation = mutateProtectedConversationIds({
-      mutation: { kind: "protect", conversationId: "b" },
+      mutation: { kind: "protect", conversationIds: new Set(["b"]) },
       protectedConversationStore: store,
       destructiveRunLock: lock,
       currentRunLockOwner: run,
@@ -820,7 +820,7 @@ describe("destructive run", () => {
 
     run.stopDeletion();
     const mutation = mutateProtectedConversationIds({
-      mutation: { kind: "protect", conversationId: "b" },
+      mutation: { kind: "protect", conversationIds: new Set(["b"]) },
       protectedConversationStore: store,
       destructiveRunLock: lock,
       currentRunLockOwner: run,
@@ -860,7 +860,7 @@ describe("destructive run", () => {
     await settleAsyncWork();
 
     const mutation = mutateProtectedConversationIds({
-      mutation: { kind: "protect", conversationId: "b" },
+      mutation: { kind: "protect", conversationIds: new Set(["b"]) },
       protectedConversationStore: store,
       destructiveRunLock: lock,
       currentRunLockOwner: run,

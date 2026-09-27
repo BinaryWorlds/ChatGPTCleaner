@@ -127,12 +127,18 @@ export function ConversationTable(props: ConversationTableProps) {
       key: "protection",
       render: (_, conversation) => {
         if (view === "projects") {
-          return <Tag color="blue">Project protected</Tag>;
+          return (
+            <Tag color="blue" variant="filled">
+              Project protected
+            </Tag>
+          );
         }
         return props.protectedConversationIds.has(conversation.id) ? (
-          <Tag color="blue">Protected</Tag>
+          <Tag color="blue" variant="filled">
+            Protected
+          </Tag>
         ) : (
-          <Tag>Unprotected</Tag>
+          <Tag variant="filled">Unprotected</Tag>
         );
       },
     },

@@ -1041,6 +1041,12 @@ Do not store conversation contents.
 
 Use Ant Design.
 
+The manager provides an `Auto | Light | Dark` appearance preference in the
+header. `Auto` is the default and follows live `prefers-color-scheme` changes;
+explicit Light or Dark ignores later system changes. Persist only the validated
+preference value in extension-local storage. Missing or malformed values resolve
+to `Auto`. The resolved mode also sets the document `color-scheme`.
+
 Main table columns:
 
 ```text

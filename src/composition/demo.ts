@@ -4,6 +4,7 @@ import { FakeDestructiveRunLock } from "../infrastructure/fake/FakeDestructiveRu
 import {
   FakeProtectedConversationStore,
   FakeSettingsStore,
+  FakeThemePreferenceStore,
 } from "../infrastructure/fake/FakeStores";
 import { DEMO_FIXTURE } from "../infrastructure/fake/fixtures";
 import { SystemClock } from "../infrastructure/time/SystemClock";
@@ -27,6 +28,7 @@ export function createManagerComposition(): ManagerComposition {
       destructiveRunLock: new FakeDestructiveRunLock(),
       observability: createApplicationObservability(),
     },
+    themePreferenceStore: new FakeThemePreferenceStore(),
     openConversation: () => undefined,
   };
 }

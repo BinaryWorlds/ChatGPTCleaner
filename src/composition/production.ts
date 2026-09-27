@@ -22,6 +22,7 @@ import {
 import {
   BrowserProtectedConversationStore,
   BrowserSettingsStore,
+  BrowserThemePreferenceStore,
   createChromeLocalStorage,
   TrustedStorageAccess,
   type BrowserLocalStorage,
@@ -67,14 +68,14 @@ function openProductionConversation(conversationId: string): void {
 export function createManagerComposition(
   runtime?: ProductionRuntime,
 ): ManagerComposition {
+  const activeRuntime = runtime ?? createBrowserRuntime();
+  const trustedStorage = new TrustedStorageAccess(activeRuntime.storage);
   const sourceTabId = parseSourceTabId(
     new URLSearchParams(window.location.search).get("sourceTabId"),
   );
 
   let dependencies: ManagerDependencies | null = null;
   if (sourceTabId !== null) {
-    const activeRuntime = runtime ?? createBrowserRuntime();
-    const trustedStorage = new TrustedStorageAccess(activeRuntime.storage);
     const clock = new SystemClock();
     const sourceTab = new SourceTabBinding(
       sourceTabId,
@@ -112,6 +113,10 @@ export function createManagerComposition(
   return {
     mode: "production",
     dependencies,
+    themePreferenceStore: new BrowserThemePreferenceStore(
+      activeRuntime.storage,
+      trustedStorage,
+    ),
     openConversation: openProductionConversation,
   };
 }

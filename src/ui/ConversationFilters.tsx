@@ -55,6 +55,7 @@ export function ConversationFiltersBar({
           aria-label="Search titles"
           allowClear
           placeholder="Search titles"
+          style={{ width: 320, maxWidth: "100%" }}
           value={filters.titleQuery}
           onChange={(event) =>
             onChange({ ...filters, titleQuery: event.target.value })
@@ -84,6 +85,7 @@ export function ConversationFiltersBar({
         />
         <DatePicker
           aria-label="Cutoff date"
+          placeholder="Select date"
           value={toDayjs(filters.cutoffLocalDay)}
           onChange={(date) =>
             onChange({

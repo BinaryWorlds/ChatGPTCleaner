@@ -4,6 +4,7 @@ import type { DestructiveRunLock } from "../application/ports/DestructiveRunLock
 import type { ProtectedConversationStore } from "../application/ports/ProtectedConversationStore";
 import type { SettingsStore } from "../application/ports/SettingsStore";
 import type { ApplicationObservability } from "../application/ports/Observability";
+import type { ThemePreferenceStore } from "../application/ports/ThemePreferenceStore";
 
 export interface ManagerDependencies {
   readonly gateway: ConversationGateway;
@@ -17,5 +18,6 @@ export interface ManagerDependencies {
 export interface ManagerComposition {
   readonly mode: "demo" | "production";
   readonly dependencies: ManagerDependencies | null;
+  readonly themePreferenceStore: ThemePreferenceStore;
   readonly openConversation: (conversationId: string) => void;
 }

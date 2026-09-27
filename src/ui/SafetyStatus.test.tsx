@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { safetyBlockReasons } from "../application/SafetyBlockReason";
 import { describe, expect, it } from "vitest";
 import { SafetyStatus, safetyBlockReasonLabel } from "./SafetyStatus";
@@ -10,13 +10,19 @@ describe("SafetyStatus", () => {
     }
   });
 
-  it("does not claim the destructive lock is available before acquisition", () => {
+  it("explains why the destructive lock is not checked before acquisition", async () => {
     render(<SafetyStatus state={{ kind: "ready" }} />);
 
     expect(screen.getByTestId("safety-run-lock")).toHaveTextContent(
       "NOT CHECKED",
     );
     expect(screen.getByTestId("safety-deletion")).toHaveTextContent("READY");
+
+    fireEvent.focus(screen.getByText("Run lock"));
+
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      "Checked when a deletion run starts.",
+    );
   });
 
   it("marks read compatibility OK while inventory is still loading", () => {
@@ -72,7 +78,9 @@ describe("SafetyStatus", () => {
     );
 
     expect(screen.getByTestId("safety-source-tab")).toHaveTextContent("OK");
-    expect(screen.getByText("Authentication unavailable")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Authentication unavailable",
+    );
   });
 
   it("reports a genuine source-tab failure separately", () => {
