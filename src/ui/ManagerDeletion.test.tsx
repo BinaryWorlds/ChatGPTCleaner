@@ -135,6 +135,7 @@ function renderManager(input?: {
       mode="demo"
       dependencies={dependencies}
       openConversation={openConversation}
+      copyConversationId={() => Promise.resolve()}
     />,
   );
   return { gateway, protectedConversationStore, openConversation };
@@ -156,8 +157,8 @@ async function openConfirmation(
   title: string,
 ) {
   await selectConversation(user, title);
-  await user.click(screen.getByRole("button", { name: "Delete selected (1)" }));
-  await screen.findByText("Confirm deletion");
+  await user.click(screen.getByRole("button", { name: "Delete (1)" }));
+  await screen.findByText("Delete 1 conversation?");
 }
 
 afterEach(() => {
@@ -165,7 +166,7 @@ afterEach(() => {
 });
 
 describe("ManagerPage destructive flow", () => {
-  it("requires the exact DELETE N confirmation", async () => {
+  it("uses a standard confirmation without typed input or inventory reads", async () => {
     const user = userEvent.setup();
     const { gateway } = renderManager();
     await waitForInventory();
@@ -175,13 +176,42 @@ describe("ManagerPage destructive flow", () => {
     expect(gateway.standalonePageReadCount).toBe(standaloneReadsAfterInventory);
     expect(gateway.projectDiscoveryReadCount).toBe(projectReadsAfterInventory);
 
-    const confirmButton = screen.getByRole("button", { name: "Delete 1" });
-    expect(confirmButton).toBeDisabled();
-    await user.type(screen.getByLabelText("Deletion confirmation"), "delete 1");
-    expect(confirmButton).toBeDisabled();
-    await user.clear(screen.getByLabelText("Deletion confirmation"));
-    await user.type(screen.getByLabelText("Deletion confirmation"), "DELETE 1");
+    const confirmButton = screen.getByRole("button", {
+      name: "Delete 1 conversation",
+    });
+    expect(
+      screen.queryByLabelText("Deletion confirmation"),
+    ).not.toBeInTheDocument();
     expect(confirmButton).toBeEnabled();
+  });
+
+  it("deletes only the unprotected subset of a mixed selection", async () => {
+    const user = userEvent.setup();
+    const { gateway } = renderManager({ protectedIds: ["alpha"] });
+    await waitForInventory();
+    await user.click(
+      screen.getByRole("button", { name: "Select all results" }),
+    );
+
+    expect(screen.getByTestId("selected-count")).toHaveTextContent("3");
+    expect(screen.getByRole("button", { name: "Protect (2)" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Unprotect (1)" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "Delete (2)" }));
+    expect(
+      screen.getByText(
+        "3 conversations selected. 1 protected conversation will be skipped. This cannot be undone.",
+      ),
+    ).toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: "Delete 2 conversations" }),
+    );
+
+    expect(await screen.findByText("FINISHED")).toBeInTheDocument();
+    expect(gateway.deleteAttempts.map(({ id }) => id)).toEqual([
+      "beta",
+      "unknown",
+    ]);
+    expect(screen.getByText("Alpha")).toBeInTheDocument();
   });
 
   it("updates the local snapshot after DELETE without refreshing inventory", async () => {
@@ -198,8 +228,9 @@ describe("ManagerPage destructive flow", () => {
     };
 
     await openConfirmation(user, "Alpha");
-    await user.type(screen.getByLabelText("Deletion confirmation"), "DELETE 1");
-    await user.click(screen.getByRole("button", { name: "Delete 1" }));
+    await user.click(
+      screen.getByRole("button", { name: "Delete 1 conversation" }),
+    );
 
     expect(await screen.findByText("FINISHED")).toBeInTheDocument();
     expect(screen.queryByText("Alpha")).not.toBeInTheDocument();
@@ -226,16 +257,17 @@ describe("ManagerPage destructive flow", () => {
     await waitFor(() =>
       expect(protectedConversationStore.pendingSaves).toHaveLength(1),
     );
-    await user.click(
-      screen.getByRole("button", { name: "Delete selected (1)" }),
-    );
+    await user.click(screen.getByRole("button", { name: "Delete (1)" }));
     protectedConversationStore.resolveNextSave();
     await waitFor(() =>
-      expect(within(alphaRow).getByText("Protected")).toBeInTheDocument(),
+      expect(
+        within(alphaRow).getByLabelText("Protected — it will not be deleted."),
+      ).toBeInTheDocument(),
     );
 
-    await user.type(screen.getByLabelText("Deletion confirmation"), "DELETE 1");
-    await user.click(screen.getByRole("button", { name: "Delete 1" }));
+    await user.click(
+      screen.getByRole("button", { name: "Delete 1 conversation" }),
+    );
 
     expect(
       await screen.findByText(
@@ -257,21 +289,30 @@ describe("ManagerPage destructive flow", () => {
     });
     await waitForInventory();
     await user.click(
-      screen.getByRole("button", { name: "Select all matching" }),
+      screen.getByRole("button", { name: "Select all results" }),
     );
+    await user.click(screen.getByRole("button", { name: "Delete (2)" }));
     await user.click(
-      screen.getByRole("button", { name: "Delete selected (2)" }),
+      screen.getByRole("button", { name: "Delete 2 conversations" }),
     );
-    await user.type(screen.getByLabelText("Deletion confirmation"), "DELETE 2");
-    await user.click(screen.getByRole("button", { name: "Delete 2" }));
 
     const pauseButton = await screen.findByRole("button", { name: "Pause" });
+    const selectionSection = screen.getByRole("region", { name: "Selection" });
+    const deletionSection = screen.getByRole("region", {
+      name: "Deletion operation",
+    });
+    expect(
+      within(selectionSection).queryByText("Current deletion run"),
+    ).not.toBeInTheDocument();
+    expect(
+      within(deletionSection).getByRole("button", { name: "Pause" }),
+    ).toBeInTheDocument();
     expect(screen.getByLabelText("Delete rate")).toBeDisabled();
     expect(
       screen.getByRole("button", { name: "Refresh inventory" }),
     ).toBeDisabled();
     expect(
-      screen.getByRole("button", { name: "Select all matching" }),
+      screen.getByRole("button", { name: "Select all results" }),
     ).toBeDisabled();
     const betaRow = screen.getByText("Beta").closest("tr");
     if (betaRow === null) throw new Error("Beta row not found");
@@ -283,102 +324,16 @@ describe("ManagerPage destructive flow", () => {
     const resumeButton = await screen.findByRole("button", { name: "Resume" });
     expect(
       within(betaRow).getByRole("button", { name: "Protect" }),
-    ).toBeEnabled();
+    ).toBeDisabled();
+    expect(screen.getByLabelText("Select Beta")).toBeDisabled();
     await user.click(resumeButton);
     await screen.findByRole("button", { name: "Pause" });
     await user.click(screen.getByRole("button", { name: "Stop" }));
     await screen.findByText("STOPPED");
-  });
-
-  it("keeps Resume disabled until a paused protection write completes", async () => {
-    const user = userEvent.setup();
-    const controlledClock = new FakeClock(0, false);
-    const protectedConversationStore = new DeferredProtectedConversationStore();
-    const { gateway } = renderManager({
-      clock: controlledClock,
-      protectedConversationStore,
-      gatewayFixture: fixture([
-        { id: "alpha", title: "Alpha", updatedAt: 200 },
-        { id: "beta", title: "Beta", updatedAt: 100 },
-      ]),
-    });
-    await waitForInventory();
-    await user.click(
-      screen.getByRole("button", { name: "Select all matching" }),
-    );
-    await user.click(
-      screen.getByRole("button", { name: "Delete selected (2)" }),
-    );
-    await user.type(screen.getByLabelText("Deletion confirmation"), "DELETE 2");
-    await user.click(screen.getByRole("button", { name: "Delete 2" }));
-
-    await user.click(await screen.findByRole("button", { name: "Pause" }));
-    const resumeButton = await screen.findByRole("button", { name: "Resume" });
-    const betaRow = screen.getByText("Beta").closest("tr");
-    if (betaRow === null) throw new Error("Beta row not found");
-    await user.click(within(betaRow).getByRole("button", { name: "Protect" }));
-
-    await waitFor(() =>
-      expect(protectedConversationStore.pendingSaves).toHaveLength(1),
-    );
-    expect(resumeButton).toBeDisabled();
-    await user.click(resumeButton);
-    expect(gateway.deleteAttempts.map(({ id }) => id)).toEqual(["alpha"]);
-
-    protectedConversationStore.resolveNextSave();
-    await waitFor(() =>
-      expect(within(betaRow).getByText("Protected")).toBeInTheDocument(),
-    );
-    const enabledResumeButton = screen.getByRole("button", { name: "Resume" });
-    expect(enabledResumeButton).toBeEnabled();
-    await user.click(screen.getByRole("button", { name: "Stop" }));
-    await screen.findByText("STOPPED");
-    expect(gateway.deleteAttempts.map(({ id }) => id)).toEqual(["alpha"]);
-  });
-
-  it("does not commit UI protection or resume after a paused protection write fails", async () => {
-    const user = userEvent.setup();
-    const controlledClock = new FakeClock(0, false);
-    const protectedConversationStore = new DeferredProtectedConversationStore();
-    const { gateway } = renderManager({
-      clock: controlledClock,
-      protectedConversationStore,
-      gatewayFixture: fixture([
-        { id: "alpha", title: "Alpha", updatedAt: 200 },
-        { id: "beta", title: "Beta", updatedAt: 100 },
-      ]),
-    });
-    await waitForInventory();
-    await user.click(
-      screen.getByRole("button", { name: "Select all matching" }),
-    );
-    await user.click(
-      screen.getByRole("button", { name: "Delete selected (2)" }),
-    );
-    await user.type(screen.getByLabelText("Deletion confirmation"), "DELETE 2");
-    await user.click(screen.getByRole("button", { name: "Delete 2" }));
-    await user.click(await screen.findByRole("button", { name: "Pause" }));
-
-    const betaRow = screen.getByText("Beta").closest("tr");
-    if (betaRow === null) throw new Error("Beta row not found");
-    await user.click(within(betaRow).getByRole("button", { name: "Protect" }));
-    await waitFor(() =>
-      expect(protectedConversationStore.pendingSaves).toHaveLength(1),
-    );
-
-    protectedConversationStore.rejectNextSave();
-
+    expect(screen.getByLabelText("Select Beta")).toBeEnabled();
     expect(
-      await screen.findByText("Protected-ID storage invalid"),
+      screen.getByRole("region", { name: "Deletion operation" }),
     ).toBeInTheDocument();
-    expect(within(betaRow).queryByText("Protected")).not.toBeInTheDocument();
-    expect(
-      within(betaRow).getByRole("button", { name: "Protect" }),
-    ).toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: "Resume" }),
-    ).not.toBeInTheDocument();
-    expect(gateway.deleteAttempts.map(({ id }) => id)).toEqual(["alpha"]);
   });
 
   it("shows failed outcomes and retries only the confirmed failed ID", async () => {
@@ -391,20 +346,28 @@ describe("ManagerPage destructive flow", () => {
     });
     await waitForInventory();
     await openConfirmation(user, "Network failure");
-    await user.type(screen.getByLabelText("Deletion confirmation"), "DELETE 1");
-    await user.click(screen.getByRole("button", { name: "Delete 1" }));
+    await user.click(
+      screen.getByRole("button", { name: "Delete 1 conversation" }),
+    );
 
     const retryButton = await screen.findByRole("button", {
       name: "Retry Failed",
     });
+    expect(
+      screen.getByRole("button", { name: "Select all results" }),
+    ).toBeDisabled();
+    expect(screen.getByLabelText("Select Network failure")).toBeDisabled();
     expect(screen.getByText("Failed conversations")).toBeInTheDocument();
-    expect(screen.getAllByText("network")).toHaveLength(2);
+    expect(screen.getByText("network")).toBeInTheDocument();
     expect(screen.getByText("Network failure")).toBeInTheDocument();
     expect(gateway.deleteAttempts).toHaveLength(5);
     await user.click(retryButton);
     await waitFor(() => expect(gateway.deleteAttempts).toHaveLength(6));
     expect(screen.getByText("FINISHED")).toBeInTheDocument();
     expect(screen.queryByText("Network failure")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Select all results" }),
+    ).toBeEnabled();
   });
 
   it("displays a fatal 403 safety stop", async () => {
@@ -417,8 +380,9 @@ describe("ManagerPage destructive flow", () => {
     });
     await waitForInventory();
     await openConfirmation(user, "Forbidden");
-    await user.type(screen.getByLabelText("Deletion confirmation"), "DELETE 1");
-    await user.click(screen.getByRole("button", { name: "Delete 1" }));
+    await user.click(
+      screen.getByRole("button", { name: "Delete 1 conversation" }),
+    );
 
     expect(
       await screen.findByText("Deletion stopped for safety"),

@@ -121,22 +121,6 @@ export const DEMO_FIXTURE: FakeGatewayFixture = {
       nextCursor: null,
     },
   },
-  deleteOutcomes: {
-    "standalone-001": ["success"],
-    "standalone-002": [404],
-    "standalone-003": [410],
-    "standalone-004": [429, "success"],
-    "standalone-005": [500, "success"],
-    "standalone-006": [
-      "network",
-      "network",
-      "network",
-      "network",
-      "network",
-      "success",
-    ],
-    "standalone-007": [403],
-  },
   latencyMs: 25,
 };
 

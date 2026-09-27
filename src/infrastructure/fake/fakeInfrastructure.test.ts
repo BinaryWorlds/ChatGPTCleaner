@@ -5,21 +5,15 @@ import { FakeDestructiveRunLock } from "./FakeDestructiveRunLock";
 import { DEMO_FIXTURE } from "./fixtures";
 
 describe("fake infrastructure", () => {
-  it("supports deterministic latency and scripted outcomes", async () => {
+  it("uses deterministic latency and successful default demo deletion", async () => {
     const clock = new FakeClock();
     const gateway = new FakeConversationGateway(DEMO_FIXTURE, clock);
 
     expect(await gateway.deleteConversation("standalone-004")).toEqual({
-      kind: "retryable",
-      reason: "rate-limit",
-      retryAfterMs: 2_000,
-      status: 429,
-    });
-    expect(await gateway.deleteConversation("standalone-004")).toEqual({
       kind: "deleted",
       status: 204,
     });
-    expect(clock.now()).toBe(50);
+    expect(clock.now()).toBe(25);
   });
 
   it("releases a fake lock after errors", async () => {

@@ -19,7 +19,7 @@ const plan = buildDeletionPlan({
 });
 
 describe("DeletionConfirmationModal", () => {
-  it("keeps confirmation typing local to the modal", async () => {
+  it("confirms with a standard destructive action and no typed token", async () => {
     const user = userEvent.setup();
     const onCancel = vi.fn();
     const onConfirm = vi.fn();
@@ -30,12 +30,11 @@ describe("DeletionConfirmationModal", () => {
         onConfirm={onConfirm}
       />,
     );
-    const input = screen.getByLabelText("Deletion confirmation");
-
-    await user.type(input, "draft confirmation");
-
-    expect(input).toHaveValue("draft confirmation");
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: "Delete 1 conversation" }),
+    );
     expect(onCancel).not.toHaveBeenCalled();
-    expect(onConfirm).not.toHaveBeenCalled();
+    expect(onConfirm).toHaveBeenCalledOnce();
   });
 });

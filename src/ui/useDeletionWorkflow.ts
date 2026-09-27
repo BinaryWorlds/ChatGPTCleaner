@@ -1,6 +1,10 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { DeletionRun, type DeletionRunState } from "../application/deletionRun";
+import {
+  DeletionRun,
+  deletionRunOwnsWorkflow,
+  type DeletionRunState,
+} from "../application/deletionRun";
 import type { ManagerDependencies } from "../composition/types";
 import type { Conversation } from "../domain/conversation";
 import {
@@ -33,14 +37,6 @@ function isRunActive(state: DeletionRunState | null): boolean {
   );
 }
 
-function isProtectionLocked(state: DeletionRunState | null): boolean {
-  return (
-    state?.kind === "running" ||
-    state?.kind === "pausing" ||
-    state?.kind === "stopping"
-  );
-}
-
 export function useDeletionWorkflow({
   dependencies,
   inventoryReady,
@@ -61,14 +57,14 @@ export function useDeletionWorkflow({
     useState<SafetyBlockReason | null>(null);
 
   const runActive = isRunActive(runState);
-  const protectionLocked = isProtectionLocked(runState);
+  const runOwnsWorkflow = deletionRunOwnsWorkflow(runState);
 
   const beginDeletionPreview = () => {
     if (
       dependencies === null ||
       !inventoryReady ||
       selectedConversationIds.size === 0 ||
-      runActive
+      runOwnsWorkflow
     ) {
       return;
     }
@@ -168,7 +164,7 @@ export function useDeletionWorkflow({
     previewPlan,
     runState,
     runActive,
-    protectionLocked,
+    runOwnsWorkflow,
     protectionMutationLockOwner:
       runState?.kind === "paused" ? currentRun : null,
     safetyOverride,

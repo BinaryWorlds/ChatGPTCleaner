@@ -1,5 +1,8 @@
 import { Alert, Button, Card, Descriptions, Progress, Space, Tag } from "antd";
-import type { DeletionRunState } from "../application/deletionRun";
+import {
+  canRetryFailedDeletion,
+  type DeletionRunState,
+} from "../application/deletionRun";
 import { useTranslation } from "react-i18next";
 import { safetyBlockReasonLabel } from "./SafetyStatus";
 
@@ -45,11 +48,7 @@ export function DeletionProgressPanel({
     state.kind === "running" ||
     state.kind === "pausing" ||
     state.kind === "paused";
-  const canRetry =
-    progress.failedConversationIds.length > 0 &&
-    (state.kind === "finished" ||
-      state.kind === "stopped" ||
-      state.kind === "fatal");
+  const canRetry = canRetryFailedDeletion(state);
   const failedConversationPreview = progress.failedConversationIds.slice(
     0,
     FAILED_CONVERSATION_PREVIEW_LIMIT,

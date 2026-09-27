@@ -1,7 +1,7 @@
 {
   "app": {
     "title": "ChatGPTCleaner",
-    "subtitle": "Przeglądaj i usuwaj rozmowy poza projektami dzięki jednoznacznym kontrolom bezpieczeństwa.",
+    "subtitle": "Szybko usuwaj stare rozmowy i dbaj o prywatność.",
     "openChatGpt": "Otwórz ChatGPT w karcie i uruchom ChatGPTCleaner z tej karty.",
     "displayError": "ChatGPTCleaner nie może wyświetlić menedżera. Nie rozpoczęto żadnej nowej operacji usuwania.",
     "errorCode": "Kod błędu: {{code}}"
@@ -26,7 +26,7 @@
   },
   "demo": {
     "title": "Tryb demonstracyjny",
-    "description": "Aktywna jest deterministyczna infrastruktura testowa. Żadne żądanie nie dotrze do ChatGPT i nie zostanie wysłane prawdziwe żądanie DELETE.",
+    "description": "Dane testowe. Twoje konto ChatGPT pozostaje bez zmian.",
     "openAction": "Demonstracyjna akcja Otwórz: {{id}}"
   },
   "inventory": {
@@ -88,26 +88,32 @@
   },
   "selection": {
     "title": "Zaznaczenie",
-    "currentPage": "Zaznacz bieżącą stronę",
-    "allMatching": "Zaznacz wszystkie pasujące",
-    "clear": "Wyczyść zaznaczenie",
-    "invert": "Odwróć zaznaczenie",
-    "protectSelected": "Chroń zaznaczone",
-    "deleteSelected": "Usuń zaznaczone ({{count}})"
+    "currentPage": "Zaznacz stronę",
+    "allMatching": "Zaznacz wszystkie wyniki",
+    "clear": "Wyczyść",
+    "invert": "Odwróć",
+    "protectSelected": "Chroń ({{count}})",
+    "unprotectSelected": "Wyłącz ochronę ({{count}})",
+    "deleteSelected": "Usuń ({{count}})"
   },
   "table": {
     "title": "Tytuł",
     "created": "Utworzono",
     "updated": "Zaktualizowano",
-    "id": "ID",
-    "protectionStatus": "Ochrona/stan",
-    "actions": "Działania",
+    "protectionStatus": "Ochrona",
+    "actions": "Akcje",
     "projectProtected": "Chroniona przez projekt",
     "protected": "Chroniona",
     "unprotected": "Niechroniona",
+    "protectedTooltip": "Chroniona — nie zostanie usunięta.",
+    "unprotectedTooltip": "Niechroniona — może zostać usunięta.",
+    "projectProtectedTooltip": "Rozmowa w projekcie — nie może zostać usunięta.",
     "open": "Otwórz",
     "protect": "Chroń",
     "unprotect": "Wyłącz ochronę",
+    "copyId": "Kopiuj ID: {{id}}",
+    "copySuccess": "Skopiowano",
+    "copyFailure": "Nie udało się skopiować ID rozmowy.",
     "selectConversation": "Zaznacz: {{title}}",
     "total_one": "{{count}} rozmowa",
     "total_few": "{{count}} rozmowy",
@@ -116,18 +122,36 @@
     "unknownDate": "Nieznana"
   },
   "confirmation": {
-    "title": "Potwierdź usunięcie",
-    "deleteCount": "Usuń: {{count}}",
-    "originallySelected": "Pierwotnie zaznaczone",
-    "stillEligible": "Nadal kwalifikujące się",
-    "excludedProject": "Wykluczone jako projektowe",
-    "excludedProtected": "Wykluczone jako chronione przez użytkownika",
-    "missing": "Brakujące/już usunięte",
-    "finalCount": "Ostateczna liczba do usunięcia",
-    "instruction": "Aby kontynuować, wpisz „{{token}}”.",
-    "ariaLabel": "Potwierdzenie usunięcia"
+    "title_one": "Usunąć {{count}} rozmowę?",
+    "title_few": "Usunąć {{count}} rozmowy?",
+    "title_many": "Usunąć {{count}} rozmów?",
+    "title_other": "Usunąć {{count}} rozmowy?",
+    "deleteCount_one": "Usuń {{count}} rozmowę",
+    "deleteCount_few": "Usuń {{count}} rozmowy",
+    "deleteCount_many": "Usuń {{count}} rozmów",
+    "deleteCount_other": "Usuń {{count}} rozmowy",
+    "irreversible": "Tej operacji nie można cofnąć.",
+    "protectedSkipped_one": "Zaznaczono {{selectedCount}} rozmów. {{count}} chroniona rozmowa zostanie pominięta. Tej operacji nie można cofnąć.",
+    "protectedSkipped_few": "Zaznaczono {{selectedCount}} rozmów. {{count}} chronione rozmowy zostaną pominięte. Tej operacji nie można cofnąć.",
+    "protectedSkipped_many": "Zaznaczono {{selectedCount}} rozmów. {{count}} chronionych rozmów zostanie pominiętych. Tej operacji nie można cofnąć.",
+    "protectedSkipped_other": "Zaznaczono {{selectedCount}} rozmów. {{count}} chronionej rozmowy zostanie pominięte. Tej operacji nie można cofnąć."
+  },
+  "unprotectConfirmation": {
+    "title_one": "Wyłączyć ochronę dla {{count}} rozmowy?",
+    "title_few": "Wyłączyć ochronę dla {{count}} rozmów?",
+    "title_many": "Wyłączyć ochronę dla {{count}} rozmów?",
+    "title_other": "Wyłączyć ochronę dla {{count}} rozmowy?",
+    "description": "Po wyłączeniu ochrony te rozmowy będą mogły zostać usunięte zbiorczo.",
+    "confirm_one": "Wyłącz ochronę dla {{count}} rozmowy",
+    "confirm_few": "Wyłącz ochronę dla {{count}} rozmów",
+    "confirm_many": "Wyłącz ochronę dla {{count}} rozmów",
+    "confirm_other": "Wyłącz ochronę dla {{count}} rozmowy"
+  },
+  "common": {
+    "cancel": "Anuluj"
   },
   "deletion": {
+    "operationTitle": "Operacja usuwania",
     "noEligibleSelected": "Żadna z zaznaczonych rozmów nie kwalifikuje się już do usunięcia.",
     "noEligibleConfirmed": "Żadna z potwierdzonych rozmów nie kwalifikuje się już do usunięcia.",
     "panelTitle": "Bieżąca operacja usuwania",

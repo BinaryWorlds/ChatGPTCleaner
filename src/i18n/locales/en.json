@@ -1,7 +1,7 @@
 {
   "app": {
     "title": "ChatGPTCleaner",
-    "subtitle": "Review and delete standalone conversations with explicit safety checks.",
+    "subtitle": "Quickly delete old conversations and protect your privacy.",
     "openChatGpt": "Open ChatGPT in a tab and launch ChatGPTCleaner from that tab.",
     "displayError": "ChatGPTCleaner could not display the manager. No new destructive operation was started.",
     "errorCode": "Error code: {{code}}"
@@ -26,7 +26,7 @@
   },
   "demo": {
     "title": "Demo mode",
-    "description": "Deterministic fake infrastructure is active. No request can reach ChatGPT and no real DELETE can be issued.",
+    "description": "Test data. Your ChatGPT account remains unchanged.",
     "openAction": "Demo Open action: {{id}}"
   },
   "inventory": {
@@ -88,26 +88,32 @@
   },
   "selection": {
     "title": "Selection",
-    "currentPage": "Select current page",
-    "allMatching": "Select all matching",
-    "clear": "Clear selection",
-    "invert": "Invert matching",
-    "protectSelected": "Protect selected",
-    "deleteSelected": "Delete selected ({{count}})"
+    "currentPage": "Select page",
+    "allMatching": "Select all results",
+    "clear": "Clear",
+    "invert": "Invert",
+    "protectSelected": "Protect ({{count}})",
+    "unprotectSelected": "Unprotect ({{count}})",
+    "deleteSelected": "Delete ({{count}})"
   },
   "table": {
     "title": "Title",
     "created": "Created",
     "updated": "Updated",
-    "id": "ID",
-    "protectionStatus": "Protection/status",
+    "protectionStatus": "Protection",
     "actions": "Actions",
     "projectProtected": "Project protected",
     "protected": "Protected",
     "unprotected": "Unprotected",
+    "protectedTooltip": "Protected — it will not be deleted.",
+    "unprotectedTooltip": "Unprotected — it can be deleted.",
+    "projectProtectedTooltip": "Project conversation — it cannot be deleted.",
     "open": "Open",
     "protect": "Protect",
     "unprotect": "Unprotect",
+    "copyId": "Copy ID: {{id}}",
+    "copySuccess": "Copied",
+    "copyFailure": "Could not copy the conversation ID.",
     "selectConversation": "Select {{title}}",
     "total_one": "{{count}} conversation",
     "total_few": "{{count}} conversations",
@@ -116,18 +122,36 @@
     "unknownDate": "Unknown"
   },
   "confirmation": {
-    "title": "Confirm deletion",
-    "deleteCount": "Delete {{count}}",
-    "originallySelected": "Originally selected",
-    "stillEligible": "Still eligible",
-    "excludedProject": "Excluded as Project",
-    "excludedProtected": "Excluded as user-protected",
-    "missing": "Missing/already gone",
-    "finalCount": "Final delete count",
-    "instruction": "Type \"{{token}}\" to continue.",
-    "ariaLabel": "Deletion confirmation"
+    "title_one": "Delete {{count}} conversation?",
+    "title_few": "Delete {{count}} conversations?",
+    "title_many": "Delete {{count}} conversations?",
+    "title_other": "Delete {{count}} conversations?",
+    "deleteCount_one": "Delete {{count}} conversation",
+    "deleteCount_few": "Delete {{count}} conversations",
+    "deleteCount_many": "Delete {{count}} conversations",
+    "deleteCount_other": "Delete {{count}} conversations",
+    "irreversible": "This cannot be undone.",
+    "protectedSkipped_one": "{{selectedCount}} conversations selected. {{count}} protected conversation will be skipped. This cannot be undone.",
+    "protectedSkipped_few": "{{selectedCount}} conversations selected. {{count}} protected conversations will be skipped. This cannot be undone.",
+    "protectedSkipped_many": "{{selectedCount}} conversations selected. {{count}} protected conversations will be skipped. This cannot be undone.",
+    "protectedSkipped_other": "{{selectedCount}} conversations selected. {{count}} protected conversations will be skipped. This cannot be undone."
+  },
+  "unprotectConfirmation": {
+    "title_one": "Unprotect {{count}} conversation?",
+    "title_few": "Unprotect {{count}} conversations?",
+    "title_many": "Unprotect {{count}} conversations?",
+    "title_other": "Unprotect {{count}} conversations?",
+    "description": "After protection is removed, these conversations can be deleted in bulk.",
+    "confirm_one": "Unprotect {{count}} conversation",
+    "confirm_few": "Unprotect {{count}} conversations",
+    "confirm_many": "Unprotect {{count}} conversations",
+    "confirm_other": "Unprotect {{count}} conversations"
+  },
+  "common": {
+    "cancel": "Cancel"
   },
   "deletion": {
+    "operationTitle": "Deletion operation",
     "noEligibleSelected": "No selected conversations remain eligible for deletion.",
     "noEligibleConfirmed": "No confirmed conversations remain eligible for deletion.",
     "panelTitle": "Current deletion run",

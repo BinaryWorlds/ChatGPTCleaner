@@ -1,5 +1,4 @@
-import { Descriptions, Input, Modal, Typography } from "antd";
-import { useState } from "react";
+import { Modal, Typography } from "antd";
 import { useTranslation } from "react-i18next";
 import {
   confirmDeletionPlan,
@@ -21,23 +20,21 @@ export function DeletionConfirmationModal({
   onConfirm,
 }: DeletionConfirmationModalProps) {
   const { t } = useTranslation();
-  const [confirmationText, setConfirmationText] = useState("");
-  const expectedText = `DELETE ${plan.eligibleConversationIds.length}`;
-  const confirmation = confirmDeletionPlan(plan, confirmationText);
+  const eligibleCount = plan.eligibleConversationIds.length;
+  const confirmation = confirmDeletionPlan(plan);
+  const excludedProtectedCount = plan.excludedProtectedIds.length;
 
   return (
     <Modal
-      title={t("confirmation.title")}
+      title={t("confirmation.title", { count: eligibleCount })}
       open
       okText={t("confirmation.deleteCount", {
-        count: plan.eligibleConversationIds.length,
+        count: eligibleCount,
       })}
+      cancelText={t("common.cancel")}
       okButtonProps={{
         danger: true,
-        disabled:
-          disabled ||
-          plan.eligibleConversationIds.length === 0 ||
-          confirmationText !== expectedText,
+        disabled: disabled || eligibleCount === 0,
       }}
       onCancel={onCancel}
       onOk={() => {
@@ -46,36 +43,14 @@ export function DeletionConfirmationModal({
         }
       }}
     >
-      <Descriptions size="small" column={1} bordered>
-        <Descriptions.Item label={t("confirmation.originallySelected")}>
-          {plan.originallySelectedCount}
-        </Descriptions.Item>
-        <Descriptions.Item label={t("confirmation.stillEligible")}>
-          {plan.eligibleConversationIds.length}
-        </Descriptions.Item>
-        <Descriptions.Item label={t("confirmation.excludedProject")}>
-          {plan.excludedProjectIds.length}
-        </Descriptions.Item>
-        <Descriptions.Item label={t("confirmation.excludedProtected")}>
-          {plan.excludedProtectedIds.length}
-        </Descriptions.Item>
-        <Descriptions.Item label={t("confirmation.missing")}>
-          {plan.missingConversationIds.length + plan.invalidSelectionCount}
-        </Descriptions.Item>
-        <Descriptions.Item label={t("confirmation.finalCount")}>
-          {plan.eligibleConversationIds.length}
-        </Descriptions.Item>
-      </Descriptions>
-      <Typography.Paragraph className="confirmation-instruction">
-        {t("confirmation.instruction", { token: expectedText })}
+      <Typography.Paragraph>
+        {excludedProtectedCount > 0
+          ? t("confirmation.protectedSkipped", {
+              selectedCount: plan.originallySelectedCount,
+              count: excludedProtectedCount,
+            })
+          : t("confirmation.irreversible")}
       </Typography.Paragraph>
-      <Input
-        aria-label={t("confirmation.ariaLabel")}
-        autoComplete="off"
-        disabled={disabled}
-        value={confirmationText}
-        onChange={(event) => setConfirmationText(event.target.value)}
-      />
     </Modal>
   );
 }

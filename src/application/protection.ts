@@ -4,7 +4,10 @@ import type { ProtectedConversationStore } from "./ports/ProtectedConversationSt
 
 export type ProtectionMutation =
   | { readonly kind: "protect"; readonly conversationIds: ReadonlySet<string> }
-  | { readonly kind: "unprotect"; readonly conversationId: string };
+  | {
+      readonly kind: "unprotect";
+      readonly conversationIds: ReadonlySet<string>;
+    };
 
 export interface ProtectionMutationLockOwner {
   runProtectionMutation<T>(work: () => Promise<T>): Promise<T>;
@@ -35,7 +38,9 @@ async function applyCanonicalProtectionMutation(input: {
       nextProtectedIds.add(conversationId);
     }
   } else {
-    nextProtectedIds.delete(input.mutation.conversationId);
+    for (const conversationId of input.mutation.conversationIds) {
+      nextProtectedIds.delete(conversationId);
+    }
   }
   await input.protectedConversationStore.saveProtectedConversationIds(
     nextProtectedIds,

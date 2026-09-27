@@ -45,7 +45,7 @@ Infrastructure -> Application ports
 - Raw UI selection never reaches DELETE.
 - Only a validated `DeletionPlan` reaches destructive execution.
 - A new destructive batch requires a complete loaded-inventory snapshot,
-  current local protection state, and typed `DELETE N`.
+  current local protection state, and explicit destructive-modal confirmation.
 - Resume/Retry may only shrink the already-confirmed ID set.
 - Protection mutations must be serialized. Resume must not begin while a
   protection write is pending.

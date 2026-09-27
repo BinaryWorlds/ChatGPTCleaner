@@ -23,7 +23,7 @@ export interface ConfirmedDeletionPlan {
 
 export type ConfirmationResult =
   | { readonly kind: "confirmed"; readonly plan: ConfirmedDeletionPlan }
-  | { readonly kind: "rejected"; readonly expectedText: string };
+  | { readonly kind: "rejected" };
 
 export function buildDeletionPlan(input: {
   readonly selectedConversationIds: readonly unknown[];
@@ -77,16 +77,9 @@ export function buildDeletionPlan(input: {
   };
 }
 
-export function confirmDeletionPlan(
-  plan: DeletionPlan,
-  confirmationText: string,
-): ConfirmationResult {
-  const expectedText = `DELETE ${plan.eligibleConversationIds.length}`;
-  if (
-    plan.eligibleConversationIds.length === 0 ||
-    confirmationText !== expectedText
-  ) {
-    return { kind: "rejected", expectedText };
+export function confirmDeletionPlan(plan: DeletionPlan): ConfirmationResult {
+  if (plan.eligibleConversationIds.length === 0) {
+    return { kind: "rejected" };
   }
 
   return {

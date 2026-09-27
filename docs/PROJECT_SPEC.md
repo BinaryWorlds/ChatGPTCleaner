@@ -89,7 +89,7 @@ A new destructive batch always requires:
 ```text
 explicit selection
 -> preview from the loaded standalone snapshot
--> typed confirmation
+-> destructive-modal confirmation
 -> destructive Web Lock
 -> sequential execution
 ```
@@ -535,7 +535,7 @@ The lock lifecycle is:
 
 ```text
 snapshot preview
--> typed confirmation
+-> destructive-modal confirmation
 -> atomic lock acquire
 -> fresh local protected-ID check
 -> running
@@ -897,7 +897,7 @@ Flow:
 ```text
 selected IDs
 -> buildDeletionPlan(...)
--> typed confirmation
+-> destructive-modal confirmation
 -> confirmed IDs
 -> acquire destructive lock
 -> executor
@@ -936,7 +936,7 @@ attempted subset: A B C D E
 => E rejected
 ```
 
-Adding new IDs requires a new destructive batch and new typed confirmation.
+Adding new IDs requires a new destructive batch and new destructive-modal confirmation.
 
 Confirmed IDs exist in memory only.
 
@@ -963,14 +963,9 @@ Filtering, sorting, paging, and passive browsing may remain available if they do
 
 Keep selection fixed to the confirmed run.
 
-Allow:
-
-```text
-Protect
-Unprotect
-```
-
-for currently visible standalone conversations.
+Disable selection, Protect, and Unprotect controls while the paused run can
+still resume or stop. The Application-level protection mutation coordination
+remains fail-closed for already-pending or programmatic operations.
 
 Resume reloads only local protected IDs, so newly protected IDs are removed
 from the remaining plan without refreshing ChatGPT inventory.
@@ -1025,12 +1020,15 @@ Persist protected conversation IDs in `browser.storage.local`.
 
 Behavior:
 
-- protected row cannot be selected;
-- protecting a selected row removes it from selection;
+- protected standalone rows remain selectable;
+- selection and user protection are independent;
 - protection writes are serialized and overlapping Protect/Unprotect commands
   are not started;
-- Select All Matching skips protected rows;
-- Invert Matching skips protected rows;
+- bulk Protect applies only to the selected unprotected subset;
+- bulk Unprotect applies only to its captured selected protected subset and
+  requires confirmation when that subset contains more than one ID;
+- confirmed protection-mutation targets may shrink against canonical storage
+  but never expand;
 - `DeletionPlan` excludes protected IDs even if UI state is corrupted.
 
 Do not store conversation contents.
@@ -1059,12 +1057,11 @@ formatting. Translation resources are bundled locally with the extension.
 Main table columns:
 
 ```text
-Selection
+Selection checkbox (no visible header label)
 Title
 Created
 Updated
-ID
-Protection/status
+Protection
 Actions
 ```
 
@@ -1073,9 +1070,14 @@ Actions:
 ```text
 Open
 Protect / Unprotect
+Copy ID
 ```
 
 `Open` opens the original conversation in a new ChatGPT tab.
+
+The ID is not a permanent column; an icon-only action copies it. The Protection
+column uses distinct locked/unlocked icons with accessible labels and provides
+an Ant table filter for all, user-protected, and unprotected standalone rows.
 
 Do not render conversation contents inside the extension.
 
@@ -1175,23 +1177,23 @@ Hide/disable Ant's native header Select All.
 Use explicit toolbar actions:
 
 ```text
-Select all matching
-Select current page
-Clear selection
-Invert matching
+Select all results
+Select page
+Clear
+Invert
 ```
 
-`Select all matching` means all filtered eligible conversations across all UI pages.
+`Select all results` means all filtered standalone conversations across all UI pages.
 
-`Select current page` adds eligible unprotected rows from only the current
+`Select page` adds rows from only the current
 filtered and sorted Ant Table page. Existing selections on other pages remain.
 
-`Clear selection` clears the complete selection.
+`Clear` clears the complete selection.
 
-`Invert matching` only toggles currently filtered eligible rows.
+`Invert` only toggles currently filtered rows.
 
 Ant Table Shift-range selection is supported within the current filtered and
-sorted UI page. Protected rows are skipped, the range never crosses pages, and
+sorted UI page. Protected standalone rows remain selectable, the range never crosses pages, and
 the Project conversations view has no selection behavior.
 
 Always show total selected count.
@@ -1267,26 +1269,15 @@ When the user chooses `Delete selected`:
 verify no run is already active
 -> build a DeletionPlan from the loaded standalone/Project snapshot and current local protection
 -> show preview summary
--> require typed confirmation
+-> require destructive-modal confirmation
 -> atomically acquire destructive lock
 -> start execution
 ```
 
-Preview summary includes:
-
-```text
-Originally selected
-Still eligible
-Excluded: Project
-Excluded: protected
-Missing/already gone
-```
-
-Typed confirmation:
-
-```text
-DELETE N
-```
+The confirmation shows the eligible delete count, warns that the action cannot
+be undone, and states how many selected protected conversations will be skipped
+when applicable. It uses explicit Cancel and destructive Delete buttons; no
+typed token is required.
 
 Confirmation applies current local protected IDs again and may only reduce the
 previewed set. An empty final subset issues no DELETE. Run start then performs
@@ -1398,7 +1389,7 @@ Resume must not begin while a user-protection write is pending.
 If local protection removes an ID already captured by a paused local attempt, that
 attempt is discarded before any DELETE is issued.
 
-If safety remains READY, continue without another typed confirmation.
+If safety remains READY, continue without another confirmation.
 
 Never replay already successful IDs.
 
@@ -1414,7 +1405,7 @@ Release the destructive lock after the in-flight operation settles and the run r
 
 Unprocessed IDs may remain selected for a future new batch.
 
-A future new batch requires a new typed confirmation.
+A future new batch requires a new destructive-modal confirmation.
 
 ---
 
@@ -1545,10 +1536,11 @@ varied/null dates
 untitled conversations
 duplicates
 latency
+successful sequential deletion
 ```
 
-Automated tests cover malformed responses and relevant HTTP/network failures.
-Tests and the demo fixture are deterministic.
+Automated tests cover malformed responses and relevant HTTP/network failures
+outside the default demo fixture. Tests and the demo fixture are deterministic.
 
 ---
 
@@ -1608,7 +1600,7 @@ Prove that Project, protected, and missing IDs cannot reach eligible IDs, includ
 
 ### Confirmation
 
-Cover exact `DELETE N` for new batches and confirmed-ID monotonic subset behavior.
+Cover destructive-modal confirmation for new batches and confirmed-ID monotonic subset behavior.
 
 ### Source tab/path safety
 
@@ -1682,13 +1674,18 @@ Table
 Delete selected (N)
 ```
 
+Once a run exists, show a separate `Deletion operation` section between
+Selection and the table. Keep progress, run alerts, statistics, and
+Pause/Resume/Stop/Retry controls in that section rather than Selection.
+
 ### Safety status
 
 Show concise progress/status.
 
 ### Confirmation
 
-Show final counts and exact `DELETE N`.
+Show the eligible delete count, protected-skip summary when applicable, and an
+explicit destructive confirmation action.
 
 ### Running
 
@@ -1700,15 +1697,16 @@ Selection/protection/rate mutations are disabled.
 
 Show Resume and Stop.
 
-Selection stays fixed.
-
-Protect/Unprotect may be used; while their persistence is pending, additional
-protection mutations and Resume are disabled. Resume applies the saved local
-protection before continuing.
+Selection and protection controls stay disabled while the run can resume or
+stop.
 
 ### Finished
 
 Show current-run result and failed items.
+
+If failed IDs can still be retried as part of the current run, Selection stays
+disabled. Once the run has no execute/resume/stop/retry path, Selection becomes
+available while the terminal result remains visible.
 
 No dashboard.
 
@@ -1970,7 +1968,7 @@ MVP is done when:
 - real read integration loads standalone inventory and complete Project protection;
 - production DELETE gateway is implemented behind the safety pipeline;
 - Project/protected/missing IDs cannot reach DELETE;
-- typed confirmation protects each new destructive batch;
+- explicit destructive-modal confirmation protects each new destructive batch;
 - Resume/Retry only shrink the confirmed ID set;
 - sequential rate-limited deletion, retries, Pause/Resume/Stop, progress and ETA work;
 - only one destructive executor may run;
@@ -2013,7 +2011,7 @@ Destructive path:
 ```text
 UI selection
 -> DeletionPlan preview from loaded inventory
--> typed confirmation
+-> destructive-modal confirmation
 -> confirmed ID set
 -> atomic single-run lock
 -> sequential rate-limited executor

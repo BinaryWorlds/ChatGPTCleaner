@@ -100,11 +100,31 @@ describe("App", () => {
 
     expect(screen.getByText("Demo mode")).toBeInTheDocument();
     expect(
-      screen.getByText(/No request can reach ChatGPT/),
+      screen.getByText("Test data. Your ChatGPT account remains unchanged."),
     ).toBeInTheDocument();
     expect(
       await screen.findByRole("table", { name: "Standalone conversations" }),
     ).toBeInTheDocument();
+  });
+
+  it("completes the default demo deletion through the normal executor", async () => {
+    const user = userEvent.setup();
+    render(<App composition={createDemoComposition()} />);
+    await screen.findByRole("table", { name: "Standalone conversations" });
+
+    await user.click(screen.getByLabelText("Select Conversation 1"));
+    await user.click(screen.getByRole("button", { name: "Delete (1)" }));
+    await user.click(
+      screen.getByRole("button", { name: "Delete 1 conversation" }),
+    );
+
+    expect(await screen.findByText("FINISHED")).toBeInTheDocument();
+    expect(screen.getByText("1 / 1")).toBeInTheDocument();
+    expect(screen.getByText("Deletion operation")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Deletion stopped for safety"),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("Failed conversations")).not.toBeInTheDocument();
   });
 
   it("persists an explicit theme and updates the native color scheme", async () => {

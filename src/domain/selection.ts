@@ -12,14 +12,11 @@ export function excludeProjectConversations(
 export function selectAllMatching(
   selectedConversationIds: ReadonlySet<string>,
   matchingConversations: readonly Conversation[],
-  protectedConversationIds: ReadonlySet<string>,
 ): ReadonlySet<string> {
   const nextSelection = new Set(selectedConversationIds);
 
   for (const conversation of matchingConversations) {
-    if (!protectedConversationIds.has(conversation.id)) {
-      nextSelection.add(conversation.id);
-    }
+    nextSelection.add(conversation.id);
   }
 
   return nextSelection;
@@ -28,13 +25,10 @@ export function selectAllMatching(
 export function invertMatchingSelection(
   selectedConversationIds: ReadonlySet<string>,
   matchingConversations: readonly Conversation[],
-  protectedConversationIds: ReadonlySet<string>,
 ): ReadonlySet<string> {
   const nextSelection = new Set(selectedConversationIds);
 
   for (const conversation of matchingConversations) {
-    if (protectedConversationIds.has(conversation.id)) continue;
-
     if (nextSelection.has(conversation.id)) {
       nextSelection.delete(conversation.id);
       continue;
@@ -44,23 +38,4 @@ export function invertMatchingSelection(
   }
 
   return nextSelection;
-}
-
-export function protectConversation(
-  protectedConversationIds: ReadonlySet<string>,
-  selectedConversationIds: ReadonlySet<string>,
-  conversationId: string,
-): {
-  readonly protectedConversationIds: ReadonlySet<string>;
-  readonly selectedConversationIds: ReadonlySet<string>;
-} {
-  const nextProtectedIds = new Set(protectedConversationIds);
-  const nextSelection = new Set(selectedConversationIds);
-  nextProtectedIds.add(conversationId);
-  nextSelection.delete(conversationId);
-
-  return {
-    protectedConversationIds: nextProtectedIds,
-    selectedConversationIds: nextSelection,
-  };
 }

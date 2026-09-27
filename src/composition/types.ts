@@ -20,4 +20,5 @@ export interface ManagerComposition {
   readonly dependencies: ManagerDependencies | null;
   readonly themePreferenceStore: ThemePreferenceStore;
   readonly openConversation: (conversationId: string) => void;
+  readonly copyConversationId: (conversationId: string) => Promise<void>;
 }

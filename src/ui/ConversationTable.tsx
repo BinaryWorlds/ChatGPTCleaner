@@ -1,5 +1,11 @@
-import { Button, Space, Table, Tag, Typography, type TableProps } from "antd";
-import { useMemo } from "react";
+import {
+  CheckOutlined,
+  CopyOutlined,
+  LockOutlined,
+  UnlockOutlined,
+} from "@ant-design/icons";
+import { Button, Space, Table, theme, Tooltip, type TableProps } from "antd";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type {
   Conversation,
@@ -8,6 +14,7 @@ import type {
 } from "../domain/conversation";
 
 export type ConversationView = "standalone" | "projects";
+export type ProtectionFilter = "protected" | "unprotected" | null;
 
 export const CONVERSATION_TABLE_PAGINATION = {
   defaultPageSize: 50,
@@ -21,6 +28,7 @@ interface CommonConversationTableProps {
   readonly page: number;
   readonly pageSize: number;
   readonly onOpen: (conversationId: string) => void;
+  readonly onCopyId: (conversationId: string) => Promise<void>;
   readonly onSort: (
     field: ConversationSortField,
     direction: SortDirection,
@@ -29,23 +37,27 @@ interface CommonConversationTableProps {
 }
 
 interface StandaloneConversationTableProps extends CommonConversationTableProps {
-  readonly view: Extract<ConversationView, "standalone">;
+  readonly view: "standalone";
   readonly protectedConversationIds: ReadonlySet<string>;
   readonly selectedConversationIds: ReadonlySet<string>;
   readonly selectionDisabled: boolean;
   readonly protectionDisabled: boolean;
+  readonly protectionFilter: ProtectionFilter;
   readonly onSelectionChange: (ids: ReadonlySet<string>) => void;
+  readonly onProtectionFilterChange: (filter: ProtectionFilter) => void;
   readonly onProtect: (conversationId: string) => void;
   readonly onUnprotect: (conversationId: string) => void;
 }
 
 interface ProjectConversationTableProps extends CommonConversationTableProps {
-  readonly view: Extract<ConversationView, "projects">;
+  readonly view: "projects";
   readonly protectedConversationIds?: never;
   readonly selectedConversationIds?: never;
   readonly selectionDisabled?: never;
   readonly protectionDisabled?: never;
+  readonly protectionFilter?: never;
   readonly onSelectionChange?: never;
+  readonly onProtectionFilterChange?: never;
   readonly onProtect?: never;
   readonly onUnprotect?: never;
 }
@@ -64,6 +76,11 @@ export function clampTablePage(
 
 export function ConversationTable(props: ConversationTableProps) {
   const { t, i18n } = useTranslation();
+  const { token } = theme.useToken();
+  const [copyFeedback, setCopyFeedback] = useState<{
+    readonly conversationId: string;
+    readonly kind: "copied" | "failed";
+  } | null>(null);
   const dateTimeFormatter = useMemo(
     () =>
       new Intl.DateTimeFormat(i18n.resolvedLanguage, {
@@ -84,6 +101,7 @@ export function ConversationTable(props: ConversationTableProps) {
     page,
     pageSize,
     onOpen,
+    onCopyId,
     onSort,
     onPageChange,
   } = props;
@@ -127,28 +145,55 @@ export function ConversationTable(props: ConversationTableProps) {
       render: (timestamp: number | null) => formatDate(timestamp),
     },
     {
-      title: t("table.id"),
-      dataIndex: "id",
-      key: "id",
-      render: (id: string) => <Typography.Text code>{id}</Typography.Text>,
-    },
-    {
       title: t("table.protectionStatus"),
       key: "protection",
+      width: 100,
+      align: "center",
+      ...(view === "standalone"
+        ? {
+            filters: [
+              { text: t("table.protected"), value: "protected" },
+              { text: t("table.unprotected"), value: "unprotected" },
+            ],
+            filterMultiple: false,
+            filteredValue:
+              props.protectionFilter === null ? null : [props.protectionFilter],
+          }
+        : {}),
       render: (_, conversation) => {
         if (view === "projects") {
           return (
-            <Tag color="blue" variant="filled">
-              {t("table.projectProtected")}
-            </Tag>
+            <Tooltip title={t("table.projectProtectedTooltip")}>
+              <LockOutlined
+                aria-label={t("table.projectProtected")}
+                style={{ color: token.colorInfo, fontSize: token.fontSizeLG }}
+              />
+            </Tooltip>
           );
         }
-        return props.protectedConversationIds.has(conversation.id) ? (
-          <Tag color="blue" variant="filled">
-            {t("table.protected")}
-          </Tag>
-        ) : (
-          <Tag variant="filled">{t("table.unprotected")}</Tag>
+        const protectedConversation = props.protectedConversationIds.has(
+          conversation.id,
+        );
+        const label = protectedConversation
+          ? t("table.protectedTooltip")
+          : t("table.unprotectedTooltip");
+        return (
+          <Tooltip title={label}>
+            {protectedConversation ? (
+              <LockOutlined
+                aria-label={label}
+                style={{ color: token.colorInfo, fontSize: token.fontSizeLG }}
+              />
+            ) : (
+              <UnlockOutlined
+                aria-label={label}
+                style={{
+                  color: token.colorTextSecondary,
+                  fontSize: token.fontSizeLG,
+                }}
+              />
+            )}
+          </Tooltip>
         );
       },
     },
@@ -159,8 +204,19 @@ export function ConversationTable(props: ConversationTableProps) {
         const protectedConversation =
           view === "standalone" &&
           props.protectedConversationIds.has(conversation.id);
+        const copyLabel = t("table.copyId", { id: conversation.id });
+        const currentCopyFeedback =
+          copyFeedback?.conversationId === conversation.id
+            ? copyFeedback.kind
+            : null;
+        const copyFeedbackLabel =
+          currentCopyFeedback === "copied"
+            ? t("table.copySuccess")
+            : currentCopyFeedback === "failed"
+              ? t("table.copyFailure")
+              : copyLabel;
         return (
-          <Space>
+          <Space size="small">
             <Button size="small" onClick={() => onOpen(conversation.id)}>
               {t("table.open")}
             </Button>
@@ -179,6 +235,37 @@ export function ConversationTable(props: ConversationTableProps) {
                   : t("table.protect")}
               </Button>
             )}
+            <Tooltip title={copyFeedbackLabel}>
+              <Button
+                aria-label={copyFeedbackLabel}
+                icon={
+                  currentCopyFeedback === "copied" ? (
+                    <CheckOutlined
+                      aria-hidden
+                      style={{ color: token.colorSuccess }}
+                    />
+                  ) : (
+                    <CopyOutlined aria-hidden />
+                  )
+                }
+                size="small"
+                onClick={() => {
+                  onCopyId(conversation.id)
+                    .then(() =>
+                      setCopyFeedback({
+                        conversationId: conversation.id,
+                        kind: "copied",
+                      }),
+                    )
+                    .catch(() =>
+                      setCopyFeedback({
+                        conversationId: conversation.id,
+                        kind: "failed",
+                      }),
+                    );
+                }}
+              />
+            </Tooltip>
           </Space>
         );
       },
@@ -187,15 +274,23 @@ export function ConversationTable(props: ConversationTableProps) {
 
   const handleChange: TableProps<Conversation>["onChange"] = (
     pagination,
-    _filters,
+    tableFilters,
     sorter,
     extra,
   ) => {
+    if (extra.action === "filter" && view === "standalone") {
+      const protectionValue = tableFilters.protection?.[0];
+      props.onProtectionFilterChange(
+        protectionValue === "protected" || protectionValue === "unprotected"
+          ? protectionValue
+          : null,
+      );
+      return;
+    }
     if (extra.action === "paginate") {
       onPageChange(pagination.current ?? 1, pagination.pageSize ?? pageSize);
       return;
     }
-
     if (Array.isArray(sorter) || sorter.order === undefined) return;
     if (
       sorter.columnKey !== "title" &&
@@ -225,14 +320,13 @@ export function ConversationTable(props: ConversationTableProps) {
           ? {
               rowSelection: {
                 type: "checkbox",
-                columnTitle: t("selection.title"),
+                columnTitle: null,
+                columnWidth: 44,
                 hideSelectAll: true,
                 selectedRowKeys: [...props.selectedConversationIds],
                 preserveSelectedRowKeys: true,
                 getCheckboxProps: (conversation) => ({
-                  disabled:
-                    props.selectionDisabled ||
-                    props.protectedConversationIds.has(conversation.id),
+                  disabled: props.selectionDisabled,
                   "aria-label": t("table.selectConversation", {
                     title: conversation.title,
                   }),
@@ -257,7 +351,7 @@ export function ConversationTable(props: ConversationTableProps) {
           showSizeChanger: true,
           showTotal: (total) => t("table.total", { count: total }),
         }}
-        scroll={{ x: 980 }}
+        scroll={{ x: 760 }}
       />
     </div>
   );

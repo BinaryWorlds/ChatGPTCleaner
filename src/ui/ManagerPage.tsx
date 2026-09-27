@@ -8,6 +8,7 @@ import {
   MessageOutlined,
   ReloadOutlined,
   SafetyCertificateOutlined,
+  UnlockOutlined,
 } from "@ant-design/icons";
 import {
   Alert,
@@ -17,6 +18,7 @@ import {
   Divider,
   Flex,
   InputNumber,
+  Modal,
   Row,
   Segmented,
   Space,
@@ -72,6 +74,7 @@ interface ManagerPageProps {
   readonly themePreferencePending?: boolean;
   readonly onThemePreferenceChange?: (preference: ThemePreference) => void;
   readonly openConversation: ManagerComposition["openConversation"];
+  readonly copyConversationId: ManagerComposition["copyConversationId"];
 }
 
 export function ManagerPage({
@@ -81,6 +84,7 @@ export function ManagerPage({
   themePreferencePending = false,
   onThemePreferenceChange = () => undefined,
   openConversation,
+  copyConversationId,
 }: ManagerPageProps) {
   const { t } = useTranslation();
   const { token } = theme.useToken();
@@ -108,6 +112,9 @@ export function ManagerPage({
   const [projectFilters, setProjectFilters] = useState<ConversationFilters>(
     EMPTY_CONVERSATION_FILTERS,
   );
+  const [protectionFilter, setProtectionFilter] = useState<
+    "protected" | "unprotected" | null
+  >(null);
   const [sortField, setSortField] =
     useState<ConversationSortField>("updatedAt");
   const [sortDirection, setSortDirection] =
@@ -127,6 +134,8 @@ export function ManagerPage({
   const [notice, setNotice] = useState<string | null>(null);
   const [protectionMutationPending, setProtectionMutationPending] =
     useState(false);
+  const [pendingBulkUnprotectIds, setPendingBulkUnprotectIds] =
+    useState<ReadonlySet<string> | null>(null);
   const protectionMutationPendingRef = useRef(false);
   const rateWriter = useMemo(
     () => new SerializedRequestsPerMinuteWriter(dependencies.settingsStore),
@@ -140,7 +149,7 @@ export function ManagerPage({
     previewPlan,
     runState,
     runActive,
-    protectionLocked: protectionLockedByRun,
+    runOwnsWorkflow,
     protectionMutationLockOwner,
     safetyOverride,
     currentConversationId,
@@ -176,9 +185,21 @@ export function ManagerPage({
     () => filterConversations(conversations, filters),
     [conversations, filters],
   );
+  const protectionFilteredConversations = useMemo(() => {
+    if (protectionFilter === null) return filteredConversations;
+    const showProtected = protectionFilter === "protected";
+    return filteredConversations.filter(
+      ({ id }) => protectedConversationIds.has(id) === showProtected,
+    );
+  }, [filteredConversations, protectedConversationIds, protectionFilter]);
   const visibleConversations = useMemo(
-    () => sortConversations(filteredConversations, sortField, sortDirection),
-    [filteredConversations, sortDirection, sortField],
+    () =>
+      sortConversations(
+        protectionFilteredConversations,
+        sortField,
+        sortDirection,
+      ),
+    [protectionFilteredConversations, sortDirection, sortField],
   );
   const visibleStandalonePage = clampTablePage(
     page,
@@ -224,8 +245,21 @@ export function ManagerPage({
       ),
     [conversations, protectedConversationIds, selectedConversationIds],
   );
-  const selectionLocked = runActive || refreshing;
-  const protectionLocked = protectionLockedByRun || protectionMutationPending;
+  const protectedSelectedConversationIds = useMemo(
+    () =>
+      new Set(
+        conversations
+          .filter(
+            ({ id }) =>
+              selectedConversationIds.has(id) &&
+              protectedConversationIds.has(id),
+          )
+          .map(({ id }) => id),
+      ),
+    [conversations, protectedConversationIds, selectedConversationIds],
+  );
+  const selectionLocked = runOwnsWorkflow || refreshing;
+  const protectionLocked = runOwnsWorkflow || protectionMutationPending;
   const safetyState: SafetyStatusState = (() => {
     if (inventoryState.kind === "loading") {
       return { kind: "loading", stage: inventoryState.stage };
@@ -276,17 +310,6 @@ export function ManagerPage({
           return;
         }
         setProtectedConversationIds(result.protectedConversationIds);
-        if (mutation.kind === "protect") {
-          setSelectedConversationIds(
-            (currentSelection) =>
-              new Set(
-                [...currentSelection].filter(
-                  (conversationId) =>
-                    !result.protectedConversationIds.has(conversationId),
-                ),
-              ),
-          );
-        }
       })
       .catch(() => blockSafety("protected-storage"))
       .finally(() => {
@@ -320,7 +343,27 @@ export function ManagerPage({
 
   const handleUnprotect = (conversationId: string) => {
     if (protectionLocked || protectionMutationPendingRef.current) return;
-    persistProtection({ kind: "unprotect", conversationId });
+    persistProtection({
+      kind: "unprotect",
+      conversationIds: new Set([conversationId]),
+    });
+  };
+
+  const handleUnprotectSelected = () => {
+    if (
+      conversationView !== "standalone" ||
+      protectionLocked ||
+      protectionMutationPendingRef.current ||
+      protectedSelectedConversationIds.size === 0
+    ) {
+      return;
+    }
+    const requestedIds = new Set(protectedSelectedConversationIds);
+    if (requestedIds.size === 1) {
+      persistProtection({ kind: "unprotect", conversationIds: requestedIds });
+      return;
+    }
+    setPendingBulkUnprotectIds(requestedIds);
   };
 
   const handleRateChange = (value: number | null) => {
@@ -341,7 +384,7 @@ export function ManagerPage({
   };
 
   const handleRefresh = () => {
-    if (runActive || refreshing || protectionMutationPendingRef.current) {
+    if (runOwnsWorkflow || refreshing || protectionMutationPendingRef.current) {
       return;
     }
     setNotice(null);
@@ -375,7 +418,7 @@ export function ManagerPage({
           icon={<ReloadOutlined aria-hidden />}
           disabled={
             inventoryState.kind !== "ready" ||
-            runActive ||
+            runOwnsWorkflow ||
             refreshing ||
             protectionMutationPending
           }
@@ -631,119 +674,169 @@ export function ManagerPage({
             </div>
           </Space>
           <Divider style={{ marginBlock: token.marginMD }} />
-          <Space
-            orientation="vertical"
-            size={token.marginSM}
-            className="full-width"
-          >
-            <Typography.Title level={5} style={{ margin: 0 }}>
-              <Space size={token.marginXS}>
-                <CheckSquareOutlined
-                  aria-hidden
-                  style={{ color: token.colorPrimary }}
-                />
-                <span>{t("selection.title")}</span>
-              </Space>
-            </Typography.Title>
-            <Flex
-              className="selection-toolbar"
-              justify="space-between"
-              align="center"
-              wrap
-              gap="small"
+          <section aria-labelledby="selection-heading">
+            <Space
+              orientation="vertical"
+              size={token.marginSM}
+              className="full-width"
             >
-              <Flex className="selection-actions" wrap gap="small">
-                <Button
-                  disabled={conversationView === "projects" || selectionLocked}
-                  onClick={() =>
-                    setSelectedConversationIds(
-                      selectAllMatching(
-                        selectedConversationIds,
-                        currentStandalonePageConversations,
-                        protectedConversationIds,
-                      ),
-                    )
-                  }
-                >
-                  {t("selection.currentPage")}
-                </Button>
-                <Button
-                  disabled={conversationView === "projects" || selectionLocked}
-                  onClick={() =>
-                    setSelectedConversationIds(
-                      selectAllMatching(
-                        selectedConversationIds,
-                        filteredConversations,
-                        protectedConversationIds,
-                      ),
-                    )
-                  }
-                >
-                  {t("selection.allMatching")}
-                </Button>
-                <Button
-                  disabled={conversationView === "projects" || selectionLocked}
-                  onClick={() => setSelectedConversationIds(new Set())}
-                >
-                  {t("selection.clear")}
-                </Button>
-                <Button
-                  disabled={conversationView === "projects" || selectionLocked}
-                  onClick={() =>
-                    setSelectedConversationIds(
-                      invertMatchingSelection(
-                        selectedConversationIds,
-                        filteredConversations,
-                        protectedConversationIds,
-                      ),
-                    )
-                  }
-                >
-                  {t("selection.invert")}
-                </Button>
+              <Typography.Title
+                id="selection-heading"
+                level={5}
+                style={{ margin: 0 }}
+              >
+                <Space size={token.marginXS}>
+                  <CheckSquareOutlined
+                    aria-hidden
+                    style={{ color: token.colorPrimary }}
+                  />
+                  <span>{t("selection.title")}</span>
+                </Space>
+              </Typography.Title>
+              <Flex
+                className="selection-toolbar"
+                justify="space-between"
+                align="center"
+                wrap
+                gap="small"
+              >
+                <Flex className="selection-actions" wrap gap="small">
+                  <Button
+                    disabled={
+                      conversationView === "projects" || selectionLocked
+                    }
+                    onClick={() =>
+                      setSelectedConversationIds(
+                        selectAllMatching(
+                          selectedConversationIds,
+                          currentStandalonePageConversations,
+                        ),
+                      )
+                    }
+                  >
+                    {t("selection.currentPage")}
+                  </Button>
+                  <Button
+                    disabled={
+                      conversationView === "projects" || selectionLocked
+                    }
+                    onClick={() =>
+                      setSelectedConversationIds(
+                        selectAllMatching(
+                          selectedConversationIds,
+                          protectionFilteredConversations,
+                        ),
+                      )
+                    }
+                  >
+                    {t("selection.allMatching")}
+                  </Button>
+                  <Button
+                    disabled={
+                      conversationView === "projects" || selectionLocked
+                    }
+                    onClick={() => setSelectedConversationIds(new Set())}
+                  >
+                    {t("selection.clear")}
+                  </Button>
+                  <Button
+                    disabled={
+                      conversationView === "projects" || selectionLocked
+                    }
+                    onClick={() =>
+                      setSelectedConversationIds(
+                        invertMatchingSelection(
+                          selectedConversationIds,
+                          protectionFilteredConversations,
+                        ),
+                      )
+                    }
+                  >
+                    {t("selection.invert")}
+                  </Button>
+                </Flex>
+                <Flex className="selection-primary-actions" wrap gap="small">
+                  <Button
+                    icon={<LockOutlined aria-hidden />}
+                    disabled={
+                      conversationView === "projects" ||
+                      protectionLocked ||
+                      eligibleSelectedConversationIds.size === 0
+                    }
+                    onClick={handleProtectSelected}
+                  >
+                    {t("selection.protectSelected", {
+                      count: eligibleSelectedConversationIds.size,
+                    })}
+                  </Button>
+                  <Button
+                    icon={<UnlockOutlined aria-hidden />}
+                    disabled={
+                      conversationView === "projects" ||
+                      protectionLocked ||
+                      protectedSelectedConversationIds.size === 0
+                    }
+                    onClick={handleUnprotectSelected}
+                  >
+                    {t("selection.unprotectSelected", {
+                      count: protectedSelectedConversationIds.size,
+                    })}
+                  </Button>
+                  <Button
+                    danger
+                    type="primary"
+                    icon={<DeleteOutlined aria-hidden />}
+                    disabled={
+                      conversationView === "projects" ||
+                      selectionLocked ||
+                      eligibleSelectedConversationIds.size === 0 ||
+                      safetyState.kind !== "ready"
+                    }
+                    onClick={beginDeletionPreview}
+                  >
+                    {t("selection.deleteSelected", {
+                      count: eligibleSelectedConversationIds.size,
+                    })}
+                  </Button>
+                </Flex>
               </Flex>
-              <Flex className="selection-primary-actions" wrap gap="small">
-                <Button
-                  icon={<LockOutlined aria-hidden />}
-                  disabled={
-                    conversationView === "projects" ||
-                    protectionLocked ||
-                    eligibleSelectedConversationIds.size === 0
-                  }
-                  onClick={handleProtectSelected}
-                >
-                  {t("selection.protectSelected")}
-                </Button>
-                <Button
-                  danger
-                  type="primary"
-                  icon={<DeleteOutlined aria-hidden />}
-                  disabled={
-                    conversationView === "projects" ||
-                    selectionLocked ||
-                    selectedConversationIds.size === 0 ||
-                    safetyState.kind !== "ready"
-                  }
-                  onClick={beginDeletionPreview}
-                >
-                  {t("selection.deleteSelected", {
-                    count: selectedConversationIds.size,
-                  })}
-                </Button>
-              </Flex>
-            </Flex>
-          </Space>
+            </Space>
+          </section>
 
           {runState !== null && (
-            <DeletionProgressPanel
-              state={runState}
-              currentConversationLabel={currentConversationLabel}
-              onPause={pauseRun}
-              onResume={resumeRun}
-              resumeDisabled={protectionMutationPending}
-              onStop={stopRun}
-              onRetryFailed={retryFailed}
-            />
+            <>
+              <Divider style={{ marginBlock: token.marginMD }} />
+              <section aria-labelledby="deletion-operation-heading">
+                <Space
+                  orientation="vertical"
+                  size={token.marginSM}
+                  className="full-width"
+                >
+                  <Typography.Title
+                    id="deletion-operation-heading"
+                    level={5}
+                    style={{ margin: 0 }}
+                  >
+                    <Space size={token.marginXS}>
+                      <DeleteOutlined
+                        aria-hidden
+                        style={{ color: token.colorPrimary }}
+                      />
+                      <span>{t("deletion.operationTitle")}</span>
+                    </Space>
+                  </Typography.Title>
+                  <DeletionProgressPanel
+                    state={runState}
+                    currentConversationLabel={currentConversationLabel}
+                    onPause={pauseRun}
+                    onResume={resumeRun}
+                    resumeDisabled={protectionMutationPending}
+                    onStop={stopRun}
+                    onRetryFailed={retryFailed}
+                  />
+                </Space>
+              </section>
+            </>
           )}
 
           <Divider style={{ marginBlock: token.marginMD }} />
@@ -755,14 +848,20 @@ export function ManagerPage({
               selectedConversationIds={selectedConversationIds}
               selectionDisabled={selectionLocked}
               protectionDisabled={protectionLocked}
+              protectionFilter={protectionFilter}
               sortField={sortField}
               sortDirection={sortDirection}
               page={visibleStandalonePage}
               pageSize={pageSize}
               onSelectionChange={setSelectedConversationIds}
+              onProtectionFilterChange={(nextFilter) => {
+                setProtectionFilter(nextFilter);
+                setPage(1);
+              }}
               onProtect={handleProtect}
               onUnprotect={handleUnprotect}
               onOpen={handleOpenConversation}
+              onCopyId={copyConversationId}
               onSort={(field, direction) => {
                 setSortField(field);
                 setSortDirection(direction);
@@ -782,6 +881,7 @@ export function ManagerPage({
               page={visibleProjectPage}
               pageSize={projectPageSize}
               onOpen={handleOpenConversation}
+              onCopyId={copyConversationId}
               onSort={(field, direction) => {
                 setProjectSortField(field);
                 setProjectSortDirection(direction);
@@ -803,6 +903,32 @@ export function ManagerPage({
           onCancel={cancelConfirmation}
           onConfirm={confirmAndStartDeletion}
         />
+      )}
+      {pendingBulkUnprotectIds !== null && (
+        <Modal
+          open
+          title={t("unprotectConfirmation.title", {
+            count: pendingBulkUnprotectIds.size,
+          })}
+          okText={t("unprotectConfirmation.confirm", {
+            count: pendingBulkUnprotectIds.size,
+          })}
+          cancelText={t("common.cancel")}
+          okButtonProps={{ disabled: protectionLocked }}
+          onCancel={() => setPendingBulkUnprotectIds(null)}
+          onOk={() => {
+            const requestedIds = pendingBulkUnprotectIds;
+            setPendingBulkUnprotectIds(null);
+            persistProtection({
+              kind: "unprotect",
+              conversationIds: requestedIds,
+            });
+          }}
+        >
+          <Typography.Paragraph>
+            {t("unprotectConfirmation.description")}
+          </Typography.Paragraph>
+        </Modal>
       )}
     </Space>
   );

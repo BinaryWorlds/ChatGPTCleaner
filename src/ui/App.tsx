@@ -125,6 +125,7 @@ export function App({ composition }: AppProps) {
               themePreferencePending={themePreferencePending}
               onThemePreferenceChange={handleThemePreferenceChange}
               openConversation={composition.openConversation}
+              copyConversationId={composition.copyConversationId}
             />
           ) : (
             <Space

@@ -14,6 +14,7 @@ import {
   type SourceTabBrowser,
 } from "../infrastructure/browser/SourceTab";
 import { buildChatGptConversationUrl } from "../infrastructure/browser/openConversation";
+import { copyConversationId } from "../infrastructure/browser/copyConversationId";
 import {
   currentWebLockManager,
   WebLocksDestructiveRunLock,
@@ -118,5 +119,6 @@ export function createManagerComposition(
       trustedStorage,
     ),
     openConversation: openProductionConversation,
+    copyConversationId,
   };
 }

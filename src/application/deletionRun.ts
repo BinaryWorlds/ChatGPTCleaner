@@ -44,6 +44,30 @@ export type DeletionRunState =
       readonly progress: DeletionRunProgress;
     };
 
+export function canRetryFailedDeletion(state: DeletionRunState): boolean {
+  return (
+    state.progress.failedConversationIds.length > 0 &&
+    (state.kind === "finished" ||
+      state.kind === "stopped" ||
+      state.kind === "fatal")
+  );
+}
+
+export function deletionRunOwnsWorkflow(
+  state: DeletionRunState | null,
+): boolean {
+  if (state === null) return false;
+  if (
+    state.kind === "running" ||
+    state.kind === "pausing" ||
+    state.kind === "paused" ||
+    state.kind === "stopping"
+  ) {
+    return true;
+  }
+  return canRetryFailedDeletion(state);
+}
+
 type ControlCommand = "run" | "pause" | "stop";
 type ResumeDecision = "resume" | "stop";
 type LocalProtectionResult = "ready" | "empty" | "blocked";
@@ -172,14 +196,7 @@ export class DeletionRun implements ProtectionMutationLockOwner {
   }
 
   public async retryFailedDeletion(): Promise<DeletionRunState> {
-    if (
-      this.state.kind !== "finished" &&
-      this.state.kind !== "stopped" &&
-      this.state.kind !== "fatal"
-    ) {
-      return this.state;
-    }
-    if (this.failedConversationIds.length === 0) return this.state;
+    if (!canRetryFailedDeletion(this.state)) return this.state;
 
     const failedIds = new Set(this.failedConversationIds);
     this.remainingConversationIds =

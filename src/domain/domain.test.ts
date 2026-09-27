@@ -16,7 +16,6 @@ import { calculateDeletionProgress } from "./progress";
 import {
   excludeProjectConversations,
   invertMatchingSelection,
-  protectConversation,
   selectAllMatching,
 } from "./selection";
 
@@ -111,22 +110,10 @@ describe("selection and protection", () => {
     ).toEqual(["a", "c"]);
   });
 
-  it("bulk selection and inversion skip protected conversations", () => {
-    const selected = selectAllMatching(
-      new Set<string>(),
-      conversations,
-      new Set(["b"]),
-    );
-    expect([...selected]).toEqual(["a", "c"]);
-    expect([
-      ...invertMatchingSelection(selected, conversations, new Set(["b"])),
-    ]).toEqual([]);
-  });
-
-  it("protecting a conversation removes it from selection", () => {
-    const result = protectConversation(new Set(), new Set(["a", "b"]), "a");
-    expect([...result.protectedConversationIds]).toEqual(["a"]);
-    expect([...result.selectedConversationIds]).toEqual(["b"]);
+  it("bulk selection and inversion are independent from protection", () => {
+    const selected = selectAllMatching(new Set<string>(), conversations);
+    expect([...selected]).toEqual(["a", "b", "c"]);
+    expect([...invertMatchingSelection(selected, conversations)]).toEqual([]);
   });
 });
 
@@ -146,7 +133,7 @@ describe("deletion safety boundary", () => {
     expect(plan.invalidSelectionCount).toBe(2);
   });
 
-  it("requires exact typed confirmation", () => {
+  it("confirms a non-empty eligible deletion plan without typed input", () => {
     const plan = buildDeletionPlan({
       selectedConversationIds: ["a"],
       standaloneConversations: conversations,
@@ -154,8 +141,7 @@ describe("deletion safety boundary", () => {
       protectedConversationIds: new Set(),
     });
 
-    expect(confirmDeletionPlan(plan, "delete 1").kind).toBe("rejected");
-    expect(confirmDeletionPlan(plan, "DELETE 1").kind).toBe("confirmed");
+    expect(confirmDeletionPlan(plan).kind).toBe("confirmed");
   });
 
   it("confirmation applies the current snapshot and local protection without adding IDs", () => {
@@ -165,7 +151,7 @@ describe("deletion safety boundary", () => {
       projectConversationIds: new Set(),
       protectedConversationIds: new Set(),
     });
-    const confirmation = confirmDeletionPlan(originalPlan, "DELETE 2");
+    const confirmation = confirmDeletionPlan(originalPlan);
     if (confirmation.kind !== "confirmed") throw new Error("Expected plan");
 
     expect(

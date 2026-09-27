@@ -12,7 +12,7 @@ At most one destructive execution may run across extension manager contexts.
 
 Prefer the Web Locks API with a stable extension-origin lock.
 
-Acquire the lock atomically after typed confirmation and immediately before
+Acquire the lock atomically after destructive-modal confirmation and immediately before
 destructive execution. Inside the lock, freshly load local protected IDs and
 shrink the confirmed remaining set before issuing DELETE. Starting the run
 performs no standalone or Project inventory reads; Project eligibility comes

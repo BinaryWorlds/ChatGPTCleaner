@@ -174,6 +174,7 @@ function renderManager(input?: {
   readonly protectedConversationStore?: ProtectedConversationStore;
   readonly settingsStore?: FakeSettingsStore;
   readonly clock?: FakeClock;
+  readonly copyConversationId?: (conversationId: string) => Promise<void>;
 }) {
   const clock = input?.clock ?? new FakeClock(FIXED_NOW);
   const gateway =
@@ -209,11 +210,14 @@ function renderManager(input?: {
     destructiveRunLock: new FakeDestructiveRunLock(),
   };
   const openConversation = vi.fn();
+  const copyConversationId =
+    input?.copyConversationId ?? vi.fn(() => Promise.resolve());
   render(
     <ManagerPage
       mode="demo"
       dependencies={dependencies}
       openConversation={openConversation}
+      copyConversationId={copyConversationId}
     />,
   );
   return {
@@ -221,6 +225,7 @@ function renderManager(input?: {
     protectedConversationStore,
     settingsStore,
     openConversation,
+    copyConversationId,
   };
 }
 
@@ -267,6 +272,9 @@ describe("ManagerPage inventory controls", () => {
     const settingsStore = new FakeSettingsStore(60);
     renderManager({ settingsStore });
     await waitForInventory();
+    expect(
+      screen.queryByRole("region", { name: "Deletion operation" }),
+    ).not.toBeInTheDocument();
 
     const rateInput = screen.getByLabelText("Delete rate");
     expect(rateInput).toHaveValue("60");
@@ -394,10 +402,8 @@ describe("ManagerPage inventory controls", () => {
     renderManager({ gateway, protectedConversationStore, settingsStore });
     await waitForInventory();
     await selectConversation(user, "Alpha");
-    await user.click(
-      screen.getByRole("button", { name: "Delete selected (1)" }),
-    );
-    expect(screen.getByText("Confirm deletion")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Delete (1)" }));
+    expect(screen.getByText("Delete 1 conversation?")).toBeInTheDocument();
 
     (
       gatewayFixture.standalonePages as Record<
@@ -413,12 +419,16 @@ describe("ManagerPage inventory controls", () => {
     expect(screen.getByText(/Refreshing inventory/)).toBeInTheDocument();
     expect(screen.getByText("Alpha")).toBeInTheDocument();
     expect(screen.queryByText("Fresh snapshot")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Delete 1" })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Delete 1 conversation" }),
+    ).toBeDisabled();
 
     gateway.continueRefresh();
     expect(await screen.findByText("Fresh snapshot")).toBeInTheDocument();
     expect(screen.queryByText("Alpha")).not.toBeInTheDocument();
-    expect(screen.queryByText("Confirm deletion")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Delete 1 conversation?"),
+    ).not.toBeInTheDocument();
     expect(screen.getByTestId("selected-count")).toHaveTextContent("0");
     expect(gateway.safetyInventoryReadCount).toBe(2);
     expect(gateway.standalonePageReadCount).toBe(2);
@@ -488,27 +498,17 @@ describe("ManagerPage inventory controls", () => {
     expect(screen.getByText("Project overlap")).toBeInTheDocument();
     expect(screen.getByText("Project planning")).toBeInTheDocument();
     expect(screen.queryByText("Standalone row")).not.toBeInTheDocument();
-    expect(screen.getAllByText("Project protected")).toHaveLength(2);
+    expect(screen.getAllByLabelText("Project protected")).toHaveLength(2);
     expect(screen.queryByLabelText(/Select /)).not.toBeInTheDocument();
     expect(screen.getByText("Selection")).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Select all matching" }),
+      screen.getByRole("button", { name: "Select all results" }),
     ).toBeDisabled();
-    expect(
-      screen.getByRole("button", { name: "Select current page" }),
-    ).toBeDisabled();
-    expect(
-      screen.getByRole("button", { name: "Clear selection" }),
-    ).toBeDisabled();
-    expect(
-      screen.getByRole("button", { name: "Invert matching" }),
-    ).toBeDisabled();
-    expect(
-      screen.getByRole("button", { name: "Protect selected" }),
-    ).toBeDisabled();
-    expect(
-      screen.getByRole("button", { name: /Delete selected/ }),
-    ).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Select page" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Clear" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Invert" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Protect (1)" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Delete \(/ })).toBeDisabled();
     expect(
       screen.queryByRole("button", { name: /^(Unprotect|Protect)$/ }),
     ).not.toBeInTheDocument();
@@ -688,7 +688,7 @@ describe("ManagerPage inventory controls", () => {
     expect(screen.getByTestId("selected-count")).toHaveTextContent("2");
   });
 
-  it("selects the eligible current page and preserves other-page selections", async () => {
+  it("selects the current page including protected rows and preserves other-page selections", async () => {
     const user = userEvent.setup();
     const conversations = Array.from({ length: 55 }, (_, index) => ({
       id: `item-${index + 1}`,
@@ -704,15 +704,13 @@ describe("ManagerPage inventory controls", () => {
     await user.click(screen.getByTitle("Next Page"));
     await selectConversation(user, "Item 55");
     await user.click(screen.getByTitle("Previous Page"));
-    await user.click(
-      screen.getByRole("button", { name: "Select current page" }),
-    );
+    await user.click(screen.getByRole("button", { name: "Select page" }));
 
-    expect(screen.getByLabelText("Select Item 02")).toBeDisabled();
-    expect(screen.getByTestId("selected-count")).toHaveTextContent("50");
+    expect(screen.getByLabelText("Select Item 02")).toBeEnabled();
+    expect(screen.getByTestId("selected-count")).toHaveTextContent("51");
   });
 
-  it("uses Ant native Shift selection in both directions and skips protected rows", async () => {
+  it("uses Ant native Shift selection in both directions for protected rows too", async () => {
     const user = userEvent.setup();
     renderManager({
       gatewayFixture: fixture([
@@ -729,8 +727,8 @@ describe("ManagerPage inventory controls", () => {
     await user.keyboard("{Shift>}");
     await selectConversation(user, "Delta");
     await user.keyboard("{/Shift}");
-    expect(screen.getByTestId("selected-count")).toHaveTextContent("3");
-    expect(screen.getByLabelText("Select Beta")).toBeDisabled();
+    expect(screen.getByTestId("selected-count")).toHaveTextContent("4");
+    expect(screen.getByLabelText("Select Beta")).toBeEnabled();
 
     await user.keyboard("{Shift>}");
     await selectConversation(user, "Alpha");
@@ -741,7 +739,7 @@ describe("ManagerPage inventory controls", () => {
     await user.keyboard("{Shift>}");
     await selectConversation(user, "Alpha");
     await user.keyboard("{/Shift}");
-    expect(screen.getByTestId("selected-count")).toHaveTextContent("3");
+    expect(screen.getByTestId("selected-count")).toHaveTextContent("4");
   });
 
   it("limits Shift ranges to the current filtered, sorted UI page", async () => {
@@ -763,34 +761,52 @@ describe("ManagerPage inventory controls", () => {
 
     await user.type(screen.getByLabelText("Search titles"), "Item 5");
     await user.click(screen.getByRole("columnheader", { name: /Title/ }));
-    await user.click(screen.getByRole("button", { name: "Clear selection" }));
+    await user.click(screen.getByRole("button", { name: "Clear" }));
     await selectConversation(user, "Item 50");
     await user.keyboard("{Shift>}");
     await selectConversation(user, "Item 55");
     await user.keyboard("{/Shift}");
     expect(screen.getByTestId("selected-count")).toHaveTextContent("6");
-  });
+  }, 30_000);
 
-  it("implements explicit bulk selection and skips protected rows", async () => {
+  it("keeps explicit bulk selection independent from protection", async () => {
     const user = userEvent.setup();
     renderManager({ protectedIds: ["beta"] });
     await waitForInventory();
 
-    expect(screen.getByLabelText("Select Beta")).toBeDisabled();
+    expect(screen.getByLabelText("Select Beta")).toBeEnabled();
     await user.click(
-      screen.getByRole("button", { name: "Select all matching" }),
+      screen.getByRole("button", { name: "Select all results" }),
     );
-    expect(screen.getByTestId("selected-count")).toHaveTextContent("2");
-    await user.click(screen.getByRole("button", { name: "Invert matching" }));
+    expect(screen.getByTestId("selected-count")).toHaveTextContent("3");
+    await user.click(screen.getByRole("button", { name: "Invert" }));
     expect(screen.getByTestId("selected-count")).toHaveTextContent("0");
     await user.click(
-      screen.getByRole("button", { name: "Select all matching" }),
+      screen.getByRole("button", { name: "Select all results" }),
     );
-    await user.click(screen.getByRole("button", { name: "Clear selection" }));
+    await user.click(screen.getByRole("button", { name: "Clear" }));
     expect(screen.getByTestId("selected-count")).toHaveTextContent("0");
   });
 
-  it("protects, unprotects, and removes a protected row from selection", async () => {
+  it("filters the standalone table by user protection state", async () => {
+    const user = userEvent.setup();
+    renderManager({ protectedIds: ["beta"] });
+    await waitForInventory();
+
+    await user.click(screen.getByRole("button", { name: "filter" }));
+    await user.click(await screen.findByText("Protected"));
+    await user.click(screen.getByRole("button", { name: "OK" }));
+
+    expect(screen.getByText("Beta")).toBeInTheDocument();
+    expect(screen.queryByText("Alpha")).not.toBeInTheDocument();
+    expect(screen.queryByText("Unknown dates")).not.toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: "Select all results" }),
+    );
+    expect(screen.getByTestId("selected-count")).toHaveTextContent("1");
+  });
+
+  it("protects and unprotects while keeping the row selected", async () => {
     const user = userEvent.setup();
     renderManager();
     await waitForInventory();
@@ -800,14 +816,18 @@ describe("ManagerPage inventory controls", () => {
     if (alphaRow === null) throw new Error("Alpha row not found");
     await user.click(within(alphaRow).getByRole("button", { name: "Protect" }));
     await waitFor(() =>
-      expect(screen.getByTestId("selected-count")).toHaveTextContent("0"),
+      expect(screen.getByTestId("selected-count")).toHaveTextContent("1"),
     );
-    expect(within(alphaRow).getByText("Protected")).toBeInTheDocument();
+    expect(
+      within(alphaRow).getByLabelText("Protected — it will not be deleted."),
+    ).toBeInTheDocument();
     await user.click(
       within(alphaRow).getByRole("button", { name: "Unprotect" }),
     );
     await waitFor(() =>
-      expect(within(alphaRow).getByText("Unprotected")).toBeInTheDocument(),
+      expect(
+        within(alphaRow).getByLabelText("Unprotected — it can be deleted."),
+      ).toBeInTheDocument(),
     );
   });
 
@@ -817,14 +837,12 @@ describe("ManagerPage inventory controls", () => {
     renderManager({ protectedConversationStore });
     await waitForInventory();
 
-    expect(
-      screen.getByRole("button", { name: "Protect selected" }),
-    ).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Protect (0)" })).toBeDisabled();
     await selectConversation(user, "Alpha");
     await selectConversation(user, "Beta");
     protectedConversationStore.replaceCanonicalIds(["other-manager-id"]);
 
-    await user.click(screen.getByRole("button", { name: "Protect selected" }));
+    await user.click(screen.getByRole("button", { name: "Protect (2)" }));
     await waitFor(() =>
       expect(protectedConversationStore.pendingSaves).toHaveLength(1),
     );
@@ -835,10 +853,12 @@ describe("ManagerPage inventory controls", () => {
 
     protectedConversationStore.resolveNextSave();
     await waitFor(() =>
-      expect(screen.getByTestId("selected-count")).toHaveTextContent("0"),
+      expect(screen.getByTestId("selected-count")).toHaveTextContent("2"),
     );
     expect(screen.getByTestId("protected-summary")).toHaveTextContent("3");
-    expect(screen.getAllByText("Protected")).toHaveLength(2);
+    expect(
+      screen.getAllByLabelText("Protected — it will not be deleted."),
+    ).toHaveLength(2);
   });
 
   it("prevents overlapping protection writes", async () => {
@@ -864,9 +884,7 @@ describe("ManagerPage inventory controls", () => {
     expect(
       within(betaRow).getByRole("button", { name: "Protect" }),
     ).toBeDisabled();
-    expect(
-      screen.getByRole("button", { name: "Protect selected" }),
-    ).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Protect (1)" })).toBeDisabled();
 
     await user.click(within(betaRow).getByRole("button", { name: "Protect" }));
     expect(protectedConversationStore.pendingSaves).toHaveLength(1);
@@ -896,8 +914,86 @@ describe("ManagerPage inventory controls", () => {
     );
     protectedConversationStore.resolveNextSave();
     await waitFor(() =>
-      expect(within(betaRow).getByText("Protected")).toBeInTheDocument(),
+      expect(
+        within(betaRow).getByLabelText("Protected — it will not be deleted."),
+      ).toBeInTheDocument(),
     );
+  });
+
+  it("confirms bulk Unprotect and only removes its captured requested IDs", async () => {
+    const user = userEvent.setup();
+    const protectedConversationStore = new DeferredProtectedConversationStore([
+      "alpha",
+      "beta",
+    ]);
+    renderManager({ protectedConversationStore });
+    await waitForInventory();
+    await user.click(
+      screen.getByRole("button", { name: "Select all results" }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Unprotect (2)" }));
+    expect(screen.getByText("Unprotect 2 conversations?")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(protectedConversationStore.pendingSaves).toHaveLength(0);
+
+    await user.click(screen.getByRole("button", { name: "Unprotect (2)" }));
+    protectedConversationStore.replaceCanonicalIds([
+      "alpha",
+      "newly-protected-by-other-manager",
+    ]);
+    await user.click(
+      screen.getByRole("button", { name: "Unprotect 2 conversations" }),
+    );
+    await waitFor(() =>
+      expect(protectedConversationStore.pendingSaves).toHaveLength(1),
+    );
+    expect(
+      protectedConversationStore.pendingSaves[0]?.protectedConversationIds,
+    ).toEqual(new Set(["newly-protected-by-other-manager"]));
+
+    protectedConversationStore.resolveNextSave();
+    await waitFor(() =>
+      expect(screen.getByTestId("selected-count")).toHaveTextContent("3"),
+    );
+  });
+
+  it("removes the visible ID column and copies the correct conversation ID", async () => {
+    const user = userEvent.setup();
+    const copyConversationId = vi.fn(() => Promise.resolve());
+    renderManager({ copyConversationId });
+    await waitForInventory();
+
+    expect(
+      screen.queryByRole("columnheader", { name: "ID" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getAllByRole("columnheader")[0]).toHaveAccessibleName("");
+    await user.click(screen.getByRole("button", { name: "Copy ID: alpha" }));
+    expect(copyConversationId).toHaveBeenCalledWith("alpha");
+    expect(
+      await screen.findByRole("button", { name: "Copied" }),
+    ).toBeInTheDocument();
+    expect(
+      screen
+        .getAllByRole("alert")
+        .some((alert) => alert.textContent?.includes("Copied")),
+    ).toBe(false);
+  });
+
+  it("shows local Copy ID failure feedback without reporting success", async () => {
+    const user = userEvent.setup();
+    renderManager({
+      copyConversationId: () => Promise.reject(new Error("Clipboard blocked")),
+    });
+    await waitForInventory();
+
+    await user.click(screen.getByRole("button", { name: "Copy ID: alpha" }));
+    expect(
+      await screen.findByRole("button", {
+        name: "Could not copy the conversation ID.",
+      }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Copied")).not.toBeInTheDocument();
   });
 
   it("routes Open through the composition without navigation", async () => {

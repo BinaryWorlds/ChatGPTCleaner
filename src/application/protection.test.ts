@@ -88,7 +88,10 @@ describe("protected conversation mutations", () => {
     store.replaceCanonicalIds(new Set(["added-by-other-manager", "remove"]));
 
     const result = await mutateProtectedConversationIds({
-      mutation: { kind: "unprotect", conversationId: "remove" },
+      mutation: {
+        kind: "unprotect",
+        conversationIds: new Set(["remove"]),
+      },
       protectedConversationStore: store,
       destructiveRunLock: new FakeDestructiveRunLock(),
       currentRunLockOwner: null,
@@ -96,6 +99,31 @@ describe("protected conversation mutations", () => {
 
     expect(result).toMatchObject({ kind: "saved" });
     expect(store.ids()).toEqual(["added-by-other-manager"]);
+  });
+
+  it("bulk unprotect can only remove IDs from the requested set", async () => {
+    const store = new MutableProtectedConversationStore(
+      new Set(["requested", "no-longer-requested"]),
+    );
+    store.replaceCanonicalIds(
+      new Set(["requested", "newly-protected-by-other-manager"]),
+    );
+    const load = vi.spyOn(store, "loadProtectedConversationIds");
+    const save = vi.spyOn(store, "saveProtectedConversationIds");
+
+    await mutateProtectedConversationIds({
+      mutation: {
+        kind: "unprotect",
+        conversationIds: new Set(["requested", "no-longer-requested"]),
+      },
+      protectedConversationStore: store,
+      destructiveRunLock: new FakeDestructiveRunLock(),
+      currentRunLockOwner: null,
+    });
+
+    expect(store.ids()).toEqual(["newly-protected-by-other-manager"]);
+    expect(load).toHaveBeenCalledOnce();
+    expect(save).toHaveBeenCalledOnce();
   });
 
   it("fails closed without saving when canonical protection storage is invalid", async () => {

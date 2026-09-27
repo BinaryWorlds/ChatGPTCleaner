@@ -5,11 +5,12 @@
 ## Context
 
 Pause/Resume and Retry Failed must remain inside the already-approved set
-without asking the user to retype confirmation.
+without asking the user to confirm again.
 
 ## Decision
 
-Typed confirmation creates an in-memory maximum set of `confirmedConversationIds`.
+Destructive-modal confirmation creates an in-memory maximum set of
+`confirmedConversationIds`.
 
 Starting, Resume, and Retry Failed may **remove** IDs from that set, but may
 never add IDs. They do not reload standalone or Project inventory. Current
@@ -28,13 +29,14 @@ attempted subset: A B C D E
 => E rejected
 ```
 
-Any user action that introduces new IDs starts a new destructive batch and requires a new `DELETE N` confirmation.
+Any user action that introduces new IDs starts a new destructive batch and
+requires a new destructive-modal confirmation.
 
 Confirmed IDs are never persisted.
 
 ## Alternatives considered
 
-- Require typed confirmation after every Resume/Retry.
+- Require confirmation after every Resume/Retry.
 - Continue the original plan without subset enforcement.
 - Allow refreshed inventory to add newly eligible IDs automatically.
 

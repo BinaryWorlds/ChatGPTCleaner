@@ -33,7 +33,7 @@ The deletion path is:
 ```text
 selection
 -> DeletionPlan preview from loaded inventory
--> typed confirmation
+-> destructive confirmation
 -> confirmed IDs
 -> single-run lock
 -> fresh local protected-ID check

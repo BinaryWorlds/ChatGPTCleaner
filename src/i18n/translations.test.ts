@@ -37,4 +37,9 @@ describe("translations", () => {
       }
     }
   });
+
+  it("uses the intended localized Actions column label", () => {
+    expect(en.table.actions).toBe("Actions");
+    expect(pl.table.actions).toBe("Akcje");
+  });
 });

@@ -14,7 +14,11 @@ import { FakeConversationGateway } from "../infrastructure/fake/FakeConversation
 import { FakeDestructiveRunLock } from "../infrastructure/fake/FakeDestructiveRunLock";
 import { FakeProtectedConversationStore } from "../infrastructure/fake/FakeStores";
 import { type FakeGatewayFixture } from "../infrastructure/fake/fixtures";
-import { DeletionRun } from "./deletionRun";
+import {
+  DeletionRun,
+  deletionRunOwnsWorkflow,
+  type DeletionRunProgress,
+} from "./deletionRun";
 import type {
   ApplicationObservability,
   ObservabilityFields,
@@ -38,7 +42,7 @@ function confirmedPlan(ids: readonly string[]): ConfirmedDeletionPlan {
     projectConversationIds: new Set(),
     protectedConversationIds: new Set(),
   });
-  const confirmation = confirmDeletionPlan(plan, `DELETE ${ids.length}`);
+  const confirmation = confirmDeletionPlan(plan);
   if (confirmation.kind !== "confirmed") {
     throw new Error("Test setup failed to confirm a deletion plan.");
   }
@@ -212,6 +216,36 @@ class ConcurrencyTrackingDeleteGateway extends FakeConversationGateway {
     }
   }
 }
+
+describe("deletion workflow ownership", () => {
+  const progress: DeletionRunProgress = {
+    total: 1,
+    processed: 1,
+    deleted: 0,
+    failed: 0,
+    skipped: 1,
+    remaining: 0,
+    retries: 0,
+    requestsPerMinute: 60,
+    activeElapsedMs: 0,
+    etaMs: 0,
+    paused: false,
+    currentConversationId: null,
+    failedConversationIds: [],
+  };
+
+  it("owns active and retryable states but releases terminal states without failed work", () => {
+    expect(deletionRunOwnsWorkflow({ kind: "paused", progress })).toBe(true);
+    expect(
+      deletionRunOwnsWorkflow({
+        kind: "finished",
+        progress: { ...progress, failedConversationIds: ["retryable"] },
+      }),
+    ).toBe(true);
+    expect(deletionRunOwnsWorkflow({ kind: "finished", progress })).toBe(false);
+    expect(deletionRunOwnsWorkflow({ kind: "stopped", progress })).toBe(false);
+  });
+});
 
 describe("destructive run", () => {
   it.each([0, 121, 1.5, Number.NaN])(
@@ -763,7 +797,7 @@ describe("destructive run", () => {
     expect(run.getState().kind).toBe("paused");
 
     const mutation = mutateProtectedConversationIds({
-      mutation: { kind: "unprotect", conversationId: "b" },
+      mutation: { kind: "unprotect", conversationIds: new Set(["b"]) },
       protectedConversationStore: store,
       destructiveRunLock: lock,
       currentRunLockOwner: run,

@@ -9,6 +9,7 @@ import {
 import { DEMO_FIXTURE } from "../infrastructure/fake/fixtures";
 import { SystemClock } from "../infrastructure/time/SystemClock";
 import { createApplicationObservability } from "../infrastructure/observability/applicationObservability";
+import { copyConversationId } from "../infrastructure/browser/copyConversationId";
 import type { ManagerComposition } from "./types";
 
 export function createManagerComposition(): ManagerComposition {
@@ -30,5 +31,6 @@ export function createManagerComposition(): ManagerComposition {
     },
     themePreferenceStore: new FakeThemePreferenceStore(),
     openConversation: () => undefined,
+    copyConversationId,
   };
 }
