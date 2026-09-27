@@ -266,7 +266,7 @@ describe("ManagerPage destructive flow", () => {
     await user.click(screen.getByRole("button", { name: "Delete 2" }));
 
     const pauseButton = await screen.findByRole("button", { name: "Pause" });
-    expect(screen.getByLabelText("Requests per minute")).toBeDisabled();
+    expect(screen.getByLabelText("Delete rate")).toBeDisabled();
     expect(
       screen.getByRole("button", { name: "Refresh inventory" }),
     ).toBeDisabled();

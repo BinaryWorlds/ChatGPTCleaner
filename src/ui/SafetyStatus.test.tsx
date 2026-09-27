@@ -10,18 +10,46 @@ describe("SafetyStatus", () => {
     }
   });
 
-  it("explains why the destructive lock is not checked before acquisition", async () => {
+  it("exposes lock help from the combined label without including its status", async () => {
     render(<SafetyStatus state={{ kind: "ready" }} />);
 
-    expect(screen.getByTestId("safety-run-lock")).toHaveTextContent(
-      "NOT CHECKED",
-    );
-    expect(screen.getByTestId("safety-deletion")).toHaveTextContent("READY");
+    const lockStatus = screen.getByTestId("safety-run-lock");
+    const lockHelpTrigger = screen.getByLabelText("About Run lock");
 
-    fireEvent.focus(screen.getByText("Run lock"));
+    expect(lockStatus).toHaveTextContent("NOT CHECKED");
+    expect(screen.getByTestId("safety-deletion")).toHaveTextContent("READY");
+    expect(lockHelpTrigger).toHaveTextContent("Run lock");
+    expect(lockHelpTrigger).not.toContainElement(lockStatus);
+
+    fireEvent.focus(lockHelpTrigger);
 
     expect(await screen.findByRole("tooltip")).toHaveTextContent(
-      "Checked when a deletion run starts.",
+      "Prevents multiple deletion runs from running at the same time. Checked when deletion starts.",
+    );
+  });
+
+  it("provides keyboard-accessible help for every safety check", async () => {
+    render(<SafetyStatus state={{ kind: "ready" }} />);
+
+    const helpLabels = [
+      "ChatGPT connection",
+      "Source tab access",
+      "Read API compatibility",
+      "Project protection",
+      "Run lock",
+      "Deletion safety",
+    ];
+
+    for (const label of helpLabels) {
+      expect(screen.getByLabelText(`About ${label}`)).toHaveAttribute(
+        "tabindex",
+        "0",
+      );
+    }
+
+    fireEvent.focus(screen.getByLabelText("About ChatGPT connection"));
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      "A usable ChatGPT session is available in the source tab.",
     );
   });
 

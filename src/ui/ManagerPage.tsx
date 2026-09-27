@@ -3,6 +3,7 @@ import {
   DeleteOutlined,
   FilterOutlined,
   FolderOpenOutlined,
+  InfoCircleOutlined,
   LockOutlined,
   MessageOutlined,
   ReloadOutlined,
@@ -22,6 +23,7 @@ import {
   Spin,
   Statistic,
   theme,
+  Tooltip,
   Typography,
 } from "antd";
 import { useMemo, useRef, useState } from "react";
@@ -560,12 +562,32 @@ export function ManagerPage({
               </Space>
               {conversationView === "standalone" && (
                 <Space>
-                  <Typography.Text>Requests per minute</Typography.Text>
+                  <Space size={token.marginXXS}>
+                    <Typography.Text>Delete rate</Typography.Text>
+                    <Tooltip
+                      title="Maximum DELETE requests sent per minute during a deletion run."
+                      trigger={["hover", "focus"]}
+                    >
+                      <span
+                        aria-label="About Delete rate"
+                        tabIndex={0}
+                        style={{
+                          color: token.colorTextTertiary,
+                          display: "inline-flex",
+                          fontSize: token.fontSizeSM,
+                        }}
+                      >
+                        <InfoCircleOutlined aria-hidden />
+                      </span>
+                    </Tooltip>
+                  </Space>
                   <InputNumber
-                    aria-label="Requests per minute"
+                    aria-label="Delete rate"
                     min={AppConfig.deletion.requestsPerMinute.min}
                     max={AppConfig.deletion.requestsPerMinute.max}
                     precision={0}
+                    style={{ width: 128 }}
+                    suffix="/ min"
                     value={requestsPerMinute}
                     disabled={runActive}
                     onChange={handleRateChange}

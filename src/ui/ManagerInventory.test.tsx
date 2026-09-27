@@ -1,4 +1,10 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ManagerDependencies } from "../composition/types";
@@ -257,6 +263,25 @@ afterEach(() => {
 });
 
 describe("ManagerPage inventory controls", () => {
+  it("explains and preserves the configurable DELETE request rate", async () => {
+    const settingsStore = new FakeSettingsStore(60);
+    renderManager({ settingsStore });
+    await waitForInventory();
+
+    const rateInput = screen.getByLabelText("Delete rate");
+    expect(rateInput).toHaveValue("60");
+    expect(screen.getByText("/ min")).toBeInTheDocument();
+
+    fireEvent.focus(screen.getByLabelText("About Delete rate"));
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      "Maximum DELETE requests sent per minute during a deletion run.",
+    );
+
+    fireEvent.change(rateInput, { target: { value: "75" } });
+    await waitFor(() => expect(settingsStore.savedValues).toEqual([75]));
+    expect(rateInput).toHaveValue("75");
+  });
+
   it("labels the loading value as a conversation count", async () => {
     const conversations = Array.from({ length: 100 }, (_, index) => ({
       id: `conversation-${index}`,
@@ -487,9 +512,7 @@ describe("ManagerPage inventory controls", () => {
     expect(
       screen.queryByRole("button", { name: /^(Unprotect|Protect)$/ }),
     ).not.toBeInTheDocument();
-    expect(
-      screen.queryByLabelText("Requests per minute"),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Delete rate")).not.toBeInTheDocument();
     expect(screen.getByTestId("selected-count")).toHaveTextContent("1");
 
     const projectRow = screen.getByText("Project planning").closest("tr");

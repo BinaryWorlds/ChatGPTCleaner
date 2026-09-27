@@ -1,4 +1,7 @@
-import { SafetyCertificateOutlined } from "@ant-design/icons";
+import {
+  InfoCircleOutlined,
+  SafetyCertificateOutlined,
+} from "@ant-design/icons";
 import {
   Alert,
   Badge,
@@ -28,6 +31,11 @@ export type SafetyStatusState =
 
 interface SafetyStatusProps {
   readonly state: SafetyStatusState;
+}
+
+interface SafetyCheckLabelProps {
+  readonly label: string;
+  readonly help: string;
 }
 
 type SafetyIndicatorStatus =
@@ -78,6 +86,34 @@ function indicatorBadgeStatus(
   if (value === "OK" || value === "READY") return "success";
   if (value === "CHECKING" || value === "NOT CHECKED") return "processing";
   return "error";
+}
+
+function SafetyCheckLabel({ label, help }: SafetyCheckLabelProps) {
+  const { token } = theme.useToken();
+
+  return (
+    <Tooltip title={help} trigger={["hover", "focus"]}>
+      <span
+        aria-label={`About ${label}`}
+        tabIndex={0}
+        style={{
+          alignItems: "center",
+          color: token.colorText,
+          columnGap: token.marginXXS,
+          display: "inline-flex",
+        }}
+      >
+        <span>{label}</span>
+        <InfoCircleOutlined
+          aria-hidden
+          style={{
+            color: token.colorTextTertiary,
+            fontSize: token.fontSizeSM,
+          }}
+        />
+      </span>
+    </Tooltip>
+  );
 }
 
 export function deriveSafetyIndicators(
@@ -166,7 +202,14 @@ export function SafetyStatus({ state }: SafetyStatusProps) {
       size="small"
     >
       <Descriptions size="small" column={{ xs: 1, sm: 2, lg: 3, xl: 6 }}>
-        <Descriptions.Item label="ChatGPT connection">
+        <Descriptions.Item
+          label={
+            <SafetyCheckLabel
+              label="ChatGPT connection"
+              help="A usable ChatGPT session is available in the source tab."
+            />
+          }
+        >
           <Tag color={indicatorColor(indicators.connection)} variant="outlined">
             <Space size={token.marginXXS}>
               <Badge status={indicatorBadgeStatus(indicators.connection)} />
@@ -174,7 +217,14 @@ export function SafetyStatus({ state }: SafetyStatusProps) {
             </Space>
           </Tag>
         </Descriptions.Item>
-        <Descriptions.Item label="Source tab access">
+        <Descriptions.Item
+          label={
+            <SafetyCheckLabel
+              label="Source tab access"
+              help="The extension can access the ChatGPT tab it was launched from."
+            />
+          }
+        >
           <Tag
             color={indicatorColor(indicators.sourceTab)}
             variant="outlined"
@@ -186,7 +236,14 @@ export function SafetyStatus({ state }: SafetyStatusProps) {
             </Space>
           </Tag>
         </Descriptions.Item>
-        <Descriptions.Item label="Read API compatibility">
+        <Descriptions.Item
+          label={
+            <SafetyCheckLabel
+              label="Read API compatibility"
+              help="ChatGPT responses match the formats this version supports."
+            />
+          }
+        >
           <Tag
             color={indicatorColor(indicators.readCompatibility)}
             variant="outlined"
@@ -200,7 +257,14 @@ export function SafetyStatus({ state }: SafetyStatusProps) {
             </Space>
           </Tag>
         </Descriptions.Item>
-        <Descriptions.Item label="Project protection">
+        <Descriptions.Item
+          label={
+            <SafetyCheckLabel
+              label="Project protection"
+              help="Project conversations in the loaded snapshot are excluded from deletion."
+            />
+          }
+        >
           <Tag
             color={indicatorColor(indicators.projectProtection)}
             variant="outlined"
@@ -216,12 +280,10 @@ export function SafetyStatus({ state }: SafetyStatusProps) {
         </Descriptions.Item>
         <Descriptions.Item
           label={
-            <Tooltip
-              title="Checked when a deletion run starts."
-              trigger={["hover", "focus"]}
-            >
-              <span tabIndex={0}>Run lock</span>
-            </Tooltip>
+            <SafetyCheckLabel
+              label="Run lock"
+              help="Prevents multiple deletion runs from running at the same time. Checked when deletion starts."
+            />
           }
         >
           <Tag
@@ -235,7 +297,14 @@ export function SafetyStatus({ state }: SafetyStatusProps) {
             </Space>
           </Tag>
         </Descriptions.Item>
-        <Descriptions.Item label="Deletion safety">
+        <Descriptions.Item
+          label={
+            <SafetyCheckLabel
+              label="Deletion safety"
+              help="Overall safety gate. READY allows deletion; BLOCKED prevents it."
+            />
+          }
+        >
           <Tag
             color={indicatorColor(indicators.deletion)}
             variant="outlined"
