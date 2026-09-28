@@ -1,0 +1,80 @@
+name: Bootstrap v1.0.0
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+  artifact-metadata: write
+
+jobs:
+  bootstrap:
+    name: Bootstrap v1.0.0
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: master
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.17.1
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Validate bootstrap release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          test "$VERSION" = "1.0.0"
+          TAG="v$VERSION"
+          ASSET="ChatGPTCleaner-$TAG-chrome.zip"
+          test "$(gh api "repos/$GITHUB_REPOSITORY" --jq .visibility)" = "public"
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists."
+            exit 1
+          fi
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG already exists."
+            exit 1
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          echo "ASSET=$ASSET" >> "$GITHUB_ENV"
+          echo "RELEASE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+      - name: Run quality gate
+        run: pnpm check
+      - name: Package production extension
+        run: pnpm package
+      - name: Prepare release asset
+        shell: bash
+        run: |
+          SOURCE=".output/chatgpt-cleaner-$VERSION-chrome.zip"
+          test -f "$SOURCE"
+          mv "$SOURCE" "$ASSET"
+      - name: Validate release asset
+        shell: bash
+        run: |
+          unzip -tq "$ASSET"
+          zipinfo -1 "$ASSET" > zip-entries.txt
+          grep -Fxq "manifest.json" zip-entries.txt
+          if grep -Eq '\.map$|(^|/)(coverage|src|tests?|__tests__)(/|$)' zip-entries.txt; then
+            echo "Release ZIP contains forbidden development files."
+            exit 1
+          fi
+          unzip -p "$ASSET" manifest.json |
+            node -e 'const fs=require("node:fs");const manifest=JSON.parse(fs.readFileSync(0,"utf8"));if(manifest.version!==process.argv[1])process.exit(1)' "$VERSION"
+      - name: Attest release asset
+        uses: actions/attest@v4
+        with:
+          subject-path: ${{ env.ASSET }}
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$TAG" "$ASSET" --repo "$GITHUB_REPOSITORY" --target "$RELEASE_SHA" --title "$TAG" --generate-notes

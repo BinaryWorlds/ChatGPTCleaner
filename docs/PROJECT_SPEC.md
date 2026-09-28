@@ -1,4 +1,4 @@
-# ChatGPTCleaner — MVP Product & Engineering Specification
+# ChatGPTCleaner — Product & Engineering Specification
 
 **Status:** Source of truth  
 **Product:** Google Chrome Manifest V3 extension  
@@ -42,7 +42,9 @@ Google Chrome
           +-- narrow authenticated transport to chatgpt.com
 ```
 
-The extension must be installable through:
+GitHub Releases are the public distribution mechanism. Each release provides a
+versioned production ZIP built from `pnpm build` output. Users install it
+through:
 
 ```text
 chrome://extensions
@@ -50,9 +52,30 @@ chrome://extensions
 -> Load unpacked
 ```
 
-`pnpm build` must produce a valid Chromium extension build.
+`pnpm build` must produce a valid Chromium extension build for production
+release packaging.
 
-Chrome Web Store publishing is outside MVP.
+Chrome Web Store distribution is outside the current product scope. Unpacked
+GitHub installations do not auto-update; users update manually from a newer
+release ZIP.
+
+Release Please owns the application version and release `CHANGELOG.md` entries
+after the initial `v1.0.0` bootstrap. Normal and Dependabot pull requests do not
+reserve application versions or create future release headings. One weekly
+cross-ecosystem Dependabot rollup handles ordinary dependency maintenance, and
+each Release Please pull request requires a manual maintainer merge.
+
+Every public release is produced from the production build as
+`ChatGPTCleaner-vX.Y.Z-chrome.zip`. The exact validated ZIP is attested before
+the draft GitHub Release is published.
+
+Any future Chrome Web Store integration is release-only: it consumes the same
+canonical production artifact lineage, requires the store version to equal the
+application release version, uses Chrome Web Store API v2 with
+`STAGED_PUBLISH`, and leaves final publication to a maintainer after approval.
+Normal and dependency pull requests never publish to the store. Store
+credentials must remain isolated in an appropriate GitHub secret/environment.
+No live Chrome Web Store integration is part of the current product.
 
 Demo mode reuses the same manager UI with fake infrastructure.
 
@@ -272,6 +295,7 @@ React
 TypeScript strict
 Ant Design
 Zod
+i18next / react-i18next
 Vitest
 React Testing Library
 @testing-library/user-event
@@ -474,7 +498,7 @@ Do not perform API work.
 
 ## 11. Source-bound inventory and DELETE transport
 
-The MVP safety boundary remains bound to the exact authenticated source tab
+The safety boundary remains bound to the exact authenticated source tab
 captured at launch and does not add a separate identity-context mechanism.
 
 Initial inventory and each explicit Refresh validate the bound source tab and
@@ -588,8 +612,8 @@ For `MAIN` execution:
 - all returned data is validated.
 - the exact page origin is rechecked;
 - URLs and GET methods are constructed inside the injected function;
-- only standalone, Project-sidebar, and Project-conversation reads exist in
-  Phase 5.
+- the read transport exposes only standalone, Project-sidebar, and
+  Project-conversation read operations.
 
 Do not expose:
 
@@ -1489,7 +1513,7 @@ An already-dispatched network request may still complete remotely.
 
 Next launch starts fresh.
 
-Only protected IDs and the rate preference persist.
+Only protected IDs, the rate preference, and the theme preference persist.
 
 ---
 
@@ -1728,213 +1752,32 @@ No dashboard.
 
 ---
 
-## 39. Suggested repository structure
+## 39. Public repository requirements
+
+The public repository must identify ChatGPTCleaner as an unofficial project
+that is not affiliated with or endorsed by OpenAI. It must use original
+project/extension branding and must not copy OpenAI or ChatGPT logos.
+
+Public documentation must explain the safety and privacy model, user-facing
+installation and operation, contributor constraints, security reporting, and
+the reasons for major architectural decisions without duplicating large
+sections between documents.
+
+The repository includes:
 
 ```text
-src/
-  domain/
-  application/
-    ports/
-  infrastructure/
-    api/
-    storage/
-    locking/
-    time/
-  ui/
-  entrypoints/
-    background.ts
-    manager/
-  test/
-
-docs/
-  PROJECT_SPEC.md
-  adr/
-    0001-stack.md
-    0002-fail-closed-deletion.md
-    0003-project-protection.md
-    0004-page-context-api-access.md
-    0005-manager-owned-executor.md
-    0006-single-destructive-run.md
-    0007-confirmed-deletion-set.md
-
-.github/workflows/ci.yml
-.vscode/extensions.json
-.vscode/settings.json
-.editorconfig
-.gitignore
-.nvmrc
-AGENTS.md
 README.md
+CHANGELOG.md
 SECURITY.md
-LICENSE
-package.json
-pnpm-lock.yaml
-tsconfig.json
-wxt.config.ts
-```
-
-Adapt minor WXT-generated conventions where necessary.
-
-Do not create generic dumping-ground directories such as:
-
-```text
-helpers/
-utils/
-common/
-core/
-managers/
-providers/
-factories/
-strategies/
-```
-
-without a demonstrated need.
-
----
-
-## 40. Public repository requirements
-
-README must clearly state:
-
-- Chrome MV3 extension;
-- current implementation status;
-- purpose and non-goals;
-- privacy and safety model;
-- install from source / Load unpacked;
-- development/demo/test commands;
-- undocumented ChatGPT web-interface dependency;
-- Project protection and concurrency limitation;
-- no background deletion/auto-resume;
-- project is unofficial and not affiliated with or endorsed by OpenAI;
-- users are responsible for complying with applicable terms/policies.
-
-Use an original project/extension icon.
-
-Do not copy OpenAI/ChatGPT logos or visual branding.
-
-Repository includes:
-
-```text
+AGENTS.md
 MIT LICENSE
-SECURITY.md
-AGENTS.md
-PROJECT_SPEC.md
-ADRs
+docs/PROJECT_SPEC.md
+docs/adr/*
 ```
 
 ---
 
-## 41. Development phases
-
-### Phase 0 — Bootstrap
-
-Create:
-
-```text
-WXT React TS MV3 extension
-Node 24 / pnpm constraints
-Ant / Zod / Vitest / RTL / ESLint / Prettier
-CI
-VS Code recommendations
-.gitignore / .editorconfig
-README / SECURITY / LICENSE
-AGENTS.md
-ADRs
-minimal service worker
-manager extension page
-```
-
-`pnpm build` must produce a Load-unpacked Chrome build.
-
-### Phase 1 — Domain
-
-Implement and test:
-
-```text
-models
-filters/sorting
-protection
-selection
-DeletionPlan
-confirmed-ID subset rules
-progress calculations
-```
-
-### Phase 2 — Application
-
-Implement/test:
-
-```text
-ports
-inventory/preview/Refresh orchestration
-source-tab stability
-rate limiting
-destructive run orchestration
-Pause/Resume/Stop
-Retry Failed
-single-run coordination
-```
-
-### Phase 3 — Fake infrastructure + demo
-
-Make complete workflow usable without real network.
-
-### Phase 4 — Manager UI
-
-Build complete UI against fake infrastructure.
-
-### Phase 5 — Production read integration
-
-Implement:
-
-```text
-source-tab validation
-narrow page transport
-standalone pagination
-Project discovery/enumeration
-pagination ceilings
-read retry policy
-runtime schemas
-storage trusted-context config
-single-run lock
-```
-
-Before uncertain real schemas are coded, inspect current browser Network behavior. Do not guess.
-
-### Phase 6 — Production DELETE integration
-
-**Implementation status:** Stage A implemented with synthetic automated tests;
-the one-disposable-conversation production smoke test succeeded.
-
-The production composition uses the observed fixed DELETE through a narrow
-ISOLATED-world gateway. The earlier successful manual smoke lifecycle used the
-then-current safety path with one eligible ID, issued exactly one attempt, and
-completed with one deletion and no failed or skipped items. No private
-conversation data was recorded.
-
-Do not perform automated live deletion.
-
-Further manual live validation remains staged and user-initiated; automated
-tests and demo mode never perform live deletion.
-
-### Phase 7 — Hardening
-
-Verify:
-
-```text
-manifest permissions
-security invariants
-no secrets in logs
-no remote runtime code
-no generic auth fetch proxy
-no destructive persistence
-demo cannot reach production destructive path
-docs and CI
-```
-
----
-
-## 42. Documentation split
+## 40. Documentation split
 
 This document defines **WHAT the product must do and its architectural boundaries**.
 
@@ -1942,13 +1785,13 @@ Other files have separate roles:
 
 ```text
 AGENTS.md
-= HOW code must be written
+= HOW agents and contributors work in the repository
 
 docs/adr/*
 = WHY major architectural decisions were chosen
 
 README.md
-= HOW users install/use/develop the project
+= HOW users understand, install, and use the project
 
 SECURITY.md
 = HOW security issues are reported
@@ -1958,29 +1801,7 @@ Do not duplicate large sections across these files.
 
 ---
 
-## 43. Definition of Done
-
-MVP is done when:
-
-- production output is a loadable Chrome MV3 extension;
-- extension action opens the manager from a valid ChatGPT source tab;
-- fake workflow works end-to-end without network;
-- real read integration loads standalone inventory and complete Project protection;
-- production DELETE gateway is implemented behind the safety pipeline;
-- Project/protected/missing IDs cannot reach DELETE;
-- explicit destructive-modal confirmation protects each new destructive batch;
-- Resume/Retry only shrink the confirmed ID set;
-- sequential rate-limited deletion, retries, Pause/Resume/Stop, progress and ETA work;
-- only one destructive executor may run;
-- manager loss never starts new background DELETE attempts or auto-resume;
-- manifest/security checks pass;
-- automated tests cannot access real ChatGPT;
-- `pnpm check` passes;
-- README, ADRs, AGENTS, SECURITY, and LICENSE are current.
-
----
-
-## 44. Final mental model
+## 41. Final mental model
 
 ```text
 Google Chrome

@@ -1,0 +1,120 @@
+name: Release Please
+
+on:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  bootstrap_status:
+    name: Check v1.0.0 bootstrap
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.tag.outputs.ready }}
+    steps:
+      - id: tag
+        name: Check bootstrap tag
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          status="$(curl --silent --show-error --output response.json --write-out '%{http_code}' \
+            --header 'Accept: application/vnd.github+json' \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/tags/v1.0.0")"
+          case "$status" in
+            200) echo "ready=true" >> "$GITHUB_OUTPUT" ;;
+            404) echo "ready=false" >> "$GITHUB_OUTPUT" ;;
+            *) cat response.json; exit 1 ;;
+          esac
+
+  release_please:
+    name: Update release pull request
+    needs: bootstrap_status
+    if: needs.bootstrap_status.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      version: ${{ steps.release.outputs.version }}
+      sha: ${{ steps.release.outputs.sha }}
+    steps:
+      - id: release
+        uses: googleapis/release-please-action@v5
+        with:
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  publish:
+    name: Build, attest, and publish release
+    needs: release_please
+    if: needs.release_please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    env:
+      TAG: ${{ needs.release_please.outputs.tag_name }}
+      VERSION: ${{ needs.release_please.outputs.version }}
+      ASSET: ChatGPTCleaner-${{ needs.release_please.outputs.tag_name }}-chrome.zip
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.release_please.outputs.sha }}
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.17.1
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Run quality gate
+        run: pnpm check
+      - name: Package production extension
+        run: pnpm package
+      - name: Prepare release asset
+        shell: bash
+        run: |
+          SOURCE=".output/chatgpt-cleaner-$VERSION-chrome.zip"
+          test -f "$SOURCE"
+          mv "$SOURCE" "$ASSET"
+      - name: Validate release asset
+        shell: bash
+        run: |
+          unzip -tq "$ASSET"
+          zipinfo -1 "$ASSET" > zip-entries.txt
+          grep -Fxq "manifest.json" zip-entries.txt
+          if grep -Eq '\.map$|(^|/)(coverage|src|tests?|__tests__)(/|$)' zip-entries.txt; then
+            echo "Release ZIP contains forbidden development files."
+            exit 1
+          fi
+          unzip -p "$ASSET" manifest.json |
+            node -e 'const fs=require("node:fs");const manifest=JSON.parse(fs.readFileSync(0,"utf8"));if(manifest.version!==process.argv[1])process.exit(1)' "$VERSION"
+      - name: Verify draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: test "$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = "true"
+      - name: Attest release asset
+        uses: actions/attest@v4
+        with:
+          subject-path: ${{ env.ASSET }}
+      - name: Upload release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" "$ASSET" --repo "$GITHUB_REPOSITORY" --clobber
+      - name: Publish completed release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false

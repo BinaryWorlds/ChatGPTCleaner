@@ -1,0 +1,21 @@
+version: 2
+
+multi-ecosystem-groups:
+  dependency-rollup:
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "fix(deps)"
+
+updates:
+  - package-ecosystem: npm
+    directory: /
+    patterns:
+      - "*"
+    multi-ecosystem-group: dependency-rollup
+
+  - package-ecosystem: github-actions
+    directory: /
+    patterns:
+      - "*"
+    multi-ecosystem-group: dependency-rollup

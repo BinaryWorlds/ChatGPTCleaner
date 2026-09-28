@@ -1,21 +1,86 @@
-MIT License
+# ChatGPTCleaner Source License 1.0
 
-Copyright (c) 2026 ChatGPTCleaner contributors
+Copyright (c) 2026 Dawid Szymkowiak (BinaryWorlds). All rights reserved.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+## 1. Scope
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+This license applies only to material whose copyright is owned by the
+ChatGPTCleaner copyright holder, including, as applicable, project source,
+tests, project documentation, project-owned assets, and project build or
+configuration material (the "Project Material"). It does not relicense any
+third-party component or material.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+## 2. Limited review and evaluation permission
+
+Subject to this license, you may view, inspect, analyze, and locally copy,
+build, and test the Project Material only where reasonably necessary to
+evaluate, security-review, technically review, or understand ChatGPTCleaner.
+
+This limited permission allows execution of a self-built or modified copy only
+where genuinely necessary for the permitted evaluation, security review,
+technical review, testing, or understanding of ChatGPTCleaner; it does not
+authorize using such a copy as a regular ChatGPTCleaner installation, as a
+substitute for an Official Build, or as an independently distributed product.
+
+## 3. Restrictions
+
+Except for the limited permission above, rights independently granted by the
+hosting platform, or separate written permission from the copyright holder,
+you may not:
+
+- redistribute the Project Material;
+- publish unofficial ChatGPTCleaner builds or redistribute packaged or
+  compiled ChatGPTCleaner builds;
+- publish modified versions or repackage ChatGPTCleaner for distribution;
+- sublicense the Project Material;
+- sell, license, or otherwise monetize the Project Material;
+- create or distribute another browser extension, application, or service
+  derived substantially from the Project Material;
+- incorporate substantial portions of the Project Material into another
+  distributed software product;
+- present unofficial software as an official ChatGPTCleaner release; or
+- remove proprietary or copyright notices.
+
+## 4. GitHub platform rights
+
+This license does not revoke or limit rights granted independently by GitHub's
+Terms of Service for public-repository functionality. Using GitHub functionality,
+including creating a GitHub fork, does not by itself grant any broader product,
+source-redistribution, build-distribution, or derivative-product license from
+the ChatGPTCleaner copyright holder.
+
+## 5. Third-party software
+
+Third-party components remain governed by their own licenses. This license
+applies only to Project Material, and nothing in it reduces rights granted
+directly by third-party licensors.
+
+## 6. Official Builds
+
+Installation, running, and use of Official Builds are governed separately by
+the ChatGPTCleaner End User License Agreement in `EULA.md`.
+
+## 7. Branding
+
+This license grants no right to use any ChatGPTCleaner trademark, logo, product
+name, or other branding.
+
+## 8. Warranty and liability
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE PROJECT MATERIAL IS
+PROVIDED "AS IS," WITHOUT WARRANTIES OF ANY KIND, EXPRESS OR IMPLIED. TO THE
+MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE COPYRIGHT HOLDER WILL NOT BE
+LIABLE FOR ANY CLAIM, LOSS, OR DAMAGES ARISING FROM OR RELATED TO THE PROJECT
+MATERIAL OR ITS USE.
+
+## 9. Additional rights
+
+The copyright holder may grant additional redistribution, commercial,
+derivative-product, or other licensing rights separately in writing.
+
+## 10. Termination
+
+The permissions granted under this license terminate automatically if you
+violate its terms. Termination affects only permissions granted by this license
+and does not affect rights granted independently by the hosting platform or by
+third-party licensors.

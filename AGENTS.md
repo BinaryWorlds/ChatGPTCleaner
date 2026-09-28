@@ -6,7 +6,7 @@ These rules apply to coding agents and contributors.
 
 - This is a Google Chrome Manifest V3 extension, not a hosted web app.
 - Node.js 24 and pnpm only.
-- Chrome/Chromium only for MVP.
+- Chrome/Chromium only for the current product scope.
 - Do not add product features outside `docs/PROJECT_SPEC.md`.
 
 ## Architecture
@@ -109,6 +109,9 @@ Avoid deeply nested `if/for/try` structures.
 Normal application code should rarely exceed two levels of control-flow nesting.
 
 Avoid `else` after a branch that already returns or throws.
+
+Avoid generic dumping-ground directories such as `helpers/`, `utils/`, or
+`common/` without a demonstrated need.
 
 ## Naming
 
@@ -260,6 +263,14 @@ Update it when behavior or scope changes.
 Create/update an ADR when a major architectural decision changes.
 
 Do not duplicate large specification sections across docs.
+
+## Release contributions
+
+- Use Conventional Commit messages and PR titles; release automation consumes
+  the squash-merge commit history.
+- Do not manually bump the application version in a normal or Dependabot PR.
+- Do not manually add a future release heading to `CHANGELOG.md` in a normal or
+  Dependabot PR. Release Please owns release versions and release entries.
 
 ## Completion
 

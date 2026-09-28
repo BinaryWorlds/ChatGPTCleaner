@@ -1,179 +1,138 @@
 # ChatGPTCleaner
 
-> **Status: Work in progress — implementation is not complete yet.**
+ChatGPTCleaner is an unofficial Chrome Manifest V3 extension for reviewing and bulk-deleting selected standalone ChatGPT conversations while deliberately excluding Project conversations and locally protected chats from deletion.
 
-A privacy-focused **Google Chrome Manifest V3 extension** for safely reviewing, protecting, filtering, selecting, and bulk-deleting standalone ChatGPT conversations.
+I created it because manually managing a ChatGPT history of more than 1,500 conversations had become impractical. The manager is designed to make large histories practical to work with through fast filtering, sorting, pagination, selection, and bulk actions.
 
-> **Unofficial project.** ChatGPTCleaner is not affiliated with or endorsed by OpenAI. It relies on undocumented ChatGPT web interfaces, which may change or stop working at any time.
+![ChatGPTCleaner manager](docs/assets/chatgptcleaner-manager.png)
 
 ## What it does
 
-ChatGPTCleaner is intentionally narrow:
-
-- loads standalone ChatGPT conversations;
-- explicitly discovers Project conversations so they are protected;
-- lets you search, sort, filter, select, and protect standalone chats;
-- provides date filters and quick cleanup presets;
-- previews deletion from the last successfully loaded inventory snapshot and
-  current local protection state;
-- deletes selected conversations sequentially at a configurable requests-per-minute rate;
-- supports Pause, Resume, Stop, retries, progress, and ETA;
-- never intentionally deletes Projects or conversations belonging to Projects.
-
-## What it does not do
-
-It does not manage Projects, archive chats, search conversation contents, export conversation contents, run scheduled cleanup, or continue deletion in the background.
-
-See [`docs/PROJECT_SPEC.md`](docs/PROJECT_SPEC.md) for the complete product contract.
+- Loads standalone conversations into a paginated table with filtering, sorting, and explicit selection.
+- Discovers Projects, enumerates their conversations, and presents them in a separate read-only view. Project conversations are excluded from deletion.
+- Stores locally protected standalone conversation IDs. Protection does not prevent selection; Delete reduces the selected set to its eligible, unprotected subset.
+- Deletes confirmed conversations sequentially with a configurable rate, retry handling, progress, and Pause, Resume, and Stop controls.
 
 ## Safety model
 
-The deletion path is:
+- Before destructive confirmation, ChatGPTCleaner loads standalone conversations, fully discovers Projects, and enumerates their conversations. A new safety inventory is accepted only when those reads complete successfully.
+- Project membership is resolved while building the safety inventory. If a conversation appears in both sources, Project membership takes precedence and the conversation is excluded from destructive planning.
+- The selected set is validated against the accepted inventory and current local protection state to derive the deletable target. Deletion requires explicit confirmation.
+- After confirmation, there are no standalone or Project inventory reads. The manager acquires an exclusive Web Lock, reloads and validates local protected IDs while holding that lock, and removes newly protected conversations from the confirmed target. The target can shrink but cannot expand; Resume and Retry remain subsets of the same confirmed set.
+- DELETE attempts are sequential. The configured request rate applies to attempts, and only retryable failures use bounded retry handling.
 
-```text
-selection
--> DeletionPlan preview from loaded inventory
--> destructive confirmation
--> confirmed IDs
--> single-run lock
--> fresh local protected-ID check
--> sequential rate-limited DELETE
+Closing or reloading the manager prevents new DELETE attempts from starting, although a request already sent to ChatGPT may still complete.
+
+## Installation
+
+1. Download the latest `ChatGPTCleaner-vX.Y.Z-chrome.zip` from [GitHub Releases](https://github.com/BinaryWorlds/ChatGPTCleaner/releases/latest).
+2. Extract it to a permanent directory.
+3. Open `chrome://extensions`.
+4. Enable **Developer mode**.
+5. Click **Load unpacked**.
+6. Select the extracted directory that directly contains `manifest.json`.
+
+Keep the extracted directory available: Chrome loads the unpacked extension from that location.
+
+## Updating
+
+Unpacked extensions installed this way do **not** automatically update from GitHub.
+
+Download the newest release ZIP, replace the files in the existing extension directory, then open `chrome://extensions` and press **Reload** for ChatGPTCleaner.
+
+### Verify a release
+
+After downloading a release, verify its GitHub build provenance:
+
+```bash
+gh attestation verify ChatGPTCleaner-vX.Y.Z-chrome.zip -R BinaryWorlds/ChatGPTCleaner
 ```
 
-Important rules:
+## Usage
 
-- Project conversations are hard-protected.
-- User-protected conversations are excluded at confirmation and freshly
-  rechecked inside the destructive lock before DELETE continues.
-- Incomplete Project protection blocks initial load or Refresh from replacing
-  the current snapshot.
-- API incompatibility blocks deletion.
-- Source-tab instability blocks or stops deletion.
-- Raw table selection never reaches DELETE.
-- Resume/Retry may only use IDs from the already-confirmed ID set and never
-  reload ChatGPT inventory.
-- Closing/reloading the manager prevents new DELETE requests from starting.
-- An already-dispatched request may still complete remotely.
-- There is no persisted deletion queue and no automatic resume.
-- DELETE attempts are strictly sequential and use the configured rate limit;
-  retries count as attempts.
+1. Open `https://chatgpt.com`, sign in, and keep that authenticated tab open.
+2. With the ChatGPT tab active, click the ChatGPTCleaner toolbar button.
+3. Wait for standalone and Project inventory loading to finish.
+4. Optionally protect standalone conversations that should be retained.
+5. Filter and select standalone conversations.
+6. Review the selection and eligible deletion count, then confirm and start deletion.
 
-Project exclusion reflects the last successful initial inventory load or
-explicit Refresh. It is not atomically rechecked before DELETE. If ChatGPT data
-may have changed externally, use Refresh before deleting, and do not move
-conversations into or out of Projects during an active run.
-Do not switch the relevant ChatGPT account or workspace during an active run.
+Protected standalone conversations may remain selected, but Delete skips them. Refresh before confirming if Project membership may have changed, and do not switch the relevant ChatGPT account or workspace during a run.
+
+## How it works
+
+```mermaid
+flowchart TB
+    subgraph A["1. Build safe inventory"]
+        Source["Authenticated ChatGPT tab"]
+        Standalone["Standalone conversations"]
+        Projects["Projects + conversations"]
+        Inventory["Safe inventory snapshot"]
+        Source --> Standalone
+        Source --> Projects
+        Standalone --> Inventory
+        Projects -->|Classify + exclude| Inventory
+    end
+
+    subgraph B["2. Plan deletion"]
+        Selection["Filter + select"]
+        Protection["Local protected IDs"]
+        Target["Deletable target"]
+        Confirm["Explicit confirmation"]
+        Inventory --> Selection
+        Selection --> Target
+        Protection -->|Remove protected| Target
+        Target --> Confirm
+    end
+
+    subgraph C["3. Execute deletion"]
+        Lock["Acquire lock + reload protection"]
+        Shrink["Shrink confirmed target only"]
+        Delete["Sequential DELETE"]
+        Result["Progress + result"]
+        Confirm -->|No inventory refresh| Lock
+        Lock --> Shrink
+        Shrink --> Delete
+        Delete --> Result
+    end
+```
+
+The inventory is established before confirmation. After confirmation, only local protection state is reloaded, and it can only reduce the confirmed target.
 
 ## Privacy
 
-ChatGPTCleaner has no external backend, telemetry, analytics, or remote logging.
+ChatGPTCleaner has no backend, analytics, telemetry, or remote logging. It uses the authenticated `chatgpt.com` tab from which the extension was launched to communicate with ChatGPT. Authentication credentials are not persisted in Chrome extension storage or logged by the extension.
 
-The extension does not persist conversation contents, conversation inventory, Project inventory, authentication tokens, cookies, request headers, deletion queues, confirmed deletion plans, or run history.
+Chrome extension storage contains protected conversation IDs, the deletion-rate preference, and the theme preference. Conversation and Project inventories, confirmed deletion plans, deletion queues, and run history are not persisted.
 
-Persistent local storage is limited to protected conversation IDs and the
-deletion-rate preference.
+See [PRIVACY.md](PRIVACY.md) for details.
 
-## Installation from source
+## Disclaimer
 
-Requirements:
-
-```text
-Node.js 24
-pnpm
-Google Chrome 120+
-```
-
-After implementation:
-
-```bash
-pnpm install
-pnpm build
-```
-
-Then:
-
-1. Open `chrome://extensions`.
-2. Enable **Developer mode**.
-3. Click **Load unpacked**.
-4. Select the generated Chromium extension directory documented by the WXT build output.
+ChatGPTCleaner is an unofficial source-available project and is not affiliated with or endorsed by OpenAI. It relies on internal ChatGPT interfaces that may change. Deletion is destructive and may be irreversible; review your selection and eligible deletion count before confirming and use the extension at your own risk.
 
 ## Development
+
+Requirements: Node.js 24, pnpm, and Chrome 120 or newer.
 
 ```bash
 pnpm install
 pnpm dev
-```
-
-Demo mode uses fake infrastructure and must not access the real ChatGPT network:
-
-```bash
-pnpm dev:demo
-```
-
-This selects the fake composition at build time. It does not depend on a
-ChatGPT tab or account, and its deterministic deletion outcomes only mutate
-in-memory fake data. Query parameters and browser storage cannot switch a
-production build into demo mode.
-
-Production source-tab, read-only inventory, Project protection, storage, retry,
-locking, and the narrow production DELETE transport are implemented. The
-production DELETE contract completed its documented manual smoke test against
-one disposable standalone conversation using the then-current safety path:
-one eligible ID was confirmed, exactly one DELETE attempt succeeded, and the
-run completed with no failed or skipped items. Automated tests and demo mode
-still never issue real DELETE.
-
-### Debug logging
-
-`pnpm dev`, `pnpm build:debug`, and `pnpm build:demo` enable detailed,
-privacy-safe local console diagnostics. `pnpm build` is production mode and
-emits warnings and errors only. Logs are never sent anywhere; there is no
-telemetry or runtime logging switch.
-
-Debug mode changes verbosity, not data sensitivity. Diagnostics must never
-contain conversation content, titles or IDs, Project IDs, authentication data,
-storage payloads, or raw API payloads.
-
-Quality gate:
-
-```bash
 pnpm check
+pnpm build
 ```
 
-## Architecture
+`pnpm dev:demo` and `pnpm build:demo` use fake infrastructure and do not access ChatGPT. `pnpm build:debug` creates a debug build with source maps. The production `pnpm build` does not emit source maps.
 
-```text
-UI -> Application -> Domain
-          ^
-          |
-    Application ports
-          ^
-          |
-    Infrastructure
-```
+## Changelog
 
-Major architectural decisions live in [`docs/adr`](docs/adr).
-
-Coding-agent and contributor rules live in [`AGENTS.md`](AGENTS.md).
-
-## Internal ChatGPT APIs
-
-This project uses undocumented ChatGPT web interfaces observed from the browser application.
-
-They are not public/stable APIs.
-
-Before changing production integration code, verify the current browser Network contract rather than guessing endpoint response shapes.
-
-## Terms and responsibility
-
-Users are responsible for ensuring that their use of this project complies with applicable terms, policies, and law.
-
-This project does not attempt to bypass rate limits or platform protections.
-
-## Security
-
-See [`SECURITY.md`](SECURITY.md).
+See [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
-MIT.
+The ChatGPTCleaner source is publicly available for transparency and security
+review. ChatGPTCleaner is source-available, not open source. Redistribution,
+unofficial builds, and derivative products are restricted by the
+[ChatGPTCleaner Source License 1.0](LICENSE). Official, unmodified builds are
+governed by the [EULA](EULA.md). See [CONTRIBUTING.md](CONTRIBUTING.md) for the
+current contribution policy.

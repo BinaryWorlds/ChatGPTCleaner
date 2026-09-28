@@ -4,6 +4,9 @@ import { defineConfig } from "wxt";
 export default defineConfig({
   modules: ["@wxt-dev/module-react"],
   vite: ({ mode }) => ({
+    build: {
+      sourcemap: mode === "debug" || mode === "demo",
+    },
     resolve: {
       alias: {
         "@manager-composition": fileURLToPath(

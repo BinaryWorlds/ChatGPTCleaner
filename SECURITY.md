@@ -12,9 +12,8 @@ or raw API payloads.
 
 ## Reporting a vulnerability
 
-Before public release, the repository owner should enable **GitHub Private Vulnerability Reporting**.
-
-When enabled, use the repository's **Security -> Report a vulnerability** flow.
+If the repository exposes **Security -> Report a vulnerability**, use that flow
+to report security issues privately.
 
 Do **not** publish security-sensitive details as a public GitHub Issue when they involve:
 
@@ -24,7 +23,9 @@ Do **not** publish security-sensitive details as a public GitHub Issue when they
 - arbitrary authenticated requests;
 - unexpected broad extension permissions.
 
-If private vulnerability reporting is not yet enabled, do not disclose secrets or exploit details publicly; contact the repository owner privately through an explicitly published contact channel.
+Otherwise, do not include credentials, exploit details, or private conversation
+data in a public issue. Open only a minimal public issue requesting a private
+reporting channel.
 
 ## Security-sensitive areas
 

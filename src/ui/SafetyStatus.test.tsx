@@ -24,7 +24,7 @@ describe("SafetyStatus", () => {
     fireEvent.focus(lockHelpTrigger);
 
     expect(await screen.findByRole("tooltip")).toHaveTextContent(
-      "Prevents multiple deletion runs from running at the same time. Checked when deletion starts.",
+      "NOT CHECKED before starting is normal",
     );
   });
 
@@ -49,7 +49,7 @@ describe("SafetyStatus", () => {
 
     fireEvent.focus(screen.getByLabelText("About ChatGPT connection"));
     expect(await screen.findByRole("tooltip")).toHaveTextContent(
-      "A usable ChatGPT session is available in the source tab.",
+      "Requires an active ChatGPT session",
     );
   });
 
