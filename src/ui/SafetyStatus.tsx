@@ -185,15 +185,10 @@ export function SafetyStatus({ state }: SafetyStatusProps) {
   const { t } = useTranslation();
   const { token } = theme.useToken();
   const indicators = deriveSafetyIndicators(state);
-  const safetyCheckCellStyle = {
-    backgroundColor: token.colorFillAlter,
-    border: `${token.lineWidth}px ${token.lineType} ${token.colorSplit}`,
-    borderRadius: token.borderRadiusSM,
-    padding: token.paddingXS,
-  };
 
   return (
     <Card
+      className={`safety-surface safety-surface-${state.kind}`}
       title={
         <Space size={token.marginXS}>
           <SafetyCertificateOutlined
@@ -206,7 +201,7 @@ export function SafetyStatus({ state }: SafetyStatusProps) {
       size="small"
     >
       <div className="safety-check-grid">
-        <div className="safety-check-item" style={safetyCheckCellStyle}>
+        <div className="safety-check-item">
           <SafetyCheckLabel
             label={t("safety.checks.connection.label")}
             help={t("safety.checks.connection.help")}
@@ -218,7 +213,7 @@ export function SafetyStatus({ state }: SafetyStatusProps) {
             </Space>
           </Tag>
         </div>
-        <div className="safety-check-item" style={safetyCheckCellStyle}>
+        <div className="safety-check-item">
           <SafetyCheckLabel
             label={t("safety.checks.sourceTab.label")}
             help={t("safety.checks.sourceTab.help")}
@@ -234,7 +229,7 @@ export function SafetyStatus({ state }: SafetyStatusProps) {
             </Space>
           </Tag>
         </div>
-        <div className="safety-check-item" style={safetyCheckCellStyle}>
+        <div className="safety-check-item">
           <SafetyCheckLabel
             label={t("safety.checks.compatibility.label")}
             help={t("safety.checks.compatibility.help")}
@@ -252,7 +247,7 @@ export function SafetyStatus({ state }: SafetyStatusProps) {
             </Space>
           </Tag>
         </div>
-        <div className="safety-check-item" style={safetyCheckCellStyle}>
+        <div className="safety-check-item">
           <SafetyCheckLabel
             label={t("safety.checks.projectProtection.label")}
             help={t("safety.checks.projectProtection.help")}
@@ -270,7 +265,7 @@ export function SafetyStatus({ state }: SafetyStatusProps) {
             </Space>
           </Tag>
         </div>
-        <div className="safety-check-item" style={safetyCheckCellStyle}>
+        <div className="safety-check-item">
           <SafetyCheckLabel
             label={t("safety.checks.runLock.label")}
             help={t("safety.checks.runLock.help")}
@@ -286,7 +281,7 @@ export function SafetyStatus({ state }: SafetyStatusProps) {
             </Space>
           </Tag>
         </div>
-        <div className="safety-check-item" style={safetyCheckCellStyle}>
+        <div className="safety-check-item">
           <SafetyCheckLabel
             label={t("safety.checks.deletion.label")}
             help={t("safety.checks.deletion.help")}

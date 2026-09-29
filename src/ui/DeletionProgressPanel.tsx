@@ -1,4 +1,4 @@
-import { Alert, Button, Card, Descriptions, Progress, Space, Tag } from "antd";
+import { Alert, Button, Descriptions, Progress, Space, Tag } from "antd";
 import {
   canRetryFailedDeletion,
   type DeletionRunState,
@@ -57,7 +57,8 @@ export function DeletionProgressPanel({
     progress.failedConversationIds.length - failedConversationPreview.length;
 
   return (
-    <Card title={t("deletion.panelTitle")} size="small">
+    <div className="deletion-progress-panel">
+      <div className="deletion-progress-title">{t("deletion.panelTitle")}</div>
       {state.kind === "fatal" && (
         <Alert
           type="error"
@@ -163,6 +164,6 @@ export function DeletionProgressPanel({
           <Button onClick={onRetryFailed}>{t("deletion.retryFailed")}</Button>
         )}
       </Space>
-    </Card>
+    </div>
   );
 }

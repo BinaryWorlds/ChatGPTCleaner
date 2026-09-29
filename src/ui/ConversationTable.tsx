@@ -1,7 +1,7 @@
 import {
   CheckOutlined,
   CopyOutlined,
-  LockOutlined,
+  LockFilled,
   UnlockOutlined,
 } from "@ant-design/icons";
 import { Button, Space, Table, theme, Tooltip, type TableProps } from "antd";
@@ -107,46 +107,6 @@ export function ConversationTable(props: ConversationTableProps) {
   } = props;
   const columns: TableProps<Conversation>["columns"] = [
     {
-      title: t("table.title"),
-      dataIndex: "title",
-      key: "title",
-      sorter: true,
-      sortOrder:
-        sortField === "title"
-          ? sortDirection === "ascending"
-            ? "ascend"
-            : "descend"
-          : null,
-    },
-    {
-      title: t("table.created"),
-      dataIndex: "createdAt",
-      key: "createdAt",
-      width: 180,
-      sorter: true,
-      sortOrder:
-        sortField === "createdAt"
-          ? sortDirection === "ascending"
-            ? "ascend"
-            : "descend"
-          : null,
-      render: (timestamp: number | null) => formatDate(timestamp),
-    },
-    {
-      title: t("table.updated"),
-      dataIndex: "updatedAt",
-      key: "updatedAt",
-      width: 180,
-      sorter: true,
-      sortOrder:
-        sortField === "updatedAt"
-          ? sortDirection === "ascending"
-            ? "ascend"
-            : "descend"
-          : null,
-      render: (timestamp: number | null) => formatDate(timestamp),
-    },
-    {
       title: t("table.protectionStatus"),
       key: "protection",
       width: 100,
@@ -166,10 +126,12 @@ export function ConversationTable(props: ConversationTableProps) {
         if (view === "projects") {
           return (
             <Tooltip title={t("table.projectProtectedTooltip")}>
-              <LockOutlined
+              <span
+                className="protection-icon protection-icon-protected"
                 aria-label={t("table.projectProtected")}
-                style={{ color: token.colorInfo, fontSize: token.fontSizeLG }}
-              />
+              >
+                <LockFilled aria-hidden />
+              </span>
             </Tooltip>
           );
         }
@@ -182,22 +144,70 @@ export function ConversationTable(props: ConversationTableProps) {
         return (
           <Tooltip title={label}>
             {protectedConversation ? (
-              <LockOutlined
+              <span
+                className="protection-icon protection-icon-protected"
                 aria-label={label}
-                style={{ color: token.colorInfo, fontSize: token.fontSizeLG }}
-              />
+              >
+                <LockFilled aria-hidden />
+              </span>
             ) : (
-              <UnlockOutlined
+              <span
+                className="protection-icon protection-icon-unprotected"
                 aria-label={label}
-                style={{
-                  color: token.colorTextSecondary,
-                  fontSize: token.fontSizeLG,
-                }}
-              />
+              >
+                <UnlockOutlined aria-hidden />
+              </span>
             )}
           </Tooltip>
         );
       },
+    },
+    {
+      title: t("table.title"),
+      dataIndex: "title",
+      key: "title",
+      sorter: true,
+      sortOrder:
+        sortField === "title"
+          ? sortDirection === "ascending"
+            ? "ascend"
+            : "descend"
+          : null,
+      render: (title: string) => (
+        <span className="conversation-title">{title}</span>
+      ),
+    },
+    {
+      title: t("table.created"),
+      dataIndex: "createdAt",
+      key: "createdAt",
+      width: 180,
+      sorter: true,
+      sortOrder:
+        sortField === "createdAt"
+          ? sortDirection === "ascending"
+            ? "ascend"
+            : "descend"
+          : null,
+      render: (timestamp: number | null) => (
+        <span className="conversation-date">{formatDate(timestamp)}</span>
+      ),
+    },
+    {
+      title: t("table.updated"),
+      dataIndex: "updatedAt",
+      key: "updatedAt",
+      width: 180,
+      sorter: true,
+      sortOrder:
+        sortField === "updatedAt"
+          ? sortDirection === "ascending"
+            ? "ascend"
+            : "descend"
+          : null,
+      render: (timestamp: number | null) => (
+        <span className="conversation-date">{formatDate(timestamp)}</span>
+      ),
     },
     {
       title: t("table.actions"),
@@ -222,6 +232,7 @@ export function ConversationTable(props: ConversationTableProps) {
           <Space size="small">
             <Tooltip title={copyFeedbackLabel}>
               <Button
+                type="text"
                 aria-label={copyFeedbackLabel}
                 icon={
                   currentCopyFeedback === "copied" ? (
@@ -251,11 +262,16 @@ export function ConversationTable(props: ConversationTableProps) {
                 }}
               />
             </Tooltip>
-            <Button size="small" onClick={() => onOpen(conversation.id)}>
+            <Button
+              type="text"
+              size="small"
+              onClick={() => onOpen(conversation.id)}
+            >
               {t("table.open")}
             </Button>
             {view === "standalone" && (
               <Button
+                type="text"
                 size="small"
                 disabled={props.protectionDisabled}
                 onClick={() =>

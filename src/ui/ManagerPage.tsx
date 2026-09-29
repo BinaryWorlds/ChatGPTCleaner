@@ -469,16 +469,18 @@ export function ManagerPage({
       )}
 
       {inventoryState.kind === "loading" && (
-        <Card>
+        <div className="inventory-loading-surface">
           <Flex align="center" gap="small" role="status">
-            <Spin />
+            <Spin size="small" />
             <span>{inventoryLoadingText}</span>
           </Flex>
-        </Card>
+          <div className="inventory-loading-track" aria-hidden />
+        </div>
       )}
 
       {inventoryState.kind === "ready" && (
         <Card
+          className="workspace-card"
           title={
             <Space size={token.marginXS}>
               <MessageOutlined
@@ -491,95 +493,59 @@ export function ManagerPage({
           size="small"
         >
           <Row
+            className="summary-metrics"
             gutter={[token.marginLG, token.marginSM]}
-            style={{
-              padding: token.paddingSM,
-              background: token.colorFillAlter,
-              borderRadius: token.borderRadiusLG,
-            }}
           >
-            <Col xs={12} md={6}>
+            <Col className="summary-metric" xs={12} md={6}>
               <Statistic
                 data-testid="standalone-summary"
                 title={
                   <Space size={token.marginXS}>
-                    <MessageOutlined
-                      aria-hidden
-                      style={{ color: token.colorPrimary, opacity: 0.65 }}
-                    />
+                    <MessageOutlined aria-hidden />
                     <span>{t("summary.standalone")}</span>
                   </Space>
                 }
                 value={conversations.length}
-                styles={{
-                  content: {
-                    color: token.colorPrimary,
-                    fontSize: token.fontSizeHeading3,
-                  },
-                }}
               />
             </Col>
-            <Col xs={12} md={6}>
+            <Col className="summary-metric" xs={12} md={6}>
               <Statistic
                 data-testid="project-summary"
                 title={
                   <Space size={token.marginXS}>
-                    <FolderOpenOutlined
-                      aria-hidden
-                      style={{ color: token.colorPrimary, opacity: 0.65 }}
-                    />
+                    <FolderOpenOutlined aria-hidden />
                     <span>{t("summary.projectProtected")}</span>
                   </Space>
                 }
                 value={projectConversations.length}
-                styles={{
-                  content: {
-                    color: token.colorPrimary,
-                    fontSize: token.fontSizeHeading3,
-                  },
-                }}
               />
             </Col>
-            <Col xs={12} md={6}>
+            <Col className="summary-metric" xs={12} md={6}>
               <Statistic
                 data-testid="protected-summary"
                 title={
                   <Space size={token.marginXS}>
-                    <SafetyCertificateOutlined
-                      aria-hidden
-                      style={{ color: token.colorPrimary, opacity: 0.65 }}
-                    />
+                    <SafetyCertificateOutlined aria-hidden />
                     <span>{t("summary.userProtected")}</span>
                   </Space>
                 }
                 value={protectedConversationIds.size}
-                styles={{
-                  content: {
-                    color: token.colorPrimary,
-                    fontSize: token.fontSizeHeading3,
-                  },
-                }}
               />
             </Col>
-            <Col xs={12} md={6}>
+            <Col
+              className={`summary-metric${selectedConversationIds.size > 0 ? " summary-metric-selected" : ""}`}
+              xs={12}
+              md={6}
+            >
               <Statistic
                 data-testid="selected-count"
                 title={
                   <Space size={token.marginXS}>
-                    <CheckSquareOutlined
-                      aria-hidden
-                      style={{ color: token.colorPrimary, opacity: 0.65 }}
-                    />
+                    <CheckSquareOutlined aria-hidden />
                     <span>{t("summary.selected")}</span>
                   </Space>
                 }
                 value={selectedConversationIds.size}
-                styles={{
-                  content: {
-                    color: token.colorPrimary,
-                    fontSize: token.fontSizeHeading3,
-                  },
-                }}
               />
             </Col>
           </Row>
@@ -815,7 +781,10 @@ export function ManagerPage({
           {runState !== null && (
             <>
               <Divider style={{ marginBlock: token.marginMD }} />
-              <section aria-labelledby="deletion-operation-heading">
+              <section
+                className="deletion-operation"
+                aria-labelledby="deletion-operation-heading"
+              >
                 <Space
                   orientation="vertical"
                   size={token.marginSM}

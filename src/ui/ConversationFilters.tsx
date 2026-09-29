@@ -26,12 +26,28 @@ function toDayjs(localDay: LocalCalendarDay | null): Dayjs | null {
     .startOf("day");
 }
 
+function sameLocalDay(
+  first: LocalCalendarDay | null,
+  second: LocalCalendarDay,
+): boolean {
+  return (
+    first?.year === second.year &&
+    first.month === second.month &&
+    first.day === second.day
+  );
+}
+
 export function ConversationFiltersBar({
   filters,
   onChange,
   currentDate = () => new Date(),
 }: ConversationFiltersProps) {
   const { t } = useTranslation();
+  const today = currentDate();
+  const activePreset = (cutoff: LocalCalendarDay): boolean =>
+    filters.dateField !== null &&
+    filters.dateComparison === "before" &&
+    sameLocalDay(filters.cutoffLocalDay, cutoff);
   const setPreset = (days: 7 | 30 | 90) => {
     onChange({
       ...filters,
@@ -111,19 +127,56 @@ export function ConversationFiltersBar({
         </Button>
       </Flex>
       <Flex className="filter-preset-controls" wrap gap="small">
-        <Button onClick={() => setPreset(7)}>
+        <Button
+          className="filter-preset"
+          type={activePreset(olderThanPreset(7, today)) ? "primary" : "default"}
+          ghost={activePreset(olderThanPreset(7, today))}
+          onClick={() => setPreset(7)}
+        >
           {t("filters.olderThanDays", { count: 7 })}
         </Button>
-        <Button onClick={() => setPreset(30)}>
+        <Button
+          className="filter-preset"
+          type={
+            activePreset(olderThanPreset(30, today)) ? "primary" : "default"
+          }
+          ghost={activePreset(olderThanPreset(30, today))}
+          onClick={() => setPreset(30)}
+        >
           {t("filters.olderThanDays", { count: 30 })}
         </Button>
-        <Button onClick={() => setPreset(90)}>
+        <Button
+          className="filter-preset"
+          type={
+            activePreset(olderThanPreset(90, today)) ? "primary" : "default"
+          }
+          ghost={activePreset(olderThanPreset(90, today))}
+          onClick={() => setPreset(90)}
+        >
           {t("filters.olderThanDays", { count: 90 })}
         </Button>
-        <Button onClick={() => setCalendarPreset("six-months")}>
+        <Button
+          className="filter-preset"
+          type={
+            activePreset(olderThanCalendarPreset("six-months", today))
+              ? "primary"
+              : "default"
+          }
+          ghost={activePreset(olderThanCalendarPreset("six-months", today))}
+          onClick={() => setCalendarPreset("six-months")}
+        >
           {t("filters.olderThanMonths", { count: 6 })}
         </Button>
-        <Button onClick={() => setCalendarPreset("one-year")}>
+        <Button
+          className="filter-preset"
+          type={
+            activePreset(olderThanCalendarPreset("one-year", today))
+              ? "primary"
+              : "default"
+          }
+          ghost={activePreset(olderThanCalendarPreset("one-year", today))}
+          onClick={() => setCalendarPreset("one-year")}
+        >
           {t("filters.olderThanYears", { count: 1 })}
         </Button>
       </Flex>
