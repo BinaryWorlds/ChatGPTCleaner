@@ -7,7 +7,7 @@ import {
   ChatGptOperation,
   type DeleteAttemptResult,
 } from "../../application/ports/ConversationGateway";
-import type { SourceTabValidator } from "../browser/SourceTab";
+import type { SourceTabValidator } from "../../application/ports/SourceTabLifecycle";
 import { parseRetryAfter } from "./readRetry";
 
 export interface DeleteConversationOperation {

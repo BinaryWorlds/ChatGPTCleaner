@@ -198,8 +198,6 @@
     }
   },
   "safety": {
-    "title": "Stan bezpieczeństwa",
-    "ready": "Gotowe",
     "readyAnnouncement": "ChatGPTCleaner jest gotowy.",
     "tryAgain": "Spróbuj ponownie",
     "unbound": {
@@ -240,40 +238,6 @@
         "description": "Nie udało się ukończyć kontroli bezpieczeństwa. Przed ponowną próbą sprawdź stan operacji usuwania."
       }
     },
-    "about": "Informacje: {{label}}",
-    "indicators": {
-      "ok": "OK",
-      "ready": "GOTOWE",
-      "checking": "SPRAWDZANIE",
-      "notChecked": "NIESPRAWDZONE",
-      "blocked": "ZABLOKOWANE"
-    },
-    "checks": {
-      "connection": {
-        "label": "Połączenie z ChatGPT",
-        "help": "Wymaga aktywnej sesji ChatGPT w karcie źródłowej. Jeśli brak połączenia, zaloguj się i odśwież."
-      },
-      "sourceTab": {
-        "label": "Dostęp do karty źródłowej",
-        "help": "Rozszerzenie musi mieć dostęp do karty, z której je uruchomiono. Jeśli została zamknięta, otwórz ChatGPT i uruchom rozszerzenie ponownie."
-      },
-      "compatibility": {
-        "label": "Zgodność interfejsu odczytu",
-        "help": "Sprawdza zgodność odpowiedzi ChatGPT z obsługiwanym formatem. Jeśli kontrola nie przechodzi, odśwież i sprawdź, czy jest nowsza wersja rozszerzenia."
-      },
-      "projectProtection": {
-        "label": "Ochrona projektów",
-        "help": "Rozmowy w projektach muszą być rozpoznane, aby wykluczyć je z usuwania. Jeśli kontrola jest zablokowana, odśwież."
-      },
-      "runLock": {
-        "label": "Blokada operacji",
-        "help": "Sprawdzana przy rozpoczęciu usuwania. NIESPRAWDZONE przed startem jest normalne; jeśli inna operacja trwa, poczekaj na jej zakończenie."
-      },
-      "deletion": {
-        "label": "Bezpieczeństwo usuwania",
-        "help": "Zbiorcza kontrola gotowości do usuwania. Jeśli jest ZABLOKOWANE, sprawdź komunikat poniżej."
-      }
-    },
     "reasons": {
       "authentication": "Uwierzytelnienie jest niedostępne",
       "authorization": "Brak uprawnień",
@@ -289,19 +253,6 @@
       "client": "ChatGPT odrzucił żądanie usunięcia",
       "responseAnomaly": "ChatGPT zwrócił niezgodną odpowiedź na żądanie usunięcia",
       "unexpectedRunError": "Operacja usuwania nieoczekiwanie się zatrzymała"
-    },
-    "diagnostic": {
-      "standalone": "Rozmowy poza projektami",
-      "projects": "Wykrywanie projektów",
-      "projectConversations": "Rozmowy w projekcie",
-      "context": "{{operation}} ({{endpointFamily}}), strona {{page}}",
-      "jsonParsed": "Przetworzono JSON: {{value}}",
-      "yes": "tak",
-      "no": "nie",
-      "missingField": "{{context}}: brak wymaganego pola {{field}}{{response}}",
-      "typeMismatch": "{{context}}: pole {{field}} — oczekiwano typu {{expected}}, otrzymano {{actual}}{{response}}",
-      "category": "{{context}}: {{category}}{{response}}",
-      "responseSeparator": "; {{response}}"
     }
   }
 }

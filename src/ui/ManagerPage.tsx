@@ -33,7 +33,7 @@ import { useTranslation } from "react-i18next";
 import { AppConfig } from "../config";
 import type { ThemePreference } from "../application/themePreference";
 import { isSafetyOverrideRevalidatedByCompleteRefresh } from "../application/SafetyBlockReason";
-import type { SourceTabLifecycle } from "../infrastructure/browser/SourceTab";
+import type { SourceTabLifecycle } from "../application/ports/SourceTabLifecycle";
 import {
   mutateProtectedConversationIds,
   type ProtectionMutation,
@@ -189,6 +189,7 @@ export function ManagerPage({
       });
     },
     onNotice: setNotice,
+    onOperationAttempt: () => setNotice(null),
     onOperationLockConflict: () => setNotice(t("operation.lockConflict")),
   });
 
@@ -350,6 +351,7 @@ export function ManagerPage({
 
   const persistProtection = (mutation: ProtectionMutation) => {
     if (protectionMutationPendingRef.current || isRefreshPending()) return;
+    setNotice(null);
     protectionMutationPendingRef.current = true;
     setProtectionMutationPending(true);
     mutateProtectedConversationIds({

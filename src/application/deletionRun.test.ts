@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   buildDeletionPlan,
   confirmDeletionPlan,
@@ -15,6 +15,7 @@ import { FakeDestructiveRunLock } from "../infrastructure/fake/FakeDestructiveRu
 import { FakeProtectedConversationStore } from "../infrastructure/fake/FakeStores";
 import { type FakeGatewayFixture } from "../infrastructure/fake/fixtures";
 import {
+  canRetryFailedDeletion,
   DeletionRun,
   deletionRunOwnsWorkflow,
   type DeletionRunProgress,
@@ -534,6 +535,45 @@ describe("destructive run", () => {
     });
 
     expect((await run.startDeletion()).kind).toBe("blocked");
+  });
+
+  it("preserves failed retry eligibility when the Retry Failed lock is unavailable", async () => {
+    const sharedLockState = { active: false };
+    const lockUnavailable = vi.fn();
+    const clock = new FakeClock();
+    const gateway = new FakeConversationGateway(
+      fixtureForDeletion(["failed"], {
+        failed: [500, 500, 500, 500, 500, "success"],
+      }),
+      clock,
+    );
+    const run = new DeletionRun({
+      confirmedPlan: confirmedPlan(["failed"]),
+      requestsPerMinute: 60,
+      gateway,
+      protectedConversationStore: new FakeProtectedConversationStore(),
+      clock,
+      destructiveRunLock: new FakeDestructiveRunLock(sharedLockState),
+      onLockUnavailable: lockUnavailable,
+    });
+
+    const failedState = await run.startDeletion();
+    expect(canRetryFailedDeletion(failedState)).toBe(true);
+
+    sharedLockState.active = true;
+    const contendedState = await run.retryFailedDeletion();
+
+    expect(lockUnavailable).toHaveBeenCalledOnce();
+    expect(contendedState).toEqual(failedState);
+    expect(canRetryFailedDeletion(run.getState())).toBe(true);
+    expect(gateway.deleteAttempts).toHaveLength(5);
+
+    sharedLockState.active = false;
+    const retriedState = await run.retryFailedDeletion();
+
+    expect(retriedState.kind).toBe("finished");
+    expect(retriedState.progress.failedConversationIds).toEqual([]);
+    expect(gateway.deleteAttempts).toHaveLength(6);
   });
 
   it.each([{ ids: ["a"] }, { ids: ["a", "b"] }])(

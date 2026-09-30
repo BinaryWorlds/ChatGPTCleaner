@@ -32,7 +32,7 @@ import { ManagerPage } from "./ManagerPage";
 import type {
   SourceTabLifecycle,
   SourceTabValidationResult,
-} from "../infrastructure/browser/SourceTab";
+} from "../application/ports/SourceTabLifecycle";
 
 const DAY_MS = 86_400_000;
 const FIXED_NOW = Date.UTC(2026, 0, 15, 12);

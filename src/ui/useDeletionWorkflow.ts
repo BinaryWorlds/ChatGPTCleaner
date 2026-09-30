@@ -29,6 +29,7 @@ interface UseDeletionWorkflowOptions {
   readonly isProtectionMutationPending: () => boolean;
   readonly onConversationRemoved: (conversationId: string) => void;
   readonly onNotice: (message: string) => void;
+  readonly onOperationAttempt: () => void;
   readonly onOperationLockConflict: () => void;
 }
 
@@ -52,6 +53,7 @@ export function useDeletionWorkflow({
   isProtectionMutationPending,
   onConversationRemoved,
   onNotice,
+  onOperationAttempt,
   onOperationLockConflict,
 }: UseDeletionWorkflowOptions) {
   const { t } = useTranslation();
@@ -157,6 +159,7 @@ export function useDeletionWorkflow({
       return;
     }
 
+    onOperationAttempt();
     const deletionRun = new DeletionRun({
       confirmedPlan: snapshotConfirmedPlan,
       requestsPerMinute,
@@ -169,6 +172,7 @@ export function useDeletionWorkflow({
         : { observability: dependencies.observability }),
       onStateChange: handleRunStateChange,
       onConversationRemoved,
+      onLockUnavailable: onOperationLockConflict,
     });
     executionStartedRef.current = false;
     setCurrentRun(deletionRun);
@@ -179,6 +183,7 @@ export function useDeletionWorkflow({
 
   const retryFailed = () => {
     if (currentRun === null) return;
+    onOperationAttempt();
     currentRun
       .retryFailedDeletion()
       .catch(() => recordUnexpectedRunFailure(currentRun));

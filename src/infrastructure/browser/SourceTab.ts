@@ -1,4 +1,9 @@
 import { z } from "zod";
+import type {
+  SourceTabLifecycle,
+  SourceTabValidationResult,
+  SourceTabValidator,
+} from "../../application/ports/SourceTabLifecycle";
 import { CHATGPT_ORIGIN } from "../api/chatGptApiContract";
 
 const tabSchema = z.object({
@@ -21,18 +26,6 @@ const pageProbeResultsSchema = z
 export interface SourceTabBrowser {
   getTab(tabId: number): Promise<unknown>;
   probePage(tabId: number): Promise<unknown>;
-}
-
-export type SourceTabValidationResult =
-  | { readonly kind: "valid"; readonly tabId: number }
-  | { readonly kind: "invalid" };
-
-export interface SourceTabValidator {
-  validate(): Promise<SourceTabValidationResult>;
-}
-
-export interface SourceTabLifecycle extends SourceTabValidator {
-  subscribe(listener: () => void): () => void;
 }
 
 export interface SourceTabEvents {

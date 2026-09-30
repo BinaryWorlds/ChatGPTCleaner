@@ -111,6 +111,7 @@ export class DeletionRun implements ProtectionMutationLockOwner {
       readonly observability?: ApplicationObservability;
       readonly onStateChange?: (state: DeletionRunState) => void;
       readonly onConversationRemoved?: (conversationId: string) => void;
+      readonly onLockUnavailable?: () => void;
     },
   ) {
     if (!isValidRequestsPerMinute(input.requestsPerMinute)) {
@@ -198,24 +199,27 @@ export class DeletionRun implements ProtectionMutationLockOwner {
   public async retryFailedDeletion(): Promise<DeletionRunState> {
     if (!canRetryFailedDeletion(this.state)) return this.state;
 
-    const failedIds = new Set(this.failedConversationIds);
-    this.remainingConversationIds =
-      this.confirmedPlan.confirmedConversationIds.filter((conversationId) =>
-        failedIds.has(conversationId),
-      );
-    this.resetCurrentRun();
-    if (this.remainingConversationIds.length === 0) {
-      this.publish("finished", null);
-      return this.state;
-    }
-
-    return this.runWithLock();
+    return this.runWithLock({
+      prepareAfterLockAcquired: () => {
+        const failedIds = new Set(this.failedConversationIds);
+        this.remainingConversationIds =
+          this.confirmedPlan.confirmedConversationIds.filter((conversationId) =>
+            failedIds.has(conversationId),
+          );
+        this.resetCurrentRun();
+      },
+      preserveRetryabilityOnContention: true,
+    });
   }
 
-  private async runWithLock(): Promise<DeletionRunState> {
+  private async runWithLock(options?: {
+    readonly prepareAfterLockAcquired: () => void;
+    readonly preserveRetryabilityOnContention: boolean;
+  }): Promise<DeletionRunState> {
     const lockResult: LockResult<void> =
       await this.input.destructiveRunLock.runExclusive(async () => {
         try {
+          options?.prepareAfterLockAcquired();
           const protectionResult =
             await this.removeCurrentlyProtectedRemainingIds();
           if (protectionResult === "blocked") return;
@@ -231,6 +235,10 @@ export class DeletionRun implements ProtectionMutationLockOwner {
       });
     if (lockResult.kind === "unavailable") {
       this.logWarn("deletion.run.blocked", { lockReason: "unavailable" });
+      if (options?.preserveRetryabilityOnContention === true) {
+        this.input.onLockUnavailable?.();
+        return this.state;
+      }
       this.publish("blocked", null, "destructive-run-lock");
     }
     return this.state;

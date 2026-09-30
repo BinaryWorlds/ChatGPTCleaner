@@ -6,7 +6,7 @@ import {
   type ReadResult,
 } from "../../application/ports/ConversationGateway";
 import { ApiRequestLifecycleEvent } from "../../application/ports/Observability";
-import type { SourceTabValidator } from "../browser/SourceTab";
+import type { SourceTabValidator } from "../../application/ports/SourceTabLifecycle";
 import { executeReadWithRetry } from "./readRetry";
 import {
   normalizeExecutionResult,

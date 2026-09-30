@@ -198,8 +198,6 @@
     }
   },
   "safety": {
-    "title": "Safety status",
-    "ready": "Ready",
     "readyAnnouncement": "ChatGPTCleaner is ready.",
     "tryAgain": "Try again",
     "unbound": {
@@ -240,40 +238,6 @@
         "description": "A safety check could not be completed. Review the deletion operation before trying again."
       }
     },
-    "about": "About {{label}}",
-    "indicators": {
-      "ok": "OK",
-      "ready": "READY",
-      "checking": "CHECKING",
-      "notChecked": "NOT CHECKED",
-      "blocked": "BLOCKED"
-    },
-    "checks": {
-      "connection": {
-        "label": "ChatGPT connection",
-        "help": "Requires an active ChatGPT session in the source tab. If disconnected, sign in and refresh."
-      },
-      "sourceTab": {
-        "label": "Source tab access",
-        "help": "The extension needs access to the tab it was launched from. If it was closed, open ChatGPT and launch the extension again."
-      },
-      "compatibility": {
-        "label": "Read API compatibility",
-        "help": "Checks that ChatGPT responses match a supported format. If it fails, refresh and check for a newer extension version."
-      },
-      "projectProtection": {
-        "label": "Project protection",
-        "help": "Project conversations must be identified so they can be excluded from deletion. If blocked, refresh."
-      },
-      "runLock": {
-        "label": "Run lock",
-        "help": "Checked when deletion starts. NOT CHECKED before starting is normal; if another operation is running, wait for it to finish."
-      },
-      "deletion": {
-        "label": "Deletion safety",
-        "help": "Overall deletion-readiness check. If BLOCKED, review the message below."
-      }
-    },
     "reasons": {
       "authentication": "Authentication unavailable",
       "authorization": "Authorization denied",
@@ -289,19 +253,6 @@
       "client": "ChatGPT rejected the deletion request",
       "responseAnomaly": "ChatGPT returned an incompatible deletion response",
       "unexpectedRunError": "The destructive run stopped unexpectedly"
-    },
-    "diagnostic": {
-      "standalone": "Standalone conversations",
-      "projects": "Project discovery",
-      "projectConversations": "Project conversations",
-      "context": "{{operation}} ({{endpointFamily}}), page {{page}}",
-      "jsonParsed": "JSON parsed: {{value}}",
-      "yes": "yes",
-      "no": "no",
-      "missingField": "{{context}}: missing required field {{field}}{{response}}",
-      "typeMismatch": "{{context}}: {{field}} expected {{expected}}, received {{actual}}{{response}}",
-      "category": "{{context}}: {{category}}{{response}}",
-      "responseSeparator": "; {{response}}"
     }
   }
 }

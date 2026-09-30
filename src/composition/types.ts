@@ -5,7 +5,7 @@ import type { ProtectedConversationStore } from "../application/ports/ProtectedC
 import type { SettingsStore } from "../application/ports/SettingsStore";
 import type { ApplicationObservability } from "../application/ports/Observability";
 import type { ThemePreferenceStore } from "../application/ports/ThemePreferenceStore";
-import type { SourceTabLifecycle } from "../infrastructure/browser/SourceTab";
+import type { SourceTabLifecycle } from "../application/ports/SourceTabLifecycle";
 
 export interface ManagerDependencies {
   readonly gateway: ConversationGateway;

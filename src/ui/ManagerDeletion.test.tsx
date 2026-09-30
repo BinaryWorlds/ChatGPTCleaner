@@ -459,6 +459,44 @@ describe("ManagerPage destructive flow", () => {
     ).toBeEnabled();
   });
 
+  it("keeps Retry Failed available after contention and clears the stale notice on success", async () => {
+    const user = userEvent.setup();
+    const sharedLockState = { active: false };
+    const { gateway } = renderManager({
+      destructiveRunLock: new FakeDestructiveRunLock(sharedLockState),
+      gatewayFixture: fixture(
+        [{ id: "network", title: "Network failure", updatedAt: 100 }],
+        { network: [500, 500, 500, 500, 500, "success"] },
+      ),
+    });
+    await waitForInventory();
+    await openConfirmation(user, "Network failure");
+    await user.click(
+      screen.getByRole("button", { name: "Delete 1 conversation" }),
+    );
+    await screen.findByRole("button", { name: "Retry Failed" });
+
+    sharedLockState.active = true;
+    await user.click(screen.getByRole("button", { name: "Retry Failed" }));
+
+    expect(
+      await screen.findByText(
+        /Deletion is running in another ChatGPTCleaner tab/,
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry Failed" })).toBeEnabled();
+    expect(gateway.deleteAttempts).toHaveLength(5);
+
+    sharedLockState.active = false;
+    await user.click(screen.getByRole("button", { name: "Retry Failed" }));
+
+    await waitFor(() => expect(gateway.deleteAttempts).toHaveLength(6));
+    expect(screen.getByText("FINISHED")).toBeInTheDocument();
+    expect(
+      screen.queryByText(/Deletion is running in another ChatGPTCleaner tab/),
+    ).not.toBeInTheDocument();
+  });
+
   it("displays a fatal 403 safety stop", async () => {
     const user = userEvent.setup();
     renderManager({

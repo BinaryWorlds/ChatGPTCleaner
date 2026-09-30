@@ -5,7 +5,6 @@ import {
   loadRefreshInventoryCandidate,
   type InventoryLoadProgress,
 } from "../application/inventory";
-import type { ReadFailureDiagnostic } from "../application/ports/ConversationGateway";
 import type { ManagerDependencies } from "../composition/types";
 import type { Conversation } from "../domain/conversation";
 import type { SafetyBlockReason } from "../application/SafetyBlockReason";
@@ -21,8 +20,6 @@ type InventoryState =
   | {
       readonly kind: "blocked";
       readonly reason: SafetyBlockReason;
-      readonly diagnostic?: ReadFailureDiagnostic;
-      readonly readCompatibilityConfirmed: boolean;
     }
   | { readonly kind: "ready" };
 
@@ -85,12 +82,10 @@ export function useManagerInventory(dependencies: ManagerDependencies) {
 
   useEffect(() => {
     let current = true;
-    let readCompatibilityConfirmed = false;
 
     const updateInventoryProgress = (progress: InventoryLoadProgress) => {
       if (!current) return;
       if (progress.kind === "read-compatible") {
-        readCompatibilityConfirmed = true;
         setInventoryState({
           kind: "loading",
           stage: "inventory",
@@ -115,10 +110,6 @@ export function useManagerInventory(dependencies: ManagerDependencies) {
           setInventoryState({
             kind: "blocked",
             reason: result.reason,
-            readCompatibilityConfirmed,
-            ...(result.diagnostic === undefined
-              ? {}
-              : { diagnostic: result.diagnostic }),
           });
           return;
         }
@@ -133,7 +124,6 @@ export function useManagerInventory(dependencies: ManagerDependencies) {
           setInventoryState({
             kind: "blocked",
             reason: "network",
-            readCompatibilityConfirmed,
           });
         }
       });
@@ -167,10 +157,6 @@ export function useManagerInventory(dependencies: ManagerDependencies) {
             setInventoryState({
               kind: "blocked",
               reason: result.reason,
-              readCompatibilityConfirmed: true,
-              ...(result.diagnostic === undefined
-                ? {}
-                : { diagnostic: result.diagnostic }),
             });
             return { kind: "blocked", reason: result.reason };
           }
