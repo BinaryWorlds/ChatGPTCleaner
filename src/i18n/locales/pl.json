@@ -22,7 +22,11 @@
     "ariaLabel": "Odśwież listę rozmów",
     "loading": "Odświeżanie listy rozmów…",
     "success": "Lista rozmów została odświeżona.",
-    "failure": "Odświeżanie nie powiodło się. Poprzednia lista rozmów jest nadal aktywna."
+    "failure": "Odświeżanie nie powiodło się. Poprzednia lista rozmów jest nadal aktywna.",
+    "warning": "Nie udało się odświeżyć danych. Nadal wyświetlany jest ostatni poprawnie wczytany stan."
+  },
+  "operation": {
+    "lockConflict": "Usuwanie trwa w innej karcie ChatGPTCleaner. Tutaj nadal możesz przeglądać rozmowy. Zakończ lub zatrzymaj tamtą operację przed usuwaniem rozmów lub zmianą ochrony tutaj."
   },
   "demo": {
     "title": "Tryb demonstracyjny",
@@ -195,6 +199,47 @@
   },
   "safety": {
     "title": "Stan bezpieczeństwa",
+    "ready": "Gotowe",
+    "readyAnnouncement": "ChatGPTCleaner jest gotowy.",
+    "tryAgain": "Spróbuj ponownie",
+    "unbound": {
+      "title": "Uruchom ChatGPTCleaner z karty ChatGPT",
+      "description": "Otwórz ChatGPT, a następnie uruchom ChatGPTCleaner z tej karty."
+    },
+    "blocked": {
+      "sourceLost": {
+        "title": "Karta źródłowa ChatGPT jest niedostępna",
+        "description": "Usuwanie zostało wyłączone. Ponownie uruchom ChatGPTCleaner z karty ChatGPT."
+      },
+      "authentication": {
+        "title": "Sesja ChatGPT jest niedostępna",
+        "description": "Zaloguj się do ChatGPT i ponownie uruchom ChatGPTCleaner."
+      },
+      "destructiveFailure": {
+        "title": "ChatGPT odrzucił żądanie usunięcia",
+        "description": "Usuwanie jest zablokowane ze względów bezpieczeństwa. Przed ponowną próbą sprawdź stan operacji usuwania."
+      },
+      "apiIncompatible": {
+        "title": "Interfejs ChatGPT nie jest obsługiwany",
+        "description": "Ta wersja ChatGPTCleaner nie obsługuje obecnego interfejsu ChatGPT. Usuwanie jest zablokowane ze względów bezpieczeństwa."
+      },
+      "inventoryIncomplete": {
+        "title": "Lista ochrony jest niepełna",
+        "description": "Nie udało się utworzyć pełnej listy ochrony. Usuwanie pozostaje zablokowane."
+      },
+      "protectedStorage": {
+        "title": "Dane chronionych rozmów są niedostępne",
+        "description": "Nie udało się bezpiecznie odczytać danych chronionych rozmów. Usuwanie jest zablokowane."
+      },
+      "readFailure": {
+        "title": "Nie udało się wczytać danych ChatGPT",
+        "description": "Usuwanie pozostaje zablokowane. Sprawdź połączenie i spróbuj ponownie."
+      },
+      "other": {
+        "title": "Usuwanie jest zablokowane",
+        "description": "Nie udało się ukończyć kontroli bezpieczeństwa. Przed ponowną próbą sprawdź stan operacji usuwania."
+      }
+    },
     "about": "Informacje: {{label}}",
     "indicators": {
       "ok": "OK",

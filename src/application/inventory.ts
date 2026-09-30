@@ -46,6 +46,21 @@ export type InventoryLoadResult =
       readonly diagnostic?: ReadFailureDiagnostic;
     };
 
+export type RefreshInventoryCandidateResult =
+  | {
+      readonly kind: "ready";
+      readonly inventory: SafetyInventory;
+      readonly protectedConversationIds: ReadonlySet<string>;
+    }
+  | {
+      readonly kind: "blocked";
+      readonly reason: Extract<
+        SafetyBlockReason,
+        ReadFailureReason | "pagination" | "protected-storage"
+      >;
+      readonly diagnostic?: ReadFailureDiagnostic;
+    };
+
 export type InventoryLoadProgress =
   | { readonly kind: "read-compatible" }
   | {
@@ -373,6 +388,49 @@ export async function loadSafetyInventory(
   };
 }
 
+async function loadValidatedProtectedConversationIds(
+  protectedConversationStore: ProtectedConversationStore,
+): Promise<
+  | {
+      readonly kind: "ready";
+      readonly protectedConversationIds: ReadonlySet<string>;
+    }
+  | { readonly kind: "blocked"; readonly reason: "protected-storage" }
+> {
+  try {
+    const result =
+      await protectedConversationStore.loadProtectedConversationIds();
+    if (result.kind === "invalid") {
+      return { kind: "blocked", reason: "protected-storage" };
+    }
+    return {
+      kind: "ready",
+      protectedConversationIds: result.protectedConversationIds,
+    };
+  } catch {
+    return { kind: "blocked", reason: "protected-storage" };
+  }
+}
+
+export async function loadRefreshInventoryCandidate(input: {
+  readonly gateway: ConversationGateway;
+  readonly protectedConversationStore: ProtectedConversationStore;
+}): Promise<RefreshInventoryCandidateResult> {
+  const safetyInventoryResult = await loadSafetyInventory(input.gateway);
+  if (safetyInventoryResult.kind === "blocked") return safetyInventoryResult;
+
+  const protectedIdsResult = await loadValidatedProtectedConversationIds(
+    input.protectedConversationStore,
+  );
+  if (protectedIdsResult.kind === "blocked") return protectedIdsResult;
+
+  return {
+    kind: "ready",
+    inventory: safetyInventoryResult.inventory,
+    protectedConversationIds: protectedIdsResult.protectedConversationIds,
+  };
+}
+
 export async function loadInventory(input: {
   readonly gateway: ConversationGateway;
   readonly protectedConversationStore: ProtectedConversationStore;
@@ -385,11 +443,10 @@ export async function loadInventory(input: {
   );
   if (safetyInventoryResult.kind === "blocked") return safetyInventoryResult;
 
-  const protectedIdsResult =
-    await input.protectedConversationStore.loadProtectedConversationIds();
-  if (protectedIdsResult.kind === "invalid") {
-    return { kind: "blocked", reason: "protected-storage" };
-  }
+  const protectedIdsResult = await loadValidatedProtectedConversationIds(
+    input.protectedConversationStore,
+  );
+  if (protectedIdsResult.kind === "blocked") return protectedIdsResult;
 
   const requestsPerMinute = await loadRequestsPerMinute(input.settingsStore);
 

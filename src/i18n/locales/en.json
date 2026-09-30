@@ -22,7 +22,11 @@
     "ariaLabel": "Refresh inventory",
     "loading": "Refreshing inventory…",
     "success": "Inventory refreshed.",
-    "failure": "Refresh failed. The previous inventory is still active."
+    "failure": "Refresh failed. The previous inventory is still active.",
+    "warning": "Could not refresh data. The last successfully loaded state is still being shown."
+  },
+  "operation": {
+    "lockConflict": "Deletion is running in another ChatGPTCleaner tab. You can still browse conversations here. Finish or stop it there before deleting conversations or changing protection here."
   },
   "demo": {
     "title": "Demo mode",
@@ -195,6 +199,47 @@
   },
   "safety": {
     "title": "Safety status",
+    "ready": "Ready",
+    "readyAnnouncement": "ChatGPTCleaner is ready.",
+    "tryAgain": "Try again",
+    "unbound": {
+      "title": "Launch ChatGPTCleaner from a ChatGPT tab",
+      "description": "Open ChatGPT, then launch ChatGPTCleaner from that tab."
+    },
+    "blocked": {
+      "sourceLost": {
+        "title": "ChatGPT source tab is unavailable",
+        "description": "Deletion has been disabled. Launch ChatGPTCleaner again from a ChatGPT tab."
+      },
+      "authentication": {
+        "title": "Your ChatGPT session is unavailable",
+        "description": "Sign in to ChatGPT and launch ChatGPTCleaner again."
+      },
+      "destructiveFailure": {
+        "title": "ChatGPT rejected the deletion request",
+        "description": "Deletion is blocked for safety. Review the deletion operation before trying again."
+      },
+      "apiIncompatible": {
+        "title": "ChatGPT interface is not supported",
+        "description": "This version of ChatGPTCleaner does not support the current ChatGPT interface. Deletion is blocked for safety."
+      },
+      "inventoryIncomplete": {
+        "title": "Protection inventory is incomplete",
+        "description": "Could not build the complete protection inventory. Deletion remains blocked."
+      },
+      "protectedStorage": {
+        "title": "Protected conversation data is unavailable",
+        "description": "Protected conversation data could not be read safely. Deletion is blocked for safety."
+      },
+      "readFailure": {
+        "title": "Could not load ChatGPT data",
+        "description": "Deletion remains blocked. Check your connection and try again."
+      },
+      "other": {
+        "title": "Deletion is blocked",
+        "description": "A safety check could not be completed. Review the deletion operation before trying again."
+      }
+    },
     "about": "About {{label}}",
     "indicators": {
       "ok": "OK",

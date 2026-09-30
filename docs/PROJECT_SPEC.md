@@ -509,6 +509,13 @@ authentication/session request required for DELETE; this does not refresh
 inventory membership. If the tab is missing or has left the exact
 `https://chatgpt.com` origin, the DELETE transport stops fail-closed.
 
+After a snapshot is accepted, the manager also revalidates the same bound tab
+when that tab is removed or finishes navigation, and when the manager regains
+focus or visibility. Source loss blocks deletion while the accepted snapshot
+remains available for browsing. This presentation revalidation does not replace
+the destructive transport's just-in-time validation, does not poll, and never
+rebinds to another tab.
+
 ---
 
 ## 12. Chrome permissions and security
@@ -1226,19 +1233,23 @@ Always show total selected count.
 
 ## 27. Safety status
 
-Display compact state such as:
+Derive one user-facing availability state from canonical source, inventory,
+storage, and run state:
 
 ```text
-ChatGPT connection       OK
-Source tab access        OK
-Read API compatibility   OK
-Project protection       OK
-Run lock                 AVAILABLE
-
-Deletion safety          READY
+UNBOUND
+LOADING
+READY
+BLOCKED(reason)
 ```
 
-Do not claim DELETE endpoint compatibility before real destructive use.
+The happy path shows no visible safety-status surface. A meaningful transition
+to READY is announced once through a polite nonvisual live region. Loading uses
+the existing inventory progress stages. Unbound startup shows one instruction to
+launch from a ChatGPT tab and no empty conversation table. A blocked state shows
+one primary cause, its consequence, and at most one useful recovery action. Do
+not expose a grid of implementation checks or claim DELETE endpoint
+compatibility before real destructive use.
 
 Blocked examples:
 
@@ -1246,11 +1257,14 @@ Blocked examples:
 source tab unavailable/changed
 inventory contract changed
 Project protection incomplete
-another destructive run active
 protected-ID storage invalid
 ```
 
 When blocked, destructive controls are disabled.
+
+Run-lock contention is an operation-level notice, not an availability failure.
+A second manager remains usable for browsing. The lock is not polled or shown as
+an unchecked status; atomic acquisition remains the safety guarantee.
 
 ---
 
@@ -1277,11 +1291,25 @@ destructive request occurs during inventory loading.
 
 Explicit Refresh runs this same complete loader while the current valid
 snapshot remains displayed. The replacement is built off to the side and is
-published only after all standalone and Project pages validate. Success
-atomically replaces the snapshot and clears selection and any stale deletion
-preview while retaining filters, sorting, and page size. Failure preserves the
-previous snapshot. Refresh shows a loading indicator, cannot create a deletion
-plan from partial results, and is disabled while a destructive run is active.
+published only after all standalone and Project pages and the current
+protected-ID storage validate. Initial load and explicit Refresh both require
+this protected-ID validation before reporting deletion safety as READY. Success
+atomically replaces the snapshot and current in-memory protected-ID set, and
+clears selection and any stale deletion preview while retaining filters,
+sorting, and page size. Failure preserves the previous accepted snapshot and
+last-valid protected-ID set for display. Protected-storage failure blocks
+deletion and the preserved set is not destructive authority. Refresh shows a
+loading indicator, cannot create a deletion plan from partial results, and is
+disabled while a destructive run is active.
+Refresh and user-protection writes are mutually exclusive in one manager, with
+both UI controls and command handlers enforcing the exclusion.
+Transient network, rate-limit, and server failures leave the accepted snapshot
+ready and show one refresh warning. Source loss, authentication failure,
+API/schema incompatibility, unexpected request rejection, and pagination
+incompatibility block deletion even though the accepted snapshot remains
+visible. Start, Resume, and Retry Failed re-read and validate protected IDs
+again while holding the destructive lock; this just-in-time validation remains
+authoritative for destructive execution and may only shrink the confirmed set.
 
 ---
 
@@ -1686,10 +1714,14 @@ Loading conversations...
 Building Project protection...
 ```
 
+### Unbound
+
+Show one empty state instructing the user to launch ChatGPTCleaner from a
+ChatGPT tab. Do not show the safety dashboard or an empty table.
+
 ### Ready
 
 ```text
-Safety status
 Filters + presets + Reset
 Requests/minute
 Selection toolbar
@@ -1704,7 +1736,10 @@ Pause/Resume/Stop/Retry controls in that section rather than Selection.
 
 ### Safety status
 
-Show concise progress/status.
+Show only the derived availability outcome. READY has no visible status surface
+and is announced politely only when the application meaningfully enters that
+state. BLOCKED uses one accessible Alert for the highest-priority known root
+cause and does not show technical downstream consequences as separate failures.
 
 ### Confirmation
 

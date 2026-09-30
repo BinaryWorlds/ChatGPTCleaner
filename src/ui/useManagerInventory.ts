@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AppConfig } from "../config";
 import {
   loadInventory,
-  loadSafetyInventory,
+  loadRefreshInventoryCandidate,
   type InventoryLoadProgress,
 } from "../application/inventory";
 import type { ReadFailureDiagnostic } from "../application/ports/ConversationGateway";
@@ -25,6 +25,17 @@ type InventoryState =
       readonly readCompatibilityConfirmed: boolean;
     }
   | { readonly kind: "ready" };
+
+export type RefreshInventoryResult =
+  | { readonly kind: "refreshed" }
+  | {
+      readonly kind: "warning";
+      readonly reason: SafetyBlockReason;
+    }
+  | {
+      readonly kind: "blocked";
+      readonly reason: SafetyBlockReason;
+    };
 
 const INITIAL_INVENTORY_STATE: InventoryState = {
   kind: "loading",
@@ -52,6 +63,8 @@ export function useManagerInventory(dependencies: ManagerDependencies) {
     AppConfig.deletion.requestsPerMinute.default,
   );
   const [refreshing, setRefreshing] = useState(false);
+  const [hasAcceptedSnapshot, setHasAcceptedSnapshot] = useState(false);
+  const [initialLoadAttempt, setInitialLoadAttempt] = useState(0);
   const refreshingRef = useRef(false);
 
   const replaceInventorySnapshot = useCallback(
@@ -112,6 +125,7 @@ export function useManagerInventory(dependencies: ManagerDependencies) {
         replaceInventorySnapshot(result.inventory);
         setProtectedConversationIds(result.protectedConversationIds);
         setRequestsPerMinute(result.requestsPerMinute);
+        setHasAcceptedSnapshot(true);
         setInventoryState({ kind: "ready" });
       })
       .catch(() => {
@@ -127,25 +141,60 @@ export function useManagerInventory(dependencies: ManagerDependencies) {
     return () => {
       current = false;
     };
-  }, [dependencies, replaceInventorySnapshot]);
+  }, [dependencies, initialLoadAttempt, replaceInventorySnapshot]);
 
-  const refreshInventory = useCallback(async (): Promise<boolean> => {
-    if (refreshingRef.current) return false;
+  const refreshInventory =
+    useCallback(async (): Promise<RefreshInventoryResult> => {
+      if (refreshingRef.current) return { kind: "warning", reason: "request" };
 
-    refreshingRef.current = true;
-    setRefreshing(true);
-    try {
-      const result = await loadSafetyInventory(dependencies.gateway);
-      if (result.kind === "blocked") return false;
-      replaceInventorySnapshot(result.inventory);
-      return true;
-    } catch {
-      return false;
-    } finally {
-      refreshingRef.current = false;
-      setRefreshing(false);
-    }
-  }, [dependencies, replaceInventorySnapshot]);
+      refreshingRef.current = true;
+      setRefreshing(true);
+      try {
+        const result = await loadRefreshInventoryCandidate({
+          gateway: dependencies.gateway,
+          protectedConversationStore: dependencies.protectedConversationStore,
+        });
+        if (result.kind === "blocked") {
+          const blocksAcceptedSnapshot = [
+            "source-unavailable",
+            "authentication",
+            "compatibility",
+            "pagination",
+            "request",
+            "protected-storage",
+          ].includes(result.reason);
+          if (blocksAcceptedSnapshot) {
+            setInventoryState({
+              kind: "blocked",
+              reason: result.reason,
+              readCompatibilityConfirmed: true,
+              ...(result.diagnostic === undefined
+                ? {}
+                : { diagnostic: result.diagnostic }),
+            });
+            return { kind: "blocked", reason: result.reason };
+          }
+          return { kind: "warning", reason: result.reason };
+        }
+        replaceInventorySnapshot(result.inventory);
+        setProtectedConversationIds(result.protectedConversationIds);
+        setInventoryState({ kind: "ready" });
+        return { kind: "refreshed" };
+      } catch {
+        return { kind: "warning", reason: "network" };
+      } finally {
+        refreshingRef.current = false;
+        setRefreshing(false);
+      }
+    }, [dependencies, replaceInventorySnapshot]);
+
+  const retryInitialInventory = useCallback(() => {
+    if (hasAcceptedSnapshot || refreshingRef.current) return;
+    setInventoryState(INITIAL_INVENTORY_STATE);
+    setInitialLoadAttempt((attempt) => attempt + 1);
+  }, [hasAcceptedSnapshot]);
+
+  const isRefreshPending = useCallback(() => refreshingRef.current, []);
 
   const removeConversation = (removedId: string) => {
     setConversations((currentConversations) =>
@@ -161,7 +210,10 @@ export function useManagerInventory(dependencies: ManagerDependencies) {
     protectedConversationIds,
     requestsPerMinute,
     refreshing,
+    hasAcceptedSnapshot,
+    isRefreshPending,
     refreshInventory,
+    retryInitialInventory,
     removeConversation,
     setProtectedConversationIds,
     setRequestsPerMinute,

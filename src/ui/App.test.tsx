@@ -24,9 +24,12 @@ describe("App", () => {
       />,
     );
 
-    expect(screen.getByRole("alert")).toHaveTextContent(
-      "Open ChatGPT in a tab and launch ChatGPTCleaner from that tab.",
-    );
+    expect(
+      screen.getByRole("heading", {
+        name: "Launch ChatGPTCleaner from a ChatGPT tab",
+      }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
     expect(
       screen.getByRole("heading", { name: "ChatGPTCleaner" }),
     ).toBeInTheDocument();
@@ -88,11 +91,36 @@ describe("App", () => {
     );
 
     expect(
-      await screen.findByText("Read API compatibility failed"),
+      await screen.findByText("ChatGPT interface is not supported"),
     ).toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  });
+
+  it("shows the unbound state for a restored manager with a stale source tab", async () => {
+    window.history.replaceState({}, "", "/manager.html?sourceTabId=42");
+
+    render(
+      <App
+        composition={createProductionComposition({
+          sourceTabBrowser: {
+            getTab: () => Promise.reject(new Error("closed")),
+            probePage: () => Promise.resolve([]),
+          },
+          storage: {
+            get: () => Promise.resolve({}),
+            set: () => Promise.resolve(),
+          },
+          locks: null,
+        })}
+      />,
+    );
+
     expect(
-      screen.getByText(/Standalone conversations.*executionResult/),
+      await screen.findByRole("heading", {
+        name: "Launch ChatGPTCleaner from a ChatGPT tab",
+      }),
     ).toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
   });
 
   it("renders the deterministic demo composition without a source tab", async () => {

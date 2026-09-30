@@ -27,15 +27,21 @@ describe("language switching", () => {
     setBrowserLanguages(["pl-PL", "en-US"], "pl-PL");
     render(<App composition={createManagerComposition()} />);
 
-    expect(await screen.findByText("Stan bezpieczeństwa")).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: "Odśwież listę rozmów" }),
+    ).toBeInTheDocument();
     expect(document.documentElement.lang).toBe("pl");
 
     await user.click(screen.getByTitle("EN"));
-    expect(await screen.findByText("Safety status")).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: "Refresh inventory" }),
+    ).toBeInTheDocument();
     expect(document.documentElement.lang).toBe("en");
 
     await user.click(screen.getByTitle("PL"));
-    expect(await screen.findByText("Stan bezpieczeństwa")).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: "Odśwież listę rozmów" }),
+    ).toBeInTheDocument();
     expect(document.documentElement.lang).toBe("pl");
   });
 
@@ -45,14 +51,20 @@ describe("language switching", () => {
     const firstRender = render(
       <App composition={createManagerComposition()} />,
     );
-    expect(await screen.findByText("Stan bezpieczeństwa")).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: "Odśwież listę rozmów" }),
+    ).toBeInTheDocument();
 
     await user.click(screen.getByTitle("EN"));
-    expect(await screen.findByText("Safety status")).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: "Refresh inventory" }),
+    ).toBeInTheDocument();
     firstRender.unmount();
 
     render(<App composition={createManagerComposition()} />);
-    expect(await screen.findByText("Stan bezpieczeństwa")).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: "Odśwież listę rozmów" }),
+    ).toBeInTheDocument();
     expect(document.documentElement.lang).toBe("pl");
   });
 

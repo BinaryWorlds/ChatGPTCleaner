@@ -29,9 +29,36 @@ import type {
   FakeGatewayFixture,
 } from "../infrastructure/fake/fixtures";
 import { ManagerPage } from "./ManagerPage";
+import type {
+  SourceTabLifecycle,
+  SourceTabValidationResult,
+} from "../infrastructure/browser/SourceTab";
 
 const DAY_MS = 86_400_000;
 const FIXED_NOW = Date.UTC(2026, 0, 15, 12);
+
+class FakeSourceTabLifecycle implements SourceTabLifecycle {
+  private valid = true;
+  private listener: (() => void) | null = null;
+
+  public validate(): Promise<SourceTabValidationResult> {
+    return Promise.resolve(
+      this.valid ? { kind: "valid", tabId: 42 } : { kind: "invalid" },
+    );
+  }
+
+  public subscribe(listener: () => void): () => void {
+    this.listener = listener;
+    return () => {
+      this.listener = null;
+    };
+  }
+
+  public loseSource(): void {
+    this.valid = false;
+    this.listener?.();
+  }
+}
 
 class DeferredProtectedConversationStore implements ProtectedConversationStore {
   public loadCount = 0;
@@ -42,6 +69,7 @@ class DeferredProtectedConversationStore implements ProtectedConversationStore {
   }[] = [];
 
   private storedProtectedConversationIds: ReadonlySet<string>;
+  private loadFailure: "invalid" | "unreadable" | null = null;
 
   public constructor(initialIds: readonly string[] = []) {
     this.storedProtectedConversationIds = new Set(initialIds);
@@ -49,6 +77,12 @@ class DeferredProtectedConversationStore implements ProtectedConversationStore {
 
   public loadProtectedConversationIds(): Promise<ProtectedConversationIdsResult> {
     this.loadCount += 1;
+    if (this.loadFailure === "invalid") {
+      return Promise.resolve({ kind: "invalid" });
+    }
+    if (this.loadFailure === "unreadable") {
+      return Promise.reject(new Error("Storage unavailable"));
+    }
     const protectedConversationIds = new Set(
       this.storedProtectedConversationIds,
     );
@@ -85,6 +119,15 @@ class DeferredProtectedConversationStore implements ProtectedConversationStore {
     protectedConversationIds: readonly string[],
   ): void {
     this.storedProtectedConversationIds = new Set(protectedConversationIds);
+    this.loadFailure = null;
+  }
+
+  public makeCanonicalIdsInvalid(): void {
+    this.loadFailure = "invalid";
+  }
+
+  public makeCanonicalIdsUnreadable(): void {
+    this.loadFailure = "unreadable";
   }
 }
 
@@ -175,6 +218,7 @@ function renderManager(input?: {
   readonly settingsStore?: FakeSettingsStore;
   readonly clock?: FakeClock;
   readonly copyConversationId?: (conversationId: string) => Promise<void>;
+  readonly sourceTabLifecycle?: SourceTabLifecycle;
 }) {
   const clock = input?.clock ?? new FakeClock(FIXED_NOW);
   const gateway =
@@ -218,6 +262,9 @@ function renderManager(input?: {
       dependencies={dependencies}
       openConversation={openConversation}
       copyConversationId={copyConversationId}
+      {...(input?.sourceTabLifecycle === undefined
+        ? {}
+        : { sourceTabLifecycle: input.sourceTabLifecycle })}
     />,
   );
   return {
@@ -397,6 +444,10 @@ describe("ManagerPage inventory controls", () => {
       new FakeClock(FIXED_NOW),
     );
     const protectedConversationStore = new FakeProtectedConversationStore();
+    const saveProtection = vi.spyOn(
+      protectedConversationStore,
+      "saveProtectedConversationIds",
+    );
     const settingsStore = new FakeSettingsStore(60);
     const loadSettings = vi.spyOn(settingsStore, "loadRequestsPerMinute");
     renderManager({ gateway, protectedConversationStore, settingsStore });
@@ -422,6 +473,14 @@ describe("ManagerPage inventory controls", () => {
     expect(
       screen.getByRole("button", { name: "Delete 1 conversation" }),
     ).toBeDisabled();
+    const alphaRow = screen.getByText("Alpha").closest("tr");
+    if (alphaRow === null) throw new Error("Alpha row not found");
+    const protectButton = within(alphaRow).getByRole("button", {
+      name: "Protect",
+    });
+    expect(protectButton).toBeDisabled();
+    fireEvent.click(protectButton);
+    expect(saveProtection).not.toHaveBeenCalled();
 
     gateway.continueRefresh();
     expect(await screen.findByText("Fresh snapshot")).toBeInTheDocument();
@@ -433,11 +492,120 @@ describe("ManagerPage inventory controls", () => {
     expect(gateway.safetyInventoryReadCount).toBe(2);
     expect(gateway.standalonePageReadCount).toBe(2);
     expect(gateway.projectDiscoveryReadCount).toBe(2);
-    expect(protectedConversationStore.loadCount).toBe(1);
+    expect(protectedConversationStore.loadCount).toBe(2);
     expect(loadSettings).toHaveBeenCalledOnce();
   });
 
-  it("preserves the previous valid snapshot when Refresh is incomplete", async () => {
+  it("refreshes the in-memory protection state from canonical storage", async () => {
+    const user = userEvent.setup();
+    const protectedConversationStore = new DeferredProtectedConversationStore();
+    renderManager({ protectedConversationStore });
+    await waitForInventory();
+
+    protectedConversationStore.replaceCanonicalIds(["alpha"]);
+    await user.click(screen.getByRole("button", { name: "Refresh inventory" }));
+    await screen.findByText("Inventory refreshed.");
+
+    const alphaRow = screen.getByText("Alpha").closest("tr");
+    if (alphaRow === null) throw new Error("Alpha row not found");
+    expect(
+      within(alphaRow).getByLabelText("Protected — it will not be deleted."),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("protected-summary")).toHaveTextContent("1");
+
+    await selectConversation(user, "Alpha");
+    expect(screen.getByRole("button", { name: "Delete (0)" })).toBeDisabled();
+    expect(protectedConversationStore.loadCount).toBe(2);
+  });
+
+  it.each(["invalid", "unreadable"] as const)(
+    "rejects a Refresh candidate when protected storage is %s and recovers after repair",
+    async (failureKind) => {
+      const user = userEvent.setup();
+      const gatewayFixture = fixture([{ id: "alpha", title: "Alpha" }]);
+      const protectedConversationStore =
+        new DeferredProtectedConversationStore();
+      const { gateway } = renderManager({
+        gatewayFixture,
+        protectedConversationStore,
+      });
+      await waitForInventory();
+      await selectConversation(user, "Alpha");
+
+      (
+        gatewayFixture.standalonePages as Record<
+          string,
+          FakeConversationPageResult
+        >
+      ).first = {
+        conversations: [{ id: "candidate", title: "Rejected candidate" }],
+        nextCursor: null,
+      };
+      if (failureKind === "invalid") {
+        protectedConversationStore.makeCanonicalIdsInvalid();
+      } else {
+        protectedConversationStore.makeCanonicalIdsUnreadable();
+      }
+
+      await user.click(
+        screen.getByRole("button", { name: "Refresh inventory" }),
+      );
+      expect(
+        await screen.findByText("Protected conversation data is unavailable"),
+      ).toBeInTheDocument();
+      expect(screen.getByText("Alpha")).toBeInTheDocument();
+      expect(screen.queryByText("Rejected candidate")).not.toBeInTheDocument();
+      expect(screen.getByTestId("protected-summary")).toHaveTextContent("0");
+      expect(screen.getByRole("button", { name: "Delete (1)" })).toBeDisabled();
+      expect(gateway.deleteAttempts).toEqual([]);
+
+      (
+        gatewayFixture.standalonePages as Record<
+          string,
+          FakeConversationPageResult
+        >
+      ).first = {
+        conversations: [{ id: "recovered", title: "Recovered snapshot" }],
+        nextCursor: null,
+      };
+      protectedConversationStore.replaceCanonicalIds(["recovered"]);
+      await user.click(
+        screen.getByRole("button", { name: "Refresh inventory" }),
+      );
+
+      expect(await screen.findByText("Recovered snapshot")).toBeInTheDocument();
+      expect(screen.queryByText("Safety status")).not.toBeInTheDocument();
+      expect(screen.getByTestId("protected-summary")).toHaveTextContent("1");
+      expect(protectedConversationStore.loadCount).toBe(3);
+    },
+  );
+
+  it("keeps the destructive-lock protection reload authoritative after Refresh", async () => {
+    const user = userEvent.setup();
+    const protectedConversationStore = new DeferredProtectedConversationStore();
+    const { gateway } = renderManager({ protectedConversationStore });
+    await waitForInventory();
+
+    await user.click(screen.getByRole("button", { name: "Refresh inventory" }));
+    await screen.findByText("Inventory refreshed.");
+    protectedConversationStore.replaceCanonicalIds(["alpha"]);
+
+    await selectConversation(user, "Alpha");
+    await user.click(screen.getByRole("button", { name: "Delete (1)" }));
+    await user.click(
+      screen.getByRole("button", { name: "Delete 1 conversation" }),
+    );
+
+    expect(
+      await screen.findByText(
+        "No confirmed conversations remain eligible for deletion.",
+      ),
+    ).toBeInTheDocument();
+    expect(protectedConversationStore.loadCount).toBe(3);
+    expect(gateway.deleteAttempts).toEqual([]);
+  });
+
+  it("preserves the snapshot and blocks deletion when Refresh finds an incompatible API", async () => {
     const user = userEvent.setup();
     const gatewayFixture = fixture([{ id: "alpha", title: "Alpha" }]);
     renderManager({ gatewayFixture });
@@ -463,13 +631,56 @@ describe("ManagerPage inventory controls", () => {
 
     await user.click(screen.getByRole("button", { name: "Refresh inventory" }));
     expect(
-      await screen.findByText(
-        "Refresh failed. The previous inventory is still active.",
-      ),
+      await screen.findByText("ChatGPT interface is not supported"),
     ).toBeInTheDocument();
     expect(screen.getByText("Alpha")).toBeInTheDocument();
     expect(screen.queryByText("Partial refresh")).not.toBeInTheDocument();
     expect(screen.getByTestId("selected-count")).toHaveTextContent("1");
+    expect(screen.getByRole("button", { name: "Delete (1)" })).toBeDisabled();
+  });
+
+  it("keeps an accepted snapshot ready after a transient Refresh failure", async () => {
+    const user = userEvent.setup();
+    const gatewayFixture = fixture([{ id: "alpha", title: "Alpha" }]);
+    renderManager({ gatewayFixture });
+    await waitForInventory();
+    await selectConversation(user, "Alpha");
+
+    (
+      gatewayFixture.standalonePages as Record<
+        string,
+        FakeConversationPageResult
+      >
+    ).first = { kind: "failure", reason: "network" };
+    await user.click(screen.getByRole("button", { name: "Refresh inventory" }));
+
+    expect(
+      await screen.findByText(
+        "Could not refresh data. The last successfully loaded state is still being shown.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Alpha")).toBeInTheDocument();
+    expect(screen.queryByText("Safety status")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete (1)" })).toBeEnabled();
+  });
+
+  it("blocks deletion reactively when the accepted snapshot loses its source tab", async () => {
+    const lifecycle = new FakeSourceTabLifecycle();
+    renderManager({ sourceTabLifecycle: lifecycle });
+    await waitForInventory();
+
+    lifecycle.loseSource();
+
+    expect(
+      await screen.findByText("ChatGPT source tab is unavailable"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("table", { name: "Standalone conversations" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete (0)" })).toBeDisabled();
+    expect(
+      screen.queryByText("Read API compatibility failed"),
+    ).not.toBeInTheDocument();
   });
 
   it("defaults to standalone rows and exposes Projects only in the read-only view", async () => {
@@ -885,6 +1096,12 @@ describe("ManagerPage inventory controls", () => {
       within(betaRow).getByRole("button", { name: "Protect" }),
     ).toBeDisabled();
     expect(screen.getByRole("button", { name: "Protect (1)" })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Refresh inventory" }),
+    ).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh inventory" }));
+    expect(protectedConversationStore.loadCount).toBe(2);
 
     await user.click(within(betaRow).getByRole("button", { name: "Protect" }));
     expect(protectedConversationStore.pendingSaves).toHaveLength(1);

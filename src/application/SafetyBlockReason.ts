@@ -22,3 +22,26 @@ export const safetyBlockReasons = [
 ] as const;
 
 export type SafetyBlockReason = (typeof safetyBlockReasons)[number];
+
+export function isSafetyOverrideRevalidatedByCompleteRefresh(
+  reason: SafetyBlockReason,
+): boolean {
+  switch (reason) {
+    case "protected-storage":
+      return true;
+    case "authentication":
+    case "authorization":
+    case "client":
+    case "compatibility":
+    case "network":
+    case "request":
+    case "response-anomaly":
+    case "retry-later":
+    case "server":
+    case "source-unavailable":
+    case "pagination":
+    case "destructive-run-lock":
+    case "unexpected-run-error":
+      return false;
+  }
+}

@@ -31,6 +31,17 @@ export interface SourceTabValidator {
   validate(): Promise<SourceTabValidationResult>;
 }
 
+export interface SourceTabLifecycle extends SourceTabValidator {
+  subscribe(listener: () => void): () => void;
+}
+
+export interface SourceTabEvents {
+  subscribeToRemoved(listener: (tabId: number) => void): () => void;
+  subscribeToUpdated(
+    listener: (tabId: number, status: string | undefined) => void,
+  ): () => void;
+}
+
 export function parseSourceTabId(value: string | null): number | null {
   if (value === null || !/^\d+$/.test(value)) return null;
   const tabId = Number(value);
@@ -86,6 +97,33 @@ export class SourceTabBinding implements SourceTabValidator {
   }
 }
 
+export class BoundSourceTabLifecycle implements SourceTabLifecycle {
+  public constructor(
+    private readonly tabId: number,
+    private readonly validator: SourceTabValidator,
+    private readonly events: SourceTabEvents,
+  ) {}
+
+  public validate(): Promise<SourceTabValidationResult> {
+    return this.validator.validate();
+  }
+
+  public subscribe(listener: () => void): () => void {
+    const unsubscribeRemoved = this.events.subscribeToRemoved((tabId) => {
+      if (tabId === this.tabId) listener();
+    });
+    const unsubscribeUpdated = this.events.subscribeToUpdated(
+      (tabId, status) => {
+        if (tabId === this.tabId && status === "complete") listener();
+      },
+    );
+    return () => {
+      unsubscribeRemoved();
+      unsubscribeUpdated();
+    };
+  }
+}
+
 export function createChromeSourceTabBrowser(): SourceTabBrowser {
   return {
     getTab: (tabId) => browser.tabs.get(tabId),
@@ -97,5 +135,22 @@ export function createChromeSourceTabBrowser(): SourceTabBrowser {
           origin: window.location.origin,
         }),
       }),
+  };
+}
+
+export function createChromeSourceTabEvents(): SourceTabEvents {
+  return {
+    subscribeToRemoved: (listener) => {
+      browser.tabs.onRemoved.addListener(listener);
+      return () => browser.tabs.onRemoved.removeListener(listener);
+    },
+    subscribeToUpdated: (listener) => {
+      const chromeListener = (
+        tabId: number,
+        changeInfo: { readonly status?: string },
+      ) => listener(tabId, changeInfo.status);
+      browser.tabs.onUpdated.addListener(chromeListener);
+      return () => browser.tabs.onUpdated.removeListener(chromeListener);
+    },
   };
 }

@@ -1,4 +1,4 @@
-import { Alert, ConfigProvider, Layout, Space } from "antd";
+import { ConfigProvider, Layout, Space } from "antd";
 import enUS from "antd/locale/en_US";
 import plPL from "antd/locale/pl_PL";
 import dayjs from "dayjs";
@@ -17,6 +17,7 @@ import appI18n, { activeAppLanguage } from "../i18n/i18n";
 import { ManagerHeader } from "./ManagerHeader";
 import { ManagerPage } from "./ManagerPage";
 import { createManagerTheme } from "./managerTheme";
+import { SafetyStatus } from "./SafetyStatus";
 
 const { Content } = Layout;
 
@@ -25,7 +26,7 @@ interface AppProps {
 }
 
 export function App({ composition }: AppProps) {
-  const { t, i18n } = useTranslation();
+  const { i18n } = useTranslation();
   const [initialLanguage] = useState(detectBrowserLanguage);
   const appLanguage = activeAppLanguage(i18n.resolvedLanguage);
   const [themePreference, setThemePreference] =
@@ -126,6 +127,9 @@ export function App({ composition }: AppProps) {
               onThemePreferenceChange={handleThemePreferenceChange}
               openConversation={composition.openConversation}
               copyConversationId={composition.copyConversationId}
+              {...(composition.sourceTabLifecycle === undefined
+                ? {}
+                : { sourceTabLifecycle: composition.sourceTabLifecycle })}
             />
           ) : (
             <Space
@@ -138,7 +142,7 @@ export function App({ composition }: AppProps) {
                 themePreferencePending={themePreferencePending}
                 onThemePreferenceChange={handleThemePreferenceChange}
               />
-              <Alert type="warning" showIcon title={t("app.openChatGpt")} />
+              <SafetyStatus state={{ kind: "unbound" }} />
             </Space>
           )}
         </Content>

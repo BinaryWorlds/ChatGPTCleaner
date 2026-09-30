@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  BoundSourceTabLifecycle,
   hasExactChatGptOrigin,
   parseSourceTabId,
   SourceTabBinding,
   type SourceTabBrowser,
+  type SourceTabEvents,
 } from "./SourceTab";
 
 function sourceBrowser(url: string): SourceTabBrowser {
@@ -75,5 +77,36 @@ describe("SourceTabBinding", () => {
     expect(parseSourceTabId("0")).toBeNull();
     expect(parseSourceTabId("1e2")).toBeNull();
     expect(parseSourceTabId("9007199254740992")).toBeNull();
+  });
+
+  it("notifies only for removal or completed updates of the bound tab", () => {
+    let removedListener: ((tabId: number) => void) | undefined;
+    let updatedListener:
+      ((tabId: number, status: string | undefined) => void) | undefined;
+    const events: SourceTabEvents = {
+      subscribeToRemoved: (listener) => {
+        removedListener = listener;
+        return () => undefined;
+      },
+      subscribeToUpdated: (listener) => {
+        updatedListener = listener;
+        return () => undefined;
+      },
+    };
+    const notify = vi.fn();
+    new BoundSourceTabLifecycle(
+      42,
+      new SourceTabBinding(42, sourceBrowser("https://chatgpt.com/")),
+      events,
+    ).subscribe(notify);
+
+    removedListener?.(41);
+    updatedListener?.(42, "loading");
+    updatedListener?.(41, "complete");
+    expect(notify).not.toHaveBeenCalled();
+
+    updatedListener?.(42, "complete");
+    removedListener?.(42);
+    expect(notify).toHaveBeenCalledTimes(2);
   });
 });

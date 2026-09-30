@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ManagerDependencies } from "../composition/types";
+import type { DestructiveRunLock } from "../application/ports/DestructiveRunLock";
 import type {
   ProtectedConversationIdsResult,
   ProtectedConversationStore,
@@ -79,6 +80,30 @@ class DeferredProtectedConversationStore implements ProtectedConversationStore {
   }
 }
 
+class FailAfterInitialProtectedStore implements ProtectedConversationStore {
+  private loadCount = 0;
+  private failing = true;
+
+  public loadProtectedConversationIds(): Promise<ProtectedConversationIdsResult> {
+    this.loadCount += 1;
+    if (this.loadCount === 1 || !this.failing) {
+      return Promise.resolve({
+        kind: "success",
+        protectedConversationIds: new Set(),
+      });
+    }
+    return Promise.resolve({ kind: "invalid" });
+  }
+
+  public saveProtectedConversationIds(): Promise<void> {
+    return Promise.resolve();
+  }
+
+  public recover(): void {
+    this.failing = false;
+  }
+}
+
 function fixture(
   conversations: readonly FakeConversationFixture[],
   deleteOutcomes: FakeGatewayFixture["deleteOutcomes"] = {},
@@ -98,6 +123,7 @@ function renderManager(input?: {
   readonly protectedIds?: readonly string[];
   readonly protectedConversationStore?: ProtectedConversationStore;
   readonly clock?: FakeClock;
+  readonly destructiveRunLock?: DestructiveRunLock;
 }) {
   const clock = input?.clock ?? new FakeClock(FIXED_NOW);
   const gateway = new FakeConversationGateway(
@@ -127,7 +153,8 @@ function renderManager(input?: {
     protectedConversationStore,
     settingsStore: new FakeSettingsStore(60),
     clock,
-    destructiveRunLock: new FakeDestructiveRunLock(),
+    destructiveRunLock:
+      input?.destructiveRunLock ?? new FakeDestructiveRunLock(),
   };
   const openConversation = vi.fn();
   render(
@@ -166,6 +193,68 @@ afterEach(() => {
 });
 
 describe("ManagerPage destructive flow", () => {
+  it("shows lock contention as an operation notice without a fake run", async () => {
+    const user = userEvent.setup();
+    renderManager({
+      destructiveRunLock: new FakeDestructiveRunLock({ active: true }),
+    });
+    await waitForInventory();
+    await openConfirmation(user, "Alpha");
+    await user.click(
+      screen.getByRole("button", { name: "Delete 1 conversation" }),
+    );
+
+    expect(
+      await screen.findByText(
+        /Deletion is running in another ChatGPTCleaner tab/,
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Deletion operation")).not.toBeInTheDocument();
+    expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(screen.queryByText("Safety status")).not.toBeInTheDocument();
+  });
+
+  it("does not create a 0/N run when protected storage fails before execution", async () => {
+    const user = userEvent.setup();
+    renderManager({
+      protectedConversationStore: new FailAfterInitialProtectedStore(),
+    });
+    await waitForInventory();
+    await openConfirmation(user, "Alpha");
+    await user.click(
+      screen.getByRole("button", { name: "Delete 1 conversation" }),
+    );
+
+    expect(
+      await screen.findByText("Protected conversation data is unavailable"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Deletion operation")).not.toBeInTheDocument();
+    expect(screen.queryByText("0 / 1")).not.toBeInTheDocument();
+  });
+
+  it("clears a pre-execution storage blocker only after Refresh revalidates storage", async () => {
+    const user = userEvent.setup();
+    const protectedConversationStore = new FailAfterInitialProtectedStore();
+    renderManager({ protectedConversationStore });
+    await waitForInventory();
+    await openConfirmation(user, "Alpha");
+    await user.click(
+      screen.getByRole("button", { name: "Delete 1 conversation" }),
+    );
+    expect(
+      await screen.findByText("Protected conversation data is unavailable"),
+    ).toBeInTheDocument();
+
+    protectedConversationStore.recover();
+    await user.click(screen.getByRole("button", { name: "Refresh inventory" }));
+    await screen.findByText("Inventory refreshed.");
+
+    expect(
+      screen.queryByText("Protected conversation data is unavailable"),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("Deletion operation")).not.toBeInTheDocument();
+    expect(screen.queryByText("Safety status")).not.toBeInTheDocument();
+  });
   it("uses a standard confirmation without typed input or inventory reads", async () => {
     const user = userEvent.setup();
     const { gateway } = renderManager();
@@ -387,7 +476,54 @@ describe("ManagerPage destructive flow", () => {
     expect(
       await screen.findByText("Deletion stopped for safety"),
     ).toBeInTheDocument();
-    expect(screen.getByText("Authorization denied")).toBeInTheDocument();
+    expect(
+      screen.getByText("ChatGPT rejected the deletion request"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Reason: Authorization denied/),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/No deletion has started/),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps a destructive-only blocker and operation history after Refresh", async () => {
+    const user = userEvent.setup();
+    renderManager({
+      gatewayFixture: fixture(
+        [{ id: "invalid", title: "Invalid deletion response", updatedAt: 100 }],
+        { invalid: [422] },
+      ),
+    });
+    await waitForInventory();
+    await openConfirmation(user, "Invalid deletion response");
+    await user.click(
+      screen.getByRole("button", { name: "Delete 1 conversation" }),
+    );
+
+    expect(
+      await screen.findByText("Deletion stopped for safety"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("ChatGPT rejected the deletion request"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("0 / 1")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Refresh inventory" }));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Refresh inventory" }),
+      ).toBeEnabled(),
+    );
+
+    expect(
+      screen.getByText("ChatGPT rejected the deletion request"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Deletion stopped for safety")).toBeInTheDocument();
+    expect(screen.getByText("0 / 1")).toBeInTheDocument();
+    expect(
+      screen.queryByText(/No deletion has started/),
+    ).not.toBeInTheDocument();
   });
 
   it("shows BLOCKED for malformed inventory", async () => {
@@ -395,9 +531,9 @@ describe("ManagerPage destructive flow", () => {
       gatewayFixture: STANDALONE_COMPATIBILITY_FAILURE_FIXTURE,
     });
     expect(
-      await screen.findByText("Read API compatibility failed"),
+      await screen.findByText("ChatGPT interface is not supported"),
     ).toBeInTheDocument();
-    expect(screen.getAllByText("BLOCKED").length).toBeGreaterThan(0);
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
 
     firstRender.gateway.deleteAttempts.length = 0;
   });

@@ -216,15 +216,14 @@ export class DeletionRun implements ProtectionMutationLockOwner {
     const lockResult: LockResult<void> =
       await this.input.destructiveRunLock.runExclusive(async () => {
         try {
-          this.beginExecution();
           const protectionResult =
             await this.removeCurrentlyProtectedRemainingIds();
           if (protectionResult === "blocked") return;
           if (protectionResult === "empty") {
-            this.finishActivePeriod();
             this.completeRun();
             return;
           }
+          this.beginExecution();
           await this.executeRemainingConversations();
         } finally {
           await this.waitForPendingProtectionMutation();
@@ -269,7 +268,6 @@ export class DeletionRun implements ProtectionMutationLockOwner {
   }
 
   private blockForProtectedStorage(): LocalProtectionResult {
-    this.finishActivePeriod();
     this.logWarn("deletion.run.protectedStateBlocked");
     this.publish("blocked", null, "protected-storage");
     return "blocked";

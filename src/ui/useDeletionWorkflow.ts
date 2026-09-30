@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   DeletionRun,
@@ -13,7 +13,10 @@ import {
   type ConfirmedDeletionPlan,
   type DeletionPlan,
 } from "../domain/deletionPlan";
-import type { SafetyBlockReason } from "../application/SafetyBlockReason";
+import {
+  isSafetyOverrideRevalidatedByCompleteRefresh,
+  type SafetyBlockReason,
+} from "../application/SafetyBlockReason";
 
 interface UseDeletionWorkflowOptions {
   readonly dependencies: ManagerDependencies | null;
@@ -26,6 +29,7 @@ interface UseDeletionWorkflowOptions {
   readonly isProtectionMutationPending: () => boolean;
   readonly onConversationRemoved: (conversationId: string) => void;
   readonly onNotice: (message: string) => void;
+  readonly onOperationLockConflict: () => void;
 }
 
 function isRunActive(state: DeletionRunState | null): boolean {
@@ -48,6 +52,7 @@ export function useDeletionWorkflow({
   isProtectionMutationPending,
   onConversationRemoved,
   onNotice,
+  onOperationLockConflict,
 }: UseDeletionWorkflowOptions) {
   const { t } = useTranslation();
   const [previewPlan, setPreviewPlan] = useState<DeletionPlan | null>(null);
@@ -55,6 +60,7 @@ export function useDeletionWorkflow({
   const [runState, setRunState] = useState<DeletionRunState | null>(null);
   const [safetyOverride, setSafetyOverride] =
     useState<SafetyBlockReason | null>(null);
+  const executionStartedRef = useRef(false);
 
   const runActive = isRunActive(runState);
   const runOwnsWorkflow = deletionRunOwnsWorkflow(runState);
@@ -74,7 +80,6 @@ export function useDeletionWorkflow({
       ...(operationId === undefined ? {} : { operationId }),
       selectedCount: selectedConversationIds.size,
     });
-    setSafetyOverride(null);
     const plan = buildDeletionPlan({
       selectedConversationIds: [...selectedConversationIds],
       standaloneConversations,
@@ -98,10 +103,42 @@ export function useDeletionWorkflow({
   };
 
   const handleRunStateChange = (nextState: DeletionRunState) => {
+    if (nextState.kind === "running") executionStartedRef.current = true;
+    if (
+      nextState.kind === "blocked" &&
+      nextState.reason === "destructive-run-lock"
+    ) {
+      onOperationLockConflict();
+      if (!executionStartedRef.current) setCurrentRun(null);
+      return;
+    }
+    if (nextState.kind === "blocked" && !executionStartedRef.current) {
+      setSafetyOverride(nextState.reason);
+      setCurrentRun(null);
+      return;
+    }
+    if (nextState.kind === "finished" && !executionStartedRef.current) {
+      setCurrentRun(null);
+      onNotice(t("deletion.noEligibleConfirmed"));
+      return;
+    }
     setRunState(nextState);
     if (nextState.kind === "blocked" || nextState.kind === "fatal") {
       setSafetyOverride(nextState.reason);
     }
+  };
+
+  const recordUnexpectedRunFailure = (deletionRun: DeletionRun) => {
+    setSafetyOverride("unexpected-run-error");
+    if (!executionStartedRef.current) {
+      setCurrentRun(null);
+      return;
+    }
+    setRunState({
+      kind: "fatal",
+      reason: "unexpected-run-error",
+      progress: deletionRun.getState().progress,
+    });
   };
 
   const confirmAndStartDeletion = (confirmedPlan: ConfirmedDeletionPlan) => {
@@ -133,16 +170,18 @@ export function useDeletionWorkflow({
       onStateChange: handleRunStateChange,
       onConversationRemoved,
     });
+    executionStartedRef.current = false;
     setCurrentRun(deletionRun);
     deletionRun
       .startDeletion()
-      .catch(() => setSafetyOverride("unexpected-run-error"));
+      .catch(() => recordUnexpectedRunFailure(deletionRun));
   };
 
   const retryFailed = () => {
+    if (currentRun === null) return;
     currentRun
-      ?.retryFailedDeletion()
-      .catch(() => setSafetyOverride("unexpected-run-error"));
+      .retryFailedDeletion()
+      .catch(() => recordUnexpectedRunFailure(currentRun));
   };
 
   const resumeRun = () => {
@@ -156,9 +195,18 @@ export function useDeletionWorkflow({
     currentRun.resumeDeletion();
   };
 
-  const cancelConfirmation = () => {
+  const cancelConfirmation = useCallback(() => {
     setPreviewPlan(null);
-  };
+  }, []);
+
+  const recoverSafetyAfterCompleteRefresh = useCallback(() => {
+    setSafetyOverride((currentReason) => {
+      if (currentReason === null) return null;
+      return isSafetyOverrideRevalidatedByCompleteRefresh(currentReason)
+        ? null
+        : currentReason;
+    });
+  }, []);
 
   return {
     previewPlan,
@@ -176,6 +224,7 @@ export function useDeletionWorkflow({
     pauseRun: () => currentRun?.pauseDeletion(),
     stopRun: () => currentRun?.stopDeletion(),
     cancelConfirmation,
+    recoverSafetyAfterCompleteRefresh,
     blockSafety: setSafetyOverride,
   } as const;
 }

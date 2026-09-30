@@ -1,160 +1,100 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { safetyBlockReasons } from "../application/SafetyBlockReason";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { SafetyStatus, safetyBlockReasonLabel } from "./SafetyStatus";
 
 describe("SafetyStatus", () => {
-  it("has a safe user-facing label for every safety block reason", () => {
+  it("has a safe run-facing label for every safety block reason", () => {
     for (const reason of safetyBlockReasons) {
       expect(safetyBlockReasonLabel(reason).trim()).not.toBe("");
     }
   });
 
-  it("exposes lock help from the combined label without including its status", async () => {
-    render(<SafetyStatus state={{ kind: "ready" }} />);
-
-    const lockStatus = screen.getByTestId("safety-run-lock");
-    const lockHelpTrigger = screen.getByLabelText("About Run lock");
-
-    expect(lockStatus).toHaveTextContent("NOT CHECKED");
-    expect(screen.getByTestId("safety-deletion")).toHaveTextContent("READY");
-    expect(lockHelpTrigger).toHaveTextContent("Run lock");
-    expect(lockHelpTrigger).not.toContainElement(lockStatus);
-
-    fireEvent.focus(lockHelpTrigger);
-
-    expect(await screen.findByRole("tooltip")).toHaveTextContent(
-      "NOT CHECKED before starting is normal",
+  it("announces a transition to ready without a visible status surface", () => {
+    const { rerender } = render(
+      <SafetyStatus state={{ kind: "loading", stage: "projects" }} />,
     );
+
+    rerender(<SafetyStatus state={{ kind: "ready" }} />);
+
+    const announcement = screen.getByRole("status");
+    expect(announcement).toHaveTextContent("ChatGPTCleaner is ready.");
+    expect(screen.queryByText("Safety status")).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Ready$/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Run lock")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Read API compatibility"),
+    ).not.toBeInTheDocument();
+
+    rerender(<SafetyStatus state={{ kind: "ready" }} />);
+    expect(screen.getByRole("status")).toBe(announcement);
   });
 
-  it("provides keyboard-accessible help for every safety check", async () => {
-    render(<SafetyStatus state={{ kind: "ready" }} />);
-
-    const helpLabels = [
-      "ChatGPT connection",
-      "Source tab access",
-      "Read API compatibility",
-      "Project protection",
-      "Run lock",
-      "Deletion safety",
-    ];
-
-    for (const label of helpLabels) {
-      expect(screen.getByLabelText(`About ${label}`)).toHaveAttribute(
-        "tabindex",
-        "0",
-      );
-    }
-
-    fireEvent.focus(screen.getByLabelText("About ChatGPT connection"));
-    expect(await screen.findByRole("tooltip")).toHaveTextContent(
-      "Requires an active ChatGPT session",
+  it("leaves loading presentation to the inventory progress surface", () => {
+    const { container } = render(
+      <SafetyStatus state={{ kind: "loading", stage: "projects" }} />,
     );
+
+    expect(container).toBeEmptyDOMElement();
   });
 
-  it("marks read compatibility OK while inventory is still loading", () => {
-    render(<SafetyStatus state={{ kind: "loading", stage: "inventory" }} />);
+  it("shows one unbound empty state without a technical dashboard", () => {
+    render(<SafetyStatus state={{ kind: "unbound" }} />);
 
-    expect(screen.getByTestId("safety-read-compatibility")).toHaveTextContent(
-      "OK",
-    );
-    expect(screen.getByTestId("safety-project-protection")).toHaveTextContent(
-      "NOT CHECKED",
-    );
-    expect(screen.getByTestId("safety-deletion")).toHaveTextContent("BLOCKED");
+    expect(
+      screen.getByRole("heading", {
+        name: "Launch ChatGPTCleaner from a ChatGPT tab",
+      }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.queryByText("Deletion safety")).not.toBeInTheDocument();
   });
 
-  it("keeps deletion blocked while complete Project protection is loading", () => {
-    render(<SafetyStatus state={{ kind: "loading", stage: "projects" }} />);
-
-    expect(screen.getByTestId("safety-project-protection")).toHaveTextContent(
-      "CHECKING",
-    );
-    expect(screen.getByTestId("safety-deletion")).toHaveTextContent("BLOCKED");
-  });
-
-  it("keeps validated standalone compatibility OK when Project protection fails", () => {
+  it("shows one authentication root cause", () => {
     render(
-      <SafetyStatus
-        state={{
-          kind: "blocked",
-          reason: "compatibility",
-          readCompatibilityConfirmed: true,
-        }}
-      />,
-    );
-
-    expect(screen.getByTestId("safety-read-compatibility")).toHaveTextContent(
-      "OK",
-    );
-    expect(screen.getByTestId("safety-project-protection")).toHaveTextContent(
-      "BLOCKED",
-    );
-    expect(screen.getByTestId("safety-deletion")).toHaveTextContent("BLOCKED");
-  });
-
-  it("does not misreport a validated source tab as blocked after auth failure", () => {
-    render(
-      <SafetyStatus
-        state={{
-          kind: "blocked",
-          reason: "authentication",
-          readCompatibilityConfirmed: false,
-        }}
-      />,
-    );
-
-    expect(screen.getByTestId("safety-source-tab")).toHaveTextContent("OK");
-    expect(screen.getByRole("alert")).toHaveTextContent(
-      "Authentication unavailable",
-    );
-  });
-
-  it("reports a genuine source-tab failure separately", () => {
-    render(
-      <SafetyStatus
-        state={{
-          kind: "blocked",
-          reason: "source-unavailable",
-          readCompatibilityConfirmed: false,
-        }}
-      />,
-    );
-
-    expect(screen.getByTestId("safety-source-tab")).toHaveTextContent(
-      "BLOCKED",
-    );
-    expect(screen.getByRole("alert")).toHaveTextContent(
-      "Source tab unavailable",
-    );
-  });
-
-  it("shows structural diagnostics without scalar response values", () => {
-    render(
-      <SafetyStatus
-        state={{
-          kind: "blocked",
-          reason: "compatibility",
-          readCompatibilityConfirmed: false,
-          diagnostic: {
-            operation: "projects",
-            endpointFamily: "/backend-api/gizmos/snorlax/sidebar",
-            category: "response-contract",
-            paginationStep: 1,
-            httpStatus: 200,
-            jsonParsed: true,
-            fieldPath: "items[0].gizmo.gizmo.id",
-            expectedType: "string",
-            actualType: "absent",
-            missingRequiredField: "id",
-          },
-        }}
-      />,
+      <SafetyStatus state={{ kind: "blocked", reason: "authentication" }} />,
     );
 
     expect(screen.getByRole("alert")).toHaveTextContent(
-      "Project discovery (/backend-api/gizmos/snorlax/sidebar), page 1: missing required field id; HTTP 200, JSON parsed: yes",
+      "Your ChatGPT session is unavailable",
     );
+    expect(screen.queryByText("Project protection")).not.toBeInTheDocument();
+  });
+
+  it("shows one API incompatibility cause without a meaningless retry", () => {
+    render(
+      <SafetyStatus state={{ kind: "blocked", reason: "compatibility" }} />,
+    );
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "ChatGPT interface is not supported",
+    );
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  it("offers retry for incomplete inventory", async () => {
+    const user = userEvent.setup();
+    const onRetry = vi.fn();
+    render(
+      <SafetyStatus
+        state={{ kind: "blocked", reason: "pagination" }}
+        onRetry={onRetry}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    expect(onRetry).toHaveBeenCalledOnce();
+  });
+
+  it("reports protected storage failure without reset action", () => {
+    render(
+      <SafetyStatus state={{ kind: "blocked", reason: "protected-storage" }} />,
+    );
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Protected conversation data could not be read safely",
+    );
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 });

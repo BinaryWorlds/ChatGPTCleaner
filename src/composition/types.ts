@@ -5,6 +5,7 @@ import type { ProtectedConversationStore } from "../application/ports/ProtectedC
 import type { SettingsStore } from "../application/ports/SettingsStore";
 import type { ApplicationObservability } from "../application/ports/Observability";
 import type { ThemePreferenceStore } from "../application/ports/ThemePreferenceStore";
+import type { SourceTabLifecycle } from "../infrastructure/browser/SourceTab";
 
 export interface ManagerDependencies {
   readonly gateway: ConversationGateway;
@@ -21,4 +22,5 @@ export interface ManagerComposition {
   readonly themePreferenceStore: ThemePreferenceStore;
   readonly openConversation: (conversationId: string) => void;
   readonly copyConversationId: (conversationId: string) => Promise<void>;
+  readonly sourceTabLifecycle?: SourceTabLifecycle;
 }

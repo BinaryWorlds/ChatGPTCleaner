@@ -8,10 +8,13 @@ import {
   type PageContextDeleteExecutor,
 } from "../infrastructure/api/PageContextDeleteTransport";
 import {
+  BoundSourceTabLifecycle,
   createChromeSourceTabBrowser,
+  createChromeSourceTabEvents,
   parseSourceTabId,
   SourceTabBinding,
   type SourceTabBrowser,
+  type SourceTabEvents,
 } from "../infrastructure/browser/SourceTab";
 import { buildChatGptConversationUrl } from "../infrastructure/browser/openConversation";
 import { copyConversationId } from "../infrastructure/browser/copyConversationId";
@@ -42,6 +45,7 @@ interface ProductionRuntime {
   readonly pageDeleteExecutor?: PageContextDeleteExecutor;
   readonly storage: BrowserLocalStorage;
   readonly locks: WebLockManager | null;
+  readonly sourceTabEvents?: SourceTabEvents;
 }
 
 function createBrowserRuntime(): ProductionRuntime {
@@ -51,6 +55,7 @@ function createBrowserRuntime(): ProductionRuntime {
     pageDeleteExecutor: createChromePageContextDeleteExecutor(),
     storage: createChromeLocalStorage(),
     locks: currentWebLockManager(),
+    sourceTabEvents: createChromeSourceTabEvents(),
   };
 }
 
@@ -76,12 +81,20 @@ export function createManagerComposition(
   );
 
   let dependencies: ManagerDependencies | null = null;
+  let sourceTabLifecycle;
   if (sourceTabId !== null) {
     const clock = new SystemClock();
     const sourceTab = new SourceTabBinding(
       sourceTabId,
       activeRuntime.sourceTabBrowser,
     );
+    if (activeRuntime.sourceTabEvents !== undefined) {
+      sourceTabLifecycle = new BoundSourceTabLifecycle(
+        sourceTabId,
+        sourceTab,
+        activeRuntime.sourceTabEvents,
+      );
+    }
     const transport = new PageContextReadTransport(
       sourceTab,
       activeRuntime.pageReadExecutor ?? createChromePageContextReadExecutor(),
@@ -120,5 +133,6 @@ export function createManagerComposition(
     ),
     openConversation: openProductionConversation,
     copyConversationId,
+    ...(sourceTabLifecycle === undefined ? {} : { sourceTabLifecycle }),
   };
 }

@@ -28,10 +28,12 @@ import {
   Tooltip,
   Typography,
 } from "antd";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AppConfig } from "../config";
 import type { ThemePreference } from "../application/themePreference";
+import { isSafetyOverrideRevalidatedByCompleteRefresh } from "../application/SafetyBlockReason";
+import type { SourceTabLifecycle } from "../infrastructure/browser/SourceTab";
 import {
   mutateProtectedConversationIds,
   type ProtectionMutation,
@@ -75,6 +77,7 @@ interface ManagerPageProps {
   readonly onThemePreferenceChange?: (preference: ThemePreference) => void;
   readonly openConversation: ManagerComposition["openConversation"];
   readonly copyConversationId: ManagerComposition["copyConversationId"];
+  readonly sourceTabLifecycle?: SourceTabLifecycle;
 }
 
 export function ManagerPage({
@@ -85,6 +88,7 @@ export function ManagerPage({
   onThemePreferenceChange = () => undefined,
   openConversation,
   copyConversationId,
+  sourceTabLifecycle,
 }: ManagerPageProps) {
   const { t } = useTranslation();
   const { token } = theme.useToken();
@@ -98,11 +102,15 @@ export function ManagerPage({
     protectedConversationIds,
     requestsPerMinute,
     refreshing,
+    hasAcceptedSnapshot,
+    isRefreshPending,
     refreshInventory,
+    retryInitialInventory,
     removeConversation,
     setProtectedConversationIds,
     setRequestsPerMinute,
   } = useManagerInventory(dependencies);
+  const [sourceLost, setSourceLost] = useState(false);
   const [selectedConversationIds, setSelectedConversationIds] = useState<
     ReadonlySet<string>
   >(new Set());
@@ -160,10 +168,12 @@ export function ManagerPage({
     pauseRun,
     stopRun,
     cancelConfirmation,
+    recoverSafetyAfterCompleteRefresh,
     blockSafety,
   } = useDeletionWorkflow({
     dependencies,
-    inventoryReady: inventoryState.kind === "ready" && !refreshing,
+    inventoryReady:
+      inventoryState.kind === "ready" && !refreshing && !sourceLost,
     standaloneConversations: conversations,
     projectConversationIds,
     protectedConversationIds,
@@ -179,7 +189,51 @@ export function ManagerPage({
       });
     },
     onNotice: setNotice,
+    onOperationLockConflict: () => setNotice(t("operation.lockConflict")),
   });
+
+  useEffect(() => {
+    if (
+      sourceTabLifecycle === undefined ||
+      !hasAcceptedSnapshot ||
+      sourceLost
+    ) {
+      return;
+    }
+    let current = true;
+    const validateSource = () => {
+      sourceTabLifecycle.validate().then(
+        (result) => {
+          if (current && result.kind === "invalid") setSourceLost(true);
+        },
+        () => {
+          if (current) setSourceLost(true);
+        },
+      );
+    };
+    const unsubscribe = sourceTabLifecycle.subscribe(validateSource);
+    const validateVisibleSource = () => {
+      if (document.visibilityState === "visible") validateSource();
+    };
+    window.addEventListener("focus", validateSource);
+    document.addEventListener("visibilitychange", validateVisibleSource);
+    return () => {
+      current = false;
+      unsubscribe();
+      window.removeEventListener("focus", validateSource);
+      document.removeEventListener("visibilitychange", validateVisibleSource);
+    };
+  }, [hasAcceptedSnapshot, sourceLost, sourceTabLifecycle]);
+
+  useEffect(() => {
+    if (
+      sourceLost ||
+      inventoryState.kind === "blocked" ||
+      safetyOverride !== null
+    ) {
+      cancelConfirmation();
+    }
+  }, [cancelConfirmation, inventoryState.kind, safetyOverride, sourceLost]);
 
   const filteredConversations = useMemo(
     () => filterConversations(conversations, filters),
@@ -259,8 +313,10 @@ export function ManagerPage({
     [conversations, protectedConversationIds, selectedConversationIds],
   );
   const selectionLocked = runOwnsWorkflow || refreshing;
-  const protectionLocked = runOwnsWorkflow || protectionMutationPending;
+  const protectionLocked =
+    runOwnsWorkflow || protectionMutationPending || refreshing;
   const safetyState: SafetyStatusState = (() => {
+    if (sourceLost) return { kind: "blocked", reason: "source-unavailable" };
     if (inventoryState.kind === "loading") {
       return { kind: "loading", stage: inventoryState.stage };
     }
@@ -268,18 +324,16 @@ export function ManagerPage({
       return {
         kind: "blocked",
         reason: safetyOverride,
-        readCompatibilityConfirmed: inventoryState.kind === "ready",
       };
     }
     if (inventoryState.kind === "blocked") {
-      return {
-        kind: "blocked",
-        reason: inventoryState.reason,
-        readCompatibilityConfirmed: inventoryState.readCompatibilityConfirmed,
-        ...(inventoryState.diagnostic === undefined
-          ? {}
-          : { diagnostic: inventoryState.diagnostic }),
-      };
+      if (
+        inventoryState.reason === "source-unavailable" &&
+        !hasAcceptedSnapshot
+      ) {
+        return { kind: "unbound" };
+      }
+      return { kind: "blocked", reason: inventoryState.reason };
     }
     return { kind: "ready" };
   })();
@@ -295,7 +349,7 @@ export function ManagerPage({
   };
 
   const persistProtection = (mutation: ProtectionMutation) => {
-    if (protectionMutationPendingRef.current) return;
+    if (protectionMutationPendingRef.current || isRefreshPending()) return;
     protectionMutationPendingRef.current = true;
     setProtectionMutationPending(true);
     mutateProtectedConversationIds({
@@ -306,7 +360,7 @@ export function ManagerPage({
     })
       .then((result) => {
         if (result.kind === "locked") {
-          blockSafety("destructive-run-lock");
+          setNotice(t("operation.lockConflict"));
           return;
         }
         setProtectedConversationIds(result.protectedConversationIds);
@@ -319,7 +373,13 @@ export function ManagerPage({
   };
 
   const handleProtect = (conversationId: string) => {
-    if (protectionLocked || protectionMutationPendingRef.current) return;
+    if (
+      protectionLocked ||
+      protectionMutationPendingRef.current ||
+      isRefreshPending()
+    ) {
+      return;
+    }
     persistProtection({
       kind: "protect",
       conversationIds: new Set([conversationId]),
@@ -331,6 +391,7 @@ export function ManagerPage({
       conversationView !== "standalone" ||
       protectionLocked ||
       protectionMutationPendingRef.current ||
+      isRefreshPending() ||
       eligibleSelectedConversationIds.size === 0
     ) {
       return;
@@ -342,7 +403,13 @@ export function ManagerPage({
   };
 
   const handleUnprotect = (conversationId: string) => {
-    if (protectionLocked || protectionMutationPendingRef.current) return;
+    if (
+      protectionLocked ||
+      protectionMutationPendingRef.current ||
+      isRefreshPending()
+    ) {
+      return;
+    }
     persistProtection({
       kind: "unprotect",
       conversationIds: new Set([conversationId]),
@@ -354,6 +421,7 @@ export function ManagerPage({
       conversationView !== "standalone" ||
       protectionLocked ||
       protectionMutationPendingRef.current ||
+      isRefreshPending() ||
       protectedSelectedConversationIds.size === 0
     ) {
       return;
@@ -384,19 +452,30 @@ export function ManagerPage({
   };
 
   const handleRefresh = () => {
-    if (runOwnsWorkflow || refreshing || protectionMutationPendingRef.current) {
+    if (
+      runOwnsWorkflow ||
+      isRefreshPending() ||
+      protectionMutationPendingRef.current
+    ) {
       return;
     }
     setNotice(null);
     refreshInventory()
-      .then((refreshed) => {
-        if (!refreshed) {
-          setNotice(t("refresh.failure"));
+      .then((result) => {
+        if (result.kind === "warning") {
+          setNotice(t("refresh.warning"));
           return;
         }
+        if (result.kind === "blocked") return;
+        recoverSafetyAfterCompleteRefresh();
         setSelectedConversationIds(new Set());
         cancelConfirmation();
-        setNotice(t("refresh.success"));
+        if (
+          safetyOverride === null ||
+          isSafetyOverrideRevalidatedByCompleteRefresh(safetyOverride)
+        ) {
+          setNotice(t("refresh.success"));
+        }
       })
       .catch(() => setNotice(t("refresh.failure")));
   };
@@ -429,7 +508,7 @@ export function ManagerPage({
           aria-label={t("refresh.ariaLabel")}
           icon={<ReloadOutlined aria-hidden />}
           disabled={
-            inventoryState.kind !== "ready" ||
+            (!hasAcceptedSnapshot && inventoryState.kind !== "ready") ||
             runOwnsWorkflow ||
             refreshing ||
             protectionMutationPending
@@ -457,9 +536,12 @@ export function ManagerPage({
         />
       )}
 
-      <SafetyStatus state={safetyState} />
+      <SafetyStatus
+        state={safetyState}
+        onRetry={hasAcceptedSnapshot ? handleRefresh : retryInitialInventory}
+      />
 
-      {notice !== null && (
+      {notice !== null && safetyState.kind !== "blocked" && (
         <Alert
           closable
           type="info"
@@ -478,7 +560,7 @@ export function ManagerPage({
         </div>
       )}
 
-      {inventoryState.kind === "ready" && (
+      {hasAcceptedSnapshot && (
         <Card
           className="workspace-card"
           title={
