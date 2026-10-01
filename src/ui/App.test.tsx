@@ -123,18 +123,6 @@ describe("App", () => {
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
   });
 
-  it("renders the deterministic demo composition without a source tab", async () => {
-    render(<App composition={createDemoComposition()} />);
-
-    expect(screen.getByText("Demo mode")).toBeInTheDocument();
-    expect(
-      screen.getByText("Test data. Your ChatGPT account remains unchanged."),
-    ).toBeInTheDocument();
-    expect(
-      await screen.findByRole("table", { name: "Standalone conversations" }),
-    ).toBeInTheDocument();
-  });
-
   it("completes the default demo deletion through the normal executor", async () => {
     const user = userEvent.setup();
     render(<App composition={createDemoComposition()} />);
@@ -155,7 +143,7 @@ describe("App", () => {
     expect(screen.queryByText("Failed conversations")).not.toBeInTheDocument();
   });
 
-  it("persists an explicit theme and updates the native color scheme", async () => {
+  it("renders the demo composition and persists an explicit theme", async () => {
     const user = userEvent.setup();
     const themePreferenceStore = new FakeThemePreferenceStore("auto");
     const composition = {
@@ -164,6 +152,13 @@ describe("App", () => {
     };
     render(<App composition={composition} />);
 
+    expect(screen.getByText("Demo mode")).toBeInTheDocument();
+    expect(
+      screen.getByText("Test data. Your ChatGPT account remains unchanged."),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByRole("table", { name: "Standalone conversations" }),
+    ).toBeInTheDocument();
     expect(
       screen.getAllByRole("radiogroup", { name: "Theme preference" }),
     ).toHaveLength(1);

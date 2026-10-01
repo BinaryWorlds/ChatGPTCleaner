@@ -7,7 +7,6 @@ import {
   userMessageForAppError,
 } from "./AppError";
 import type { DeleteAttemptResult } from "./ports/ConversationGateway";
-import { appErrorForReadFailure } from "../infrastructure/api/readRetry";
 
 describe("AppError taxonomy", () => {
   it.each<readonly [AppErrorKind, string]>([
@@ -62,18 +61,6 @@ describe("AppError taxonomy", () => {
       kind: "ServerFailure",
       retryable: true,
     });
-  });
-
-  it("maps transport failure to network failure", () => {
-    expect(
-      appErrorForReadFailure({ operation: "inventory", networkFailure: true }),
-    ).toMatchObject({ kind: "NetworkFailure", retryable: true });
-  });
-
-  it("maps cancellation without treating it as retryable", () => {
-    expect(
-      appErrorForReadFailure({ operation: "inventory", cancelled: true }),
-    ).toMatchObject({ kind: "OperationCancelled", retryable: false });
   });
 
   it("provides a safe storage failure", () => {

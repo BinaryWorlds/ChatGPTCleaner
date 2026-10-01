@@ -206,6 +206,62 @@ describe("production DELETE transport", () => {
     });
   });
 
+  it.each([
+    {
+      caseName: "maps a bridge source failure to invalid source origin",
+      bridgeReason: "source-unavailable",
+      expectedReason: "source-unavailable",
+      expectedErrorKind: "SourceTabInvalidOrigin",
+      expectedErrorCode: "SOURCE_TAB_INVALID_ORIGIN",
+    },
+    {
+      caseName:
+        "maps a bridge authentication failure to unavailable authentication",
+      bridgeReason: "authentication",
+      expectedReason: "authentication",
+      expectedErrorKind: "AuthenticationUnavailable",
+      expectedErrorCode: "AUTHENTICATION_UNAVAILABLE",
+    },
+    {
+      caseName: "maps a bridge compatibility failure to a response anomaly",
+      bridgeReason: "compatibility",
+      expectedReason: "response-anomaly",
+      expectedErrorKind: "ApiCompatibilityFailure",
+      expectedErrorCode: "API_COMPATIBILITY_FAILURE",
+    },
+  ] as const)(
+    "$caseName",
+    async ({
+      bridgeReason,
+      expectedReason,
+      expectedErrorKind,
+      expectedErrorCode,
+    }) => {
+      const transport = new PageContextDeleteTransport(
+        validSource(),
+        {
+          execute: vi
+            .fn()
+            .mockResolvedValue([
+              { result: { kind: "failure", reason: bridgeReason } },
+            ]),
+        },
+        new FakeClock(),
+      );
+
+      await expect(
+        transport.deleteConversation("conversation-1"),
+      ).resolves.toMatchObject({
+        kind: "fatal",
+        reason: expectedReason,
+        error: {
+          kind: expectedErrorKind,
+          code: expectedErrorCode,
+        },
+      });
+    },
+  );
+
   it("parses Retry-After delta seconds and HTTP-date centrally", async () => {
     const now = Date.UTC(2026, 0, 1, 0, 0, 0);
     const execute = vi
@@ -239,6 +295,32 @@ describe("production DELETE transport", () => {
       transport.deleteConversation("conversation-1"),
     ).resolves.toEqual({ kind: "retryable", reason: "network" });
   });
+
+  it("prioritizes source loss when the executor throws and revalidation fails", async () => {
+    const validate = vi
+      .fn()
+      .mockResolvedValueOnce({ kind: "valid", tabId: 17 })
+      .mockResolvedValueOnce({ kind: "invalid" });
+    const execute = vi.fn().mockRejectedValue(new Error("executor failed"));
+    const transport = new PageContextDeleteTransport(
+      { validate },
+      { execute },
+      new FakeClock(),
+    );
+
+    await expect(
+      transport.deleteConversation("conversation-1"),
+    ).resolves.toMatchObject({
+      kind: "fatal",
+      reason: "source-unavailable",
+      error: {
+        kind: "SourceTabUnavailable",
+        code: "SOURCE_TAB_UNAVAILABLE",
+      },
+    });
+    expect(validate).toHaveBeenCalledTimes(2);
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("narrow injected DELETE operation", () => {
@@ -246,6 +328,25 @@ describe("narrow injected DELETE operation", () => {
     readonly world: string;
     readonly args: readonly [DeleteConversationOperation];
     readonly func: (operation: DeleteConversationOperation) => Promise<unknown>;
+  }
+
+  async function captureInjectedOperation(): Promise<ScriptDetails> {
+    const capturedDetails: ScriptDetails[] = [];
+    vi.stubGlobal("browser", {
+      scripting: {
+        executeScript: vi.fn((details: ScriptDetails) => {
+          capturedDetails.push(details);
+          return Promise.resolve([]);
+        }),
+      },
+    });
+    await createChromePageContextDeleteExecutor().execute(17, {
+      kind: "delete-conversation",
+      conversationId: "conversation-123",
+    });
+    const captured = capturedDetails[0];
+    if (captured === undefined) throw new Error("Expected injected function");
+    return captured;
   }
 
   it("constructs only the fixed chatgpt.com DELETE with no body", async () => {
@@ -371,4 +472,242 @@ describe("narrow injected DELETE operation", () => {
     });
     expect(fetchMock).toHaveBeenCalledTimes(requestCountAfterValidId);
   });
+
+  it("returns a network failure when session acquisition rejects and does not DELETE", async () => {
+    vi.stubGlobal("window", { location: { origin: "https://chatgpt.com" } });
+    const fetchMock = vi.fn(() =>
+      Promise.reject(new Error("session request failed")),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const captured = await captureInjectedOperation();
+
+    await expect(captured.func(captured.args[0])).resolves.toEqual({
+      kind: "network-failure",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://chatgpt.com/api/auth/session",
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("returns an authentication failure for an unauthenticated session and does not DELETE", async () => {
+    vi.stubGlobal("window", { location: { origin: "https://chatgpt.com" } });
+    const fetchMock = vi.fn(() =>
+      Promise.resolve({
+        status: 401,
+        ok: false,
+        redirected: false,
+        type: "basic",
+        headers: { get: () => null },
+        json: () => Promise.resolve({}),
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const captured = await captureInjectedOperation();
+
+    await expect(captured.func(captured.args[0])).resolves.toEqual({
+      kind: "failure",
+      reason: "authentication",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://chatgpt.com/api/auth/session",
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("returns a compatibility failure for a non-authentication session error and does not DELETE", async () => {
+    vi.stubGlobal("window", { location: { origin: "https://chatgpt.com" } });
+    const fetchMock = vi.fn(() =>
+      Promise.resolve({
+        status: 500,
+        ok: false,
+        redirected: false,
+        type: "basic",
+        headers: { get: () => null },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const captured = await captureInjectedOperation();
+
+    await expect(captured.func(captured.args[0])).resolves.toEqual({
+      kind: "failure",
+      reason: "compatibility",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://chatgpt.com/api/auth/session",
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it.each([
+    { caseName: "missing", sessionBody: {} },
+    { caseName: "empty", sessionBody: { accessToken: "" } },
+  ] as const)(
+    "returns an authentication failure for a $caseName access token and does not DELETE",
+    async ({ sessionBody }) => {
+      vi.stubGlobal("window", { location: { origin: "https://chatgpt.com" } });
+      const fetchMock = vi.fn(() =>
+        Promise.resolve({
+          status: 200,
+          ok: true,
+          redirected: false,
+          type: "basic",
+          headers: { get: () => null },
+          json: () => Promise.resolve(sessionBody),
+        }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      const captured = await captureInjectedOperation();
+
+      await expect(captured.func(captured.args[0])).resolves.toEqual({
+        kind: "failure",
+        reason: "authentication",
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock).toHaveBeenCalledWith(
+        "https://chatgpt.com/api/auth/session",
+        expect.objectContaining({ method: "GET" }),
+      );
+    },
+  );
+
+  it("returns a compatibility failure for malformed session JSON and does not DELETE", async () => {
+    vi.stubGlobal("window", { location: { origin: "https://chatgpt.com" } });
+    const fetchMock = vi.fn(() =>
+      Promise.resolve({
+        status: 200,
+        ok: true,
+        redirected: false,
+        type: "basic",
+        headers: { get: () => null },
+        json: () => Promise.reject(new SyntaxError("malformed session JSON")),
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const captured = await captureInjectedOperation();
+
+    await expect(captured.func(captured.args[0])).resolves.toEqual({
+      kind: "failure",
+      reason: "compatibility",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://chatgpt.com/api/auth/session",
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("returns a network failure when DELETE rejects after session acquisition", async () => {
+    vi.stubGlobal("window", { location: { origin: "https://chatgpt.com" } });
+    const fetchMock = vi
+      .fn<(url: string, init: RequestInit) => Promise<unknown>>(() =>
+        Promise.resolve(),
+      )
+      .mockResolvedValueOnce({
+        status: 200,
+        ok: true,
+        redirected: false,
+        type: "basic",
+        headers: { get: () => null },
+        json: () => Promise.resolve({ accessToken: "PRIVATE_TOKEN_SENTINEL" }),
+      })
+      .mockRejectedValueOnce(new Error("DELETE request failed"));
+    vi.stubGlobal("fetch", fetchMock);
+    const captured = await captureInjectedOperation();
+
+    await expect(captured.func(captured.args[0])).resolves.toEqual({
+      kind: "network-failure",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({ method: "DELETE" });
+  });
+
+  it.each([
+    {
+      status: 401,
+      expectedReason: "authentication",
+      expectedErrorKind: "AuthenticationUnavailable",
+      expectedErrorCode: "AUTHENTICATION_UNAVAILABLE",
+    },
+    {
+      status: 403,
+      expectedReason: "authorization",
+      expectedErrorKind: "AuthorizationDenied",
+      expectedErrorCode: "AUTHORIZATION_DENIED",
+    },
+  ] as const)(
+    "invalidates cached authentication after DELETE returns $status",
+    async ({
+      status,
+      expectedReason,
+      expectedErrorKind,
+      expectedErrorCode,
+    }) => {
+      vi.stubGlobal("window", { location: { origin: "https://chatgpt.com" } });
+      const response = (responseStatus: number) => ({
+        status: responseStatus,
+        ok: responseStatus >= 200 && responseStatus < 300,
+        redirected: false,
+        type: "basic",
+        headers: { get: () => null },
+      });
+      const fetchMock = vi
+        .fn<(url: string, init: RequestInit) => Promise<unknown>>(() =>
+          Promise.resolve(),
+        )
+        .mockResolvedValueOnce({
+          ...response(200),
+          json: () => Promise.resolve({ accessToken: "stale-token" }),
+        })
+        .mockResolvedValueOnce(response(status))
+        .mockResolvedValueOnce({
+          ...response(200),
+          json: () => Promise.resolve({ accessToken: "fresh-token" }),
+        })
+        .mockResolvedValueOnce(response(204));
+      vi.stubGlobal("fetch", fetchMock);
+      const captured = await captureInjectedOperation();
+      const transport = new PageContextDeleteTransport(
+        validSource(),
+        {
+          execute: async (_tabId, operation) => [
+            { result: await captured.func(operation) },
+          ],
+        },
+        new FakeClock(),
+      );
+
+      await expect(
+        transport.deleteConversation("conversation-1"),
+      ).resolves.toMatchObject({
+        kind: "fatal",
+        reason: expectedReason,
+        error: {
+          kind: expectedErrorKind,
+          code: expectedErrorCode,
+        },
+        status,
+      });
+      await expect(
+        transport.deleteConversation("conversation-2"),
+      ).resolves.toEqual({ kind: "deleted", status: 204 });
+
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+      expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: "GET" });
+      const firstDeleteRequest = fetchMock.mock.calls[1]?.[1];
+      expect(firstDeleteRequest).toMatchObject({ method: "DELETE" });
+      expect(
+        new Headers(firstDeleteRequest?.headers).get("authorization"),
+      ).toBe("Bearer stale-token");
+      expect(fetchMock.mock.calls[2]?.[1]).toMatchObject({ method: "GET" });
+      const secondDeleteRequest = fetchMock.mock.calls[3]?.[1];
+      expect(secondDeleteRequest).toMatchObject({ method: "DELETE" });
+      expect(
+        new Headers(secondDeleteRequest?.headers).get("authorization"),
+      ).toBe("Bearer fresh-token");
+    },
+  );
 });

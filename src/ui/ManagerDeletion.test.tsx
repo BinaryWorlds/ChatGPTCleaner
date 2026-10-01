@@ -565,14 +565,12 @@ describe("ManagerPage destructive flow", () => {
   });
 
   it("shows BLOCKED for malformed inventory", async () => {
-    const firstRender = renderManager({
+    renderManager({
       gatewayFixture: STANDALONE_COMPATIBILITY_FAILURE_FIXTURE,
     });
     expect(
       await screen.findByText("ChatGPT interface is not supported"),
     ).toBeInTheDocument();
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
-
-    firstRender.gateway.deleteAttempts.length = 0;
   });
 });

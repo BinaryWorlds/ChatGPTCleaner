@@ -69,6 +69,65 @@ describe("browser-backed stores", () => {
     }
   });
 
+  it("normalizes protected-ID storage read failures", async () => {
+    const storage = storageWith({});
+    storage.get.mockRejectedValueOnce(new Error("storage read failed"));
+    const store = new BrowserProtectedConversationStore(
+      storage,
+      new TrustedStorageAccess(storage),
+    );
+
+    await expect(store.loadProtectedConversationIds()).rejects.toMatchObject({
+      name: "AppError",
+      kind: "StorageFailure",
+      code: "STORAGE_FAILURE",
+      operation: "protectedStore.load",
+      retryable: false,
+    });
+  });
+
+  it("rejects invalid protected IDs before persistence", async () => {
+    const storage = storageWith({});
+    const store = new BrowserProtectedConversationStore(
+      storage,
+      new TrustedStorageAccess(storage),
+    );
+
+    await expect(
+      store.saveProtectedConversationIds(new Set([""])),
+    ).rejects.toMatchObject({
+      name: "AppError",
+      kind: "StorageFailure",
+      code: "STORAGE_FAILURE",
+      operation: "protectedStore.save",
+      retryable: false,
+    });
+    expect(storage.set).toHaveBeenCalledTimes(0);
+  });
+
+  it("normalizes protected-ID storage write failures", async () => {
+    const storage = storageWith({});
+    storage.set.mockRejectedValueOnce(new Error("storage write failed"));
+    const store = new BrowserProtectedConversationStore(
+      storage,
+      new TrustedStorageAccess(storage),
+    );
+
+    await expect(
+      store.saveProtectedConversationIds(new Set(["three"])),
+    ).rejects.toMatchObject({
+      name: "AppError",
+      kind: "StorageFailure",
+      code: "STORAGE_FAILURE",
+      operation: "protectedStore.save",
+      retryable: false,
+    });
+    expect(storage.set).toHaveBeenCalledOnce();
+    expect(storage.set).toHaveBeenCalledWith({
+      protectedConversationIds: ["three"],
+    });
+  });
+
   it("normalizes malformed rate settings to 60 and persists the result", async () => {
     const storage = storageWith({ requestsPerMinute: "fast" });
     const store = new BrowserSettingsStore(

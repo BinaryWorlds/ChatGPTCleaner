@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  currentWebLockManager,
   WebLocksDestructiveRunLock,
   type WebLockManager,
 } from "./WebLocksDestructiveRunLock";
@@ -31,6 +32,23 @@ class ContendedLockManager implements WebLockManager {
 }
 
 describe("WebLocksDestructiveRunLock", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("detects when Web Locks are unavailable", () => {
+    vi.stubGlobal("navigator", {});
+
+    expect(currentWebLockManager()).toBeNull();
+  });
+
+  it("returns the available Web Locks manager", () => {
+    const fakeManager = { request: vi.fn() };
+    vi.stubGlobal("navigator", { locks: fakeManager });
+
+    expect(currentWebLockManager()).toBe(fakeManager);
+  });
+
   it("acquires the stable exclusive lock and retains it until work settles", async () => {
     let releaseWork: (() => void) | undefined;
     const work = vi.fn(

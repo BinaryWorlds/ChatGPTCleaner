@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ConversationPage, ReadResult } from "./ports/ConversationGateway";
+import { AppConfig } from "../config";
 import { FakeClock } from "../infrastructure/fake/FakeClock";
 import { FakeConversationGateway } from "../infrastructure/fake/FakeConversationGateway";
 import {
@@ -18,6 +19,20 @@ async function settleAsyncWork(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
   await Promise.resolve();
+}
+
+async function withInventoryLimit<T>(
+  limit: "maxPages" | "maxRecords",
+  value: number,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const originalValue = AppConfig.inventory[limit];
+  Object.defineProperty(AppConfig.inventory, limit, { value });
+  try {
+    return await operation();
+  } finally {
+    Object.defineProperty(AppConfig.inventory, limit, { value: originalValue });
+  }
 }
 
 class DeferredStandaloneGateway extends FakeConversationGateway {
@@ -486,6 +501,61 @@ describe("inventory and deletion planning", () => {
         new FakeClock(),
       ),
     );
+    expect(result).toEqual({ kind: "blocked", reason: "pagination" });
+  });
+
+  it("blocks Project pagination before fetching beyond the page ceiling", async () => {
+    const result = await withInventoryLimit("maxPages", 2, () =>
+      loadSafetyInventory(
+        new FakeConversationGateway(
+          {
+            standalonePages: {
+              first: { conversations: [], nextCursor: null },
+            },
+            projects: [{ id: "project" }],
+            projectConversationPages: {
+              "project:first": {
+                conversations: [],
+                nextCursor: "cursor-1",
+              },
+              "project:cursor-1": {
+                conversations: [],
+                nextCursor: "cursor-2",
+              },
+            },
+          },
+          new FakeClock(),
+        ),
+      ),
+    );
+
+    expect(result).toEqual({ kind: "blocked", reason: "pagination" });
+  });
+
+  it("blocks Project pagination when unique records exceed the record ceiling", async () => {
+    const result = await withInventoryLimit("maxRecords", 1, () =>
+      loadSafetyInventory(
+        new FakeConversationGateway(
+          {
+            standalonePages: {
+              first: { conversations: [], nextCursor: null },
+            },
+            projects: [{ id: "project" }],
+            projectConversationPages: {
+              "project:first": {
+                conversations: [
+                  { id: "project-chat-1", title: "Project chat 1" },
+                  { id: "project-chat-2", title: "Project chat 2" },
+                ],
+                nextCursor: null,
+              },
+            },
+          },
+          new FakeClock(),
+        ),
+      ),
+    );
+
     expect(result).toEqual({ kind: "blocked", reason: "pagination" });
   });
 

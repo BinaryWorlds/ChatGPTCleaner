@@ -144,6 +144,19 @@ describe("deletion safety boundary", () => {
     expect(confirmDeletionPlan(plan).kind).toBe("confirmed");
   });
 
+  it("rejects confirmation when no selected conversations are eligible", () => {
+    const plan = buildDeletionPlan({
+      selectedConversationIds: ["a"],
+      standaloneConversations: conversations,
+      projectConversationIds: new Set(),
+      protectedConversationIds: new Set(["a"]),
+    });
+
+    expect(plan.eligibleConversationIds).toEqual([]);
+    expect(plan.excludedProtectedIds).toEqual(["a"]);
+    expect(confirmDeletionPlan(plan)).toEqual({ kind: "rejected" });
+  });
+
   it("confirmation applies the current snapshot and local protection without adding IDs", () => {
     const originalPlan = buildDeletionPlan({
       selectedConversationIds: ["a", "b"],

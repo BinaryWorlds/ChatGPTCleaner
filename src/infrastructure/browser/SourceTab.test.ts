@@ -71,6 +71,28 @@ describe("SourceTabBinding", () => {
     ).resolves.toEqual({ kind: "invalid" });
   });
 
+  it.each([
+    {
+      name: "an empty scripting result array",
+      probeResult: [],
+    },
+    {
+      name: "a scripting result entry without a result",
+      probeResult: [{}],
+    },
+    {
+      name: "a structurally valid result with a non-ChatGPT origin",
+      probeResult: [{ result: { origin: "https://example.com" } }],
+    },
+  ])("rejects a fulfilled probe with $name", async ({ probeResult }) => {
+    const browser = sourceBrowser("https://chatgpt.com/");
+    browser.probePage = vi.fn().mockResolvedValue(probeResult);
+
+    await expect(new SourceTabBinding(42, browser).validate()).resolves.toEqual(
+      { kind: "invalid" },
+    );
+  });
+
   it("parses only positive safe integer source-tab IDs", () => {
     expect(parseSourceTabId("42")).toBe(42);
     expect(parseSourceTabId(null)).toBeNull();

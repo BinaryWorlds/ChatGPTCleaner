@@ -149,4 +149,24 @@ describe("protected conversation mutations", () => {
     ).rejects.toMatchObject({ code: "STORAGE_FAILURE" });
     expect(saveCalled).toBe(false);
   });
+
+  it("does not access protected storage when the destructive lock is unavailable", async () => {
+    const store = new MutableProtectedConversationStore(new Set());
+    const load = vi.spyOn(store, "loadProtectedConversationIds");
+    const save = vi.spyOn(store, "saveProtectedConversationIds");
+
+    const result = await mutateProtectedConversationIds({
+      mutation: {
+        kind: "protect",
+        conversationIds: new Set(["conversation"]),
+      },
+      protectedConversationStore: store,
+      destructiveRunLock: new FakeDestructiveRunLock({ active: true }),
+      currentRunLockOwner: null,
+    });
+
+    expect(result).toEqual({ kind: "locked" });
+    expect(load).not.toHaveBeenCalled();
+    expect(save).not.toHaveBeenCalled();
+  });
 });

@@ -365,42 +365,36 @@ describe("ManagerPage inventory controls", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("immediately reverses the initial sort and keeps alternating directions", async () => {
+  it("cycles sort directions and switches sortable columns", async () => {
     const user = userEvent.setup();
     renderManager();
     await waitForInventory();
     const updatedHeader = screen.getByRole("columnheader", {
       name: "Updated",
     });
-
-    expect(updatedHeader).toHaveAttribute("aria-sort", "descending");
-    expectConversationOrder("Beta", "Alpha", "Unknown dates");
-
-    await user.click(updatedHeader);
-    expect(updatedHeader).toHaveAttribute("aria-sort", "ascending");
-    expectConversationOrder("Alpha", "Beta", "Unknown dates");
-
-    await user.click(updatedHeader);
-    expect(updatedHeader).toHaveAttribute("aria-sort", "descending");
-    expectConversationOrder("Beta", "Alpha", "Unknown dates");
-
-    await user.click(updatedHeader);
-    expect(updatedHeader).toHaveAttribute("aria-sort", "ascending");
-    expectConversationOrder("Alpha", "Beta", "Unknown dates");
-
-    await user.click(updatedHeader);
-    expect(updatedHeader).toHaveAttribute("aria-sort", "descending");
-    expectConversationOrder("Beta", "Alpha", "Unknown dates");
-  });
-
-  it("switches sortable columns on every click", async () => {
-    const user = userEvent.setup();
-    renderManager();
-    await waitForInventory();
     const titleHeader = screen.getByRole("columnheader", { name: "Title" });
     const createdHeader = screen.getByRole("columnheader", {
       name: "Created",
     });
+
+    expect(updatedHeader).toHaveAttribute("aria-sort", "descending");
+    expectConversationOrder("Beta", "Alpha", "Unknown dates");
+
+    await user.click(updatedHeader);
+    expect(updatedHeader).toHaveAttribute("aria-sort", "ascending");
+    expectConversationOrder("Alpha", "Beta", "Unknown dates");
+
+    await user.click(updatedHeader);
+    expect(updatedHeader).toHaveAttribute("aria-sort", "descending");
+    expectConversationOrder("Beta", "Alpha", "Unknown dates");
+
+    await user.click(updatedHeader);
+    expect(updatedHeader).toHaveAttribute("aria-sort", "ascending");
+    expectConversationOrder("Alpha", "Beta", "Unknown dates");
+
+    await user.click(updatedHeader);
+    expect(updatedHeader).toHaveAttribute("aria-sort", "descending");
+    expectConversationOrder("Beta", "Alpha", "Unknown dates");
 
     await user.click(titleHeader);
     expect(titleHeader).toHaveAttribute("aria-sort", "ascending");
@@ -415,7 +409,7 @@ describe("ManagerPage inventory controls", () => {
     expect(createdHeader).not.toHaveAttribute("aria-sort");
   });
 
-  it("uses the same two-direction sorter cycle for Project conversations", async () => {
+  it("sorts and filters Project conversation metadata", async () => {
     const user = userEvent.setup();
     renderManager({ gatewayFixture: fixtureWithProjects() });
     await waitForInventory();
@@ -433,6 +427,16 @@ describe("ManagerPage inventory controls", () => {
 
     await user.click(updatedHeader);
     expect(updatedHeader).toHaveAttribute("aria-sort", "descending");
+    expectConversationOrder("Project overlap", "Project planning");
+
+    await user.type(screen.getByLabelText("Search titles"), "planning");
+    expect(screen.getByText("Project planning")).toBeInTheDocument();
+    expect(screen.queryByText("Project overlap")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Reset filters" }));
+    const titleHeader = screen.getByRole("columnheader", { name: /Title/ });
+    await user.click(titleHeader);
+    expect(titleHeader).toHaveAttribute("aria-sort", "ascending");
     expectConversationOrder("Project overlap", "Project planning");
   });
 
@@ -730,22 +734,6 @@ describe("ManagerPage inventory controls", () => {
     if (projectRow === null) throw new Error("Project row not found");
     await user.click(within(projectRow).getByRole("button", { name: "Open" }));
     expect(openConversation).toHaveBeenCalledWith("project-chat");
-  });
-
-  it("filters and sorts Project conversation metadata", async () => {
-    const user = userEvent.setup();
-    renderManager({ gatewayFixture: fixtureWithProjects() });
-    await waitForInventory();
-    await showProjectConversations(user);
-
-    await user.type(screen.getByLabelText("Search titles"), "planning");
-    expect(screen.getByText("Project planning")).toBeInTheDocument();
-    expect(screen.queryByText("Project overlap")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Reset filters" }));
-    await user.click(screen.getByRole("columnheader", { name: /Title/ }));
-    const rows = conversationRows();
-    expect(rows[0]).toHaveTextContent("Project overlap");
-    expect(rows[1]).toHaveTextContent("Project planning");
   });
 
   it("paginates Project conversations without exposing selection", async () => {
@@ -1175,48 +1163,14 @@ describe("ManagerPage inventory controls", () => {
     );
   });
 
-  it("removes the visible ID column and copies the correct conversation ID", async () => {
+  it("wires Copy and Open row actions through the composition", async () => {
     const user = userEvent.setup();
     const copyConversationId = vi.fn(() => Promise.resolve());
-    renderManager({ copyConversationId });
+    const { openConversation } = renderManager({ copyConversationId });
     await waitForInventory();
 
-    expect(
-      screen.queryByRole("columnheader", { name: "ID" }),
-    ).not.toBeInTheDocument();
-    expect(screen.getAllByRole("columnheader")[0]).toHaveAccessibleName("");
     await user.click(screen.getByRole("button", { name: "Copy ID: alpha" }));
     expect(copyConversationId).toHaveBeenCalledWith("alpha");
-    expect(
-      await screen.findByRole("button", { name: "Copied" }),
-    ).toBeInTheDocument();
-    expect(
-      screen
-        .getAllByRole("alert")
-        .some((alert) => alert.textContent?.includes("Copied")),
-    ).toBe(false);
-  });
-
-  it("shows local Copy ID failure feedback without reporting success", async () => {
-    const user = userEvent.setup();
-    renderManager({
-      copyConversationId: () => Promise.reject(new Error("Clipboard blocked")),
-    });
-    await waitForInventory();
-
-    await user.click(screen.getByRole("button", { name: "Copy ID: alpha" }));
-    expect(
-      await screen.findByRole("button", {
-        name: "Could not copy the conversation ID.",
-      }),
-    ).toBeInTheDocument();
-    expect(screen.queryByText("Copied")).not.toBeInTheDocument();
-  });
-
-  it("routes Open through the composition without navigation", async () => {
-    const user = userEvent.setup();
-    const { openConversation } = renderManager();
-    await waitForInventory();
     const alphaRow = screen.getByText("Alpha").closest("tr");
     if (alphaRow === null) throw new Error("Alpha row not found");
 

@@ -1,14 +1,39 @@
 import { describe, expect, it, vi } from "vitest";
 import { FakeClock } from "../fake/FakeClock";
+import { createLogger, type LogSink } from "../observability/logger";
 import {
+  appErrorForReadFailure,
   executeReadWithRetry,
   parseRetryAfter,
   type ReadAttemptResult,
 } from "./readRetry";
 
+function createCapturingReadLogger() {
+  const sink = {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  } satisfies LogSink;
+  return { activeLogger: createLogger("debug", sink), sink };
+}
+
 describe("production read retry policy", () => {
+  it("maps transport failure to network failure", () => {
+    expect(
+      appErrorForReadFailure({ operation: "inventory", networkFailure: true }),
+    ).toMatchObject({ kind: "NetworkFailure", retryable: true });
+  });
+
+  it("maps cancellation without treating it as retryable", () => {
+    expect(
+      appErrorForReadFailure({ operation: "inventory", cancelled: true }),
+    ).toMatchObject({ kind: "OperationCancelled", retryable: false });
+  });
+
   it("accepts valid 2xx and does not retry 401, 403, or unexpected 4xx", async () => {
     const clock = new FakeClock();
+    const { activeLogger, sink } = createCapturingReadLogger();
     for (const status of [401, 403]) {
       await expect(
         executeReadWithRetry({
@@ -19,6 +44,7 @@ describe("production read retry policy", () => {
             retryAfter: null,
           }),
           clock,
+          activeLogger,
         }),
       ).resolves.toEqual({ kind: "failure", reason: "authentication" });
     }
@@ -31,6 +57,7 @@ describe("production read retry policy", () => {
           retryAfter: null,
         }),
         clock,
+        activeLogger,
       }),
     ).resolves.toEqual({ kind: "failure", reason: "request" });
     await expect(
@@ -42,8 +69,11 @@ describe("production read retry policy", () => {
           retryAfter: null,
         }),
         clock,
+        activeLogger,
       }),
     ).resolves.toEqual({ kind: "success", value: { ok: true } });
+    expect(sink.warn).toHaveBeenCalledTimes(3);
+    expect(sink.error).not.toHaveBeenCalled();
   });
 
   it("retries 429, 5xx, and transient network failures deterministically", async () => {
@@ -57,13 +87,15 @@ describe("production read retry policy", () => {
     const attempt = vi.fn((): Promise<ReadAttemptResult> =>
       Promise.resolve(outcomes.shift() ?? { kind: "network-error" }),
     );
+    const { activeLogger, sink } = createCapturingReadLogger();
 
-    await expect(executeReadWithRetry({ attempt, clock })).resolves.toEqual({
-      kind: "success",
-      value: "ready",
-    });
+    await expect(
+      executeReadWithRetry({ attempt, clock, activeLogger }),
+    ).resolves.toEqual({ kind: "success", value: "ready" });
     expect(attempt).toHaveBeenCalledTimes(4);
     expect(clock.requestedSleeps).toEqual([2_000, 2_000, 4_000]);
+    expect(sink.warn).toHaveBeenCalledTimes(3);
+    expect(sink.error).not.toHaveBeenCalled();
   });
 
   it("parses both Retry-After forms and rejects excessive waits", async () => {
@@ -73,6 +105,7 @@ describe("production read retry policy", () => {
     expect(parseRetryAfter("invalid", now)).toBeNull();
 
     const clock = new FakeClock(now);
+    const { activeLogger, sink } = createCapturingReadLogger();
     await expect(
       executeReadWithRetry({
         attempt: vi.fn().mockResolvedValue({
@@ -82,9 +115,12 @@ describe("production read retry policy", () => {
           retryAfter: "301",
         }),
         clock,
+        activeLogger,
       }),
     ).resolves.toEqual({ kind: "failure", reason: "retry-later" });
     expect(clock.requestedSleeps).toEqual([]);
+    expect(sink.warn).toHaveBeenCalledTimes(1);
+    expect(sink.error).not.toHaveBeenCalled();
   });
 
   it("stops after four retryable attempts", async () => {
@@ -92,12 +128,14 @@ describe("production read retry policy", () => {
       kind: "network-error",
     });
     const clock = new FakeClock();
-    await expect(executeReadWithRetry({ attempt, clock })).resolves.toEqual({
-      kind: "failure",
-      reason: "network",
-    });
+    const { activeLogger, sink } = createCapturingReadLogger();
+    await expect(
+      executeReadWithRetry({ attempt, clock, activeLogger }),
+    ).resolves.toEqual({ kind: "failure", reason: "network" });
     expect(attempt).toHaveBeenCalledTimes(4);
     expect(clock.requestedSleeps).toEqual([1_000, 2_000, 4_000]);
+    expect(sink.warn).toHaveBeenCalledTimes(3);
+    expect(sink.error).toHaveBeenCalledTimes(1);
   });
 
   it("preserves server classification after exhausting 5xx retries", async () => {
@@ -108,12 +146,14 @@ describe("production read retry policy", () => {
       retryAfter: null,
     });
     const clock = new FakeClock();
+    const { activeLogger, sink } = createCapturingReadLogger();
 
-    await expect(executeReadWithRetry({ attempt, clock })).resolves.toEqual({
-      kind: "failure",
-      reason: "server",
-    });
+    await expect(
+      executeReadWithRetry({ attempt, clock, activeLogger }),
+    ).resolves.toEqual({ kind: "failure", reason: "server" });
     expect(attempt).toHaveBeenCalledTimes(4);
     expect(clock.requestedSleeps).toEqual([1_000, 2_000, 4_000]);
+    expect(sink.warn).toHaveBeenCalledTimes(3);
+    expect(sink.error).toHaveBeenCalledTimes(1);
   });
 });

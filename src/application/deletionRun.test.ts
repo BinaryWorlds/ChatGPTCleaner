@@ -246,6 +246,25 @@ describe("deletion workflow ownership", () => {
     expect(deletionRunOwnsWorkflow({ kind: "finished", progress })).toBe(false);
     expect(deletionRunOwnsWorkflow({ kind: "stopped", progress })).toBe(false);
   });
+
+  it.each([
+    { kind: "stopped" } as const,
+    { kind: "fatal", reason: "unexpected-run-error" } as const,
+  ])("keeps failed work retryable in the $kind state", (terminalState) => {
+    const state = {
+      ...terminalState,
+      progress: {
+        ...progress,
+        failed: 1,
+        skipped: 0,
+        failedConversationIds: ["failed"],
+      },
+    };
+
+    expect(state.kind).toBe(terminalState.kind);
+    expect(state.progress.failedConversationIds).toEqual(["failed"]);
+    expect(canRetryFailedDeletion(state)).toBe(true);
+  });
 });
 
 describe("destructive run", () => {
@@ -979,6 +998,56 @@ describe("destructive run", () => {
     expect(gateway.deleteAttempts.map(({ id }) => id)).toEqual(["a"]);
   });
 
+  it("stop during a retry delay prevents another DELETE attempt", async () => {
+    const clock = new FakeClock(0, false);
+    const removedIds: string[] = [];
+    const gateway = new FakeConversationGateway(
+      fixtureForDeletion(["retrying"], {
+        retrying: [500, "success"],
+      }),
+      clock,
+    );
+    const run = new DeletionRun({
+      confirmedPlan: confirmedPlan(["retrying"]),
+      requestsPerMinute: 60,
+      gateway,
+      protectedConversationStore: new FakeProtectedConversationStore(),
+      clock,
+      destructiveRunLock: new FakeDestructiveRunLock(),
+      onConversationRemoved: (conversationId) =>
+        removedIds.push(conversationId),
+    });
+
+    const completion = run.startDeletion();
+    await settleAsyncWork();
+
+    expect(gateway.deleteAttempts).toHaveLength(1);
+    expect(clock.requestedSleeps).toHaveLength(1);
+    expect(run.getState()).toMatchObject({
+      kind: "running",
+      progress: { processed: 0, remaining: 1 },
+    });
+
+    run.stopDeletion();
+    const stoppedState = await completion;
+    clock.advanceBy(120_000);
+    await settleAsyncWork();
+
+    expect(stoppedState).toMatchObject({
+      kind: "stopped",
+      progress: {
+        processed: 0,
+        deleted: 0,
+        failed: 0,
+        skipped: 0,
+        remaining: 1,
+        failedConversationIds: [],
+      },
+    });
+    expect(gateway.deleteAttempts).toHaveLength(1);
+    expect(removedIds).toEqual([]);
+  });
+
   it("resume removes a newly protected remaining ID", async () => {
     const ids = ["a", "b"];
     const clock = new FakeClock(0, false);
@@ -1010,6 +1079,71 @@ describe("destructive run", () => {
     expect((await completion).kind).toBe("finished");
     expect(store.loadCount).toBe(2);
     expect(gateway.deleteAttempts.map(({ id }) => id)).toEqual(["a"]);
+  });
+
+  it("blocks Resume when the protected-ID reload fails and preserves progress", async () => {
+    let protectedStoreLoadCount = 0;
+    const store: ProtectedConversationStore = {
+      loadProtectedConversationIds: () => {
+        protectedStoreLoadCount += 1;
+        if (protectedStoreLoadCount === 1) {
+          return Promise.resolve({
+            kind: "success",
+            protectedConversationIds: new Set<string>(),
+          });
+        }
+        return Promise.reject(new Error("Storage unavailable"));
+      },
+      saveProtectedConversationIds: () => Promise.resolve(),
+    };
+    const ids = ["completed", "remaining"];
+    const removedIds: string[] = [];
+    const clock = new FakeClock(0, false);
+    const gateway = new FakeConversationGateway(
+      fixtureForDeletion(ids, {}),
+      clock,
+    );
+    const sharedLockState = { active: false };
+    const run = new DeletionRun({
+      confirmedPlan: confirmedPlan(ids),
+      requestsPerMinute: 60,
+      gateway,
+      protectedConversationStore: store,
+      clock,
+      destructiveRunLock: new FakeDestructiveRunLock(sharedLockState),
+      onConversationRemoved: (conversationId) =>
+        removedIds.push(conversationId),
+    });
+
+    const completion = run.startDeletion();
+    await settleAsyncWork();
+    run.pauseDeletion();
+    await settleAsyncWork();
+    expect(run.getState()).toMatchObject({
+      kind: "paused",
+      progress: { processed: 1, deleted: 1, remaining: 1 },
+    });
+
+    run.resumeDeletion();
+    const blockedState = await completion;
+
+    expect(blockedState).toMatchObject({
+      kind: "blocked",
+      reason: "protected-storage",
+      progress: {
+        total: 2,
+        processed: 1,
+        deleted: 1,
+        failed: 0,
+        skipped: 0,
+        remaining: 1,
+        failedConversationIds: [],
+      },
+    });
+    expect(protectedStoreLoadCount).toBe(2);
+    expect(gateway.deleteAttempts.map(({ id }) => id)).toEqual(["completed"]);
+    expect(removedIds).toEqual(["completed"]);
+    expect(sharedLockState.active).toBe(false);
   });
 
   it("retry failed cannot add or delete a newly protected ID", async () => {

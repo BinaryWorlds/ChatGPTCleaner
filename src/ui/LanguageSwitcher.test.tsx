@@ -22,11 +22,14 @@ describe("language switching", () => {
     await i18n.changeLanguage("en");
   });
 
-  it("uses the browser language and switches the visible UI both ways", async () => {
+  it("detects the browser language, switches both ways, and detects again on remount", async () => {
     const user = userEvent.setup();
     setBrowserLanguages(["pl-PL", "en-US"], "pl-PL");
-    render(<App composition={createManagerComposition()} />);
+    const firstRender = render(
+      <App composition={createManagerComposition()} />,
+    );
 
+    // Initial browser-language detection.
     expect(
       await screen.findByRole("button", { name: "Odśwież listę rozmów" }),
     ).toBeInTheDocument();
@@ -43,24 +46,15 @@ describe("language switching", () => {
       await screen.findByRole("button", { name: "Odśwież listę rozmów" }),
     ).toBeInTheDocument();
     expect(document.documentElement.lang).toBe("pl");
-  });
 
-  it("does not persist a manual choice and detects again on a fresh mount", async () => {
-    const user = userEvent.setup();
-    setBrowserLanguages(["pl-PL"], "pl-PL");
-    const firstRender = render(
-      <App composition={createManagerComposition()} />,
-    );
-    expect(
-      await screen.findByRole("button", { name: "Odśwież listę rozmów" }),
-    ).toBeInTheDocument();
-
+    // The manual English choice is intentionally not persisted.
     await user.click(screen.getByTitle("EN"));
     expect(
       await screen.findByRole("button", { name: "Refresh inventory" }),
     ).toBeInTheDocument();
     firstRender.unmount();
 
+    // A fresh mount detects Polish again.
     render(<App composition={createManagerComposition()} />);
     expect(
       await screen.findByRole("button", { name: "Odśwież listę rozmów" }),
