@@ -310,6 +310,16 @@ async function showProjectConversations(
   await user.click(label);
 }
 
+async function applyDatePreset(
+  user: ReturnType<typeof userEvent.setup>,
+  presetLabel: string,
+): Promise<void> {
+  await user.click(screen.getByRole("button", { name: "Date" }));
+  const dialog = await screen.findByRole("dialog", { name: "Date" });
+  await user.click(within(dialog).getByRole("radio", { name: presetLabel }));
+  await user.click(within(dialog).getByRole("button", { name: "Apply" }));
+}
+
 afterEach(() => {
   vi.useRealTimers();
 });
@@ -433,7 +443,7 @@ describe("ManagerPage inventory controls", () => {
     expect(screen.getByText("Project planning")).toBeInTheDocument();
     expect(screen.queryByText("Project overlap")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Reset filters" }));
+    await user.click(screen.getByRole("button", { name: "Clear filters" }));
     const titleHeader = screen.getByRole("columnheader", { name: /Title/ });
     await user.click(titleHeader);
     expect(titleHeader).toHaveAttribute("aria-sort", "ascending");
@@ -471,7 +481,27 @@ describe("ManagerPage inventory controls", () => {
     };
     await user.click(screen.getByRole("button", { name: "Refresh inventory" }));
 
-    expect(screen.getByText(/Refreshing inventory/)).toBeInTheDocument();
+    const refreshStatus = screen.getByText(/Refreshing inventory/);
+    const refreshButton = screen.getByRole("button", {
+      name: "Refresh inventory",
+    });
+    const languageControl = screen.getByRole("radiogroup", {
+      name: "Language",
+    });
+    const themeControl = screen.getByRole("radiogroup", {
+      name: "Theme preference",
+    });
+    const controls = refreshButton.closest(".manager-header-controls");
+    const statusRegion = refreshStatus.closest(".manager-header-status");
+
+    expect(statusRegion).not.toBeNull();
+    expect(controls).not.toBeNull();
+    expect(statusRegion?.nextElementSibling).toBe(controls);
+    expect(Array.from(controls?.children ?? [])).toEqual([
+      refreshButton,
+      languageControl,
+      themeControl,
+    ]);
     expect(screen.getByText("Alpha")).toBeInTheDocument();
     expect(screen.queryByText("Fresh snapshot")).not.toBeInTheDocument();
     expect(
@@ -758,7 +788,7 @@ describe("ManagerPage inventory controls", () => {
     expect(screen.getByText("55 conversations")).toBeInTheDocument();
   });
 
-  it("filters by title, applies an older-than preset, and resets", async () => {
+  it("filters by title, applies an older-than preset, and clears", async () => {
     const user = userEvent.setup();
     renderManager();
     await waitForInventory();
@@ -767,18 +797,18 @@ describe("ManagerPage inventory controls", () => {
     expect(screen.getByText("Alpha")).toBeInTheDocument();
     expect(screen.queryByText("Beta")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Reset filters" }));
+    await user.click(screen.getByRole("button", { name: "Clear filters" }));
     expect(screen.getByText("Beta")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Older than 7 days" }));
+    await applyDatePreset(user, "More than 7 days ago");
     expect(screen.getByText("Alpha")).toBeInTheDocument();
     expect(screen.queryByText("Beta")).not.toBeInTheDocument();
     expect(screen.queryByText("Unknown dates")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Reset filters" }));
+    await user.click(screen.getByRole("button", { name: "Clear filters" }));
     expect(screen.getByText("Unknown dates")).toBeInTheDocument();
   });
 
-  it("applies calendar age presets in standalone and Project views and resets them", async () => {
+  it("applies calendar age presets in standalone and Project views and clears them", async () => {
     const user = userEvent.setup();
     const now = new Date(2026, 7, 31, 12, 0).getTime();
     renderManager({
@@ -825,22 +855,20 @@ describe("ManagerPage inventory controls", () => {
     });
     await waitForInventory();
 
-    await user.click(
-      screen.getByRole("button", { name: "Older than 6 months" }),
-    );
+    await applyDatePreset(user, "More than 6 months ago");
     expect(screen.getByText("Standalone old")).toBeInTheDocument();
     expect(screen.queryByText("Standalone recent")).not.toBeInTheDocument();
     expect(screen.queryByText("Standalone null")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Reset filters" }));
+    await user.click(screen.getByRole("button", { name: "Clear filters" }));
     expect(screen.getByText("Standalone recent")).toBeInTheDocument();
     expect(screen.getByText("Standalone null")).toBeInTheDocument();
 
     await showProjectConversations(user);
-    await user.click(screen.getByRole("button", { name: "Older than 1 year" }));
+    await applyDatePreset(user, "More than 1 year ago");
     expect(screen.getByText("Project old")).toBeInTheDocument();
     expect(screen.queryByText("Project recent")).not.toBeInTheDocument();
     expect(screen.queryByText("Project null")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Reset filters" }));
+    await user.click(screen.getByRole("button", { name: "Clear filters" }));
     expect(screen.getByText("Project recent")).toBeInTheDocument();
     expect(screen.getByText("Project null")).toBeInTheDocument();
   });
@@ -968,21 +996,39 @@ describe("ManagerPage inventory controls", () => {
     expect(screen.getByTestId("selected-count")).toHaveTextContent("6");
   }, 30_000);
 
-  it("keeps explicit bulk selection independent from protection", async () => {
+  it("keeps Select all results as an explicit snapshot across filter changes", async () => {
     const user = userEvent.setup();
     renderManager({ protectedIds: ["beta"] });
     await waitForInventory();
 
     expect(screen.getByLabelText("Select Beta")).toBeEnabled();
-    await user.click(
-      screen.getByRole("button", { name: "Select all results" }),
+    expect(screen.getByTestId("selection-summary")).toHaveTextContent(
+      "Selected 0",
     );
+    const selectAllResults = screen.getByRole("button", {
+      name: "Select all results",
+    });
+    await user.hover(selectAllResults);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      "Selects all conversations matching the current filters, including those outside the current page.",
+    );
+    await user.click(selectAllResults);
     expect(screen.getByTestId("selected-count")).toHaveTextContent("3");
+    expect(screen.getByTestId("selection-summary")).toHaveTextContent(
+      "Selected 3",
+    );
+
+    await user.type(screen.getByLabelText("Search titles"), "Alpha");
+    expect(screen.getByTestId("selected-count")).toHaveTextContent("3");
+    expect(screen.getByTestId("selection-summary")).toHaveTextContent(
+      "Selected 3",
+    );
+    await user.click(screen.getByRole("button", { name: "Clear filters" }));
+    expect(screen.getByTestId("selected-count")).toHaveTextContent("3");
+
     await user.click(screen.getByRole("button", { name: "Invert" }));
     expect(screen.getByTestId("selected-count")).toHaveTextContent("0");
-    await user.click(
-      screen.getByRole("button", { name: "Select all results" }),
-    );
+    await user.click(selectAllResults);
     await user.click(screen.getByRole("button", { name: "Clear" }));
     expect(screen.getByTestId("selected-count")).toHaveTextContent("0");
   });

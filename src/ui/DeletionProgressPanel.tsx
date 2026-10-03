@@ -4,7 +4,6 @@ import {
   type DeletionRunState,
 } from "../application/deletionRun";
 import { useTranslation } from "react-i18next";
-import { safetyBlockReasonLabel } from "./SafetyStatus";
 
 const FAILED_CONVERSATION_PREVIEW_LIMIT = 20;
 
@@ -59,26 +58,6 @@ export function DeletionProgressPanel({
   return (
     <div className="deletion-progress-panel">
       <div className="deletion-progress-title">{t("deletion.panelTitle")}</div>
-      {state.kind === "fatal" && (
-        <Alert
-          type="error"
-          showIcon
-          title={t("deletion.stoppedForSafety")}
-          description={t("deletion.reason", {
-            reason: safetyBlockReasonLabel(state.reason),
-          })}
-        />
-      )}
-      {state.kind === "blocked" && (
-        <Alert
-          type="error"
-          showIcon
-          title={t("deletion.blocked")}
-          description={t("deletion.reason", {
-            reason: safetyBlockReasonLabel(state.reason),
-          })}
-        />
-      )}
       {progress.failedConversationIds.length > 0 && (
         <Alert
           type="warning"

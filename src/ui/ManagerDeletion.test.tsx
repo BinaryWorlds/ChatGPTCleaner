@@ -417,7 +417,11 @@ describe("ManagerPage destructive flow", () => {
     expect(screen.getByLabelText("Select Beta")).toBeDisabled();
     await user.click(resumeButton);
     await screen.findByRole("button", { name: "Pause" });
-    await user.click(screen.getByRole("button", { name: "Stop" }));
+    await user.click(
+      within(screen.getByTestId("current-state-strip")).getByRole("button", {
+        name: "Stop",
+      }),
+    );
     await screen.findByText("STOPPED");
     expect(screen.getByLabelText("Select Beta")).toBeEnabled();
     expect(
@@ -511,15 +515,16 @@ describe("ManagerPage destructive flow", () => {
       screen.getByRole("button", { name: "Delete 1 conversation" }),
     );
 
+    const currentStateStrip = await screen.findByTestId("current-state-strip");
+    expect(currentStateStrip).toHaveTextContent(
+      "Deletion stopped after 0 / 1 · Authorization denied",
+    );
     expect(
-      await screen.findByText("Deletion stopped for safety"),
-    ).toBeInTheDocument();
+      screen.queryByText("Deletion stopped for safety"),
+    ).not.toBeInTheDocument();
     expect(
-      screen.getByText("ChatGPT rejected the deletion request"),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(/Reason: Authorization denied/),
-    ).toBeInTheDocument();
+      screen.getByRole("region", { name: "Deletion operation" }),
+    ).toHaveTextContent("FATAL");
     expect(
       screen.queryByText(/No deletion has started/),
     ).not.toBeInTheDocument();
@@ -539,12 +544,9 @@ describe("ManagerPage destructive flow", () => {
       screen.getByRole("button", { name: "Delete 1 conversation" }),
     );
 
-    expect(
-      await screen.findByText("Deletion stopped for safety"),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText("ChatGPT rejected the deletion request"),
-    ).toBeInTheDocument();
+    expect(await screen.findByTestId("current-state-strip")).toHaveTextContent(
+      "Deletion stopped after 0 / 1 · ChatGPT rejected the deletion request",
+    );
     expect(screen.getByText("0 / 1")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Refresh inventory" }));
@@ -554,10 +556,12 @@ describe("ManagerPage destructive flow", () => {
       ).toBeEnabled(),
     );
 
+    expect(screen.getByTestId("current-state-strip")).toHaveTextContent(
+      "Deletion stopped after 0 / 1 · ChatGPT rejected the deletion request",
+    );
     expect(
-      screen.getByText("ChatGPT rejected the deletion request"),
-    ).toBeInTheDocument();
-    expect(screen.getByText("Deletion stopped for safety")).toBeInTheDocument();
+      screen.queryByText("Deletion stopped for safety"),
+    ).not.toBeInTheDocument();
     expect(screen.getByText("0 / 1")).toBeInTheDocument();
     expect(
       screen.queryByText(/No deletion has started/),

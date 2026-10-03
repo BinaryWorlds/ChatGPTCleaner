@@ -1,17 +1,14 @@
-import {
-  CheckOutlined,
-  CopyOutlined,
-  LockFilled,
-  UnlockOutlined,
-} from "@ant-design/icons";
-import { Button, Space, Table, theme, Tooltip, type TableProps } from "antd";
-import { useMemo, useState } from "react";
+import { LockFilled, UnlockOutlined } from "@ant-design/icons";
+import { Table, Tooltip, type TableProps } from "antd";
+import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import type {
   Conversation,
   ConversationSortField,
   SortDirection,
 } from "../domain/conversation";
+import { ConversationRowActions } from "./ConversationRowActions";
+import { useCopyConversationIdFeedback } from "./useCopyConversationIdFeedback";
 
 export type ConversationView = "standalone" | "projects";
 export type ProtectionFilter = "protected" | "unprotected" | null;
@@ -76,11 +73,6 @@ export function clampTablePage(
 
 export function ConversationTable(props: ConversationTableProps) {
   const { t, i18n } = useTranslation();
-  const { token } = theme.useToken();
-  const [copyFeedback, setCopyFeedback] = useState<{
-    readonly conversationId: string;
-    readonly kind: "copied" | "failed";
-  } | null>(null);
   const dateTimeFormatter = useMemo(
     () =>
       new Intl.DateTimeFormat(i18n.resolvedLanguage, {
@@ -105,6 +97,8 @@ export function ConversationTable(props: ConversationTableProps) {
     onSort,
     onPageChange,
   } = props;
+  const { copyConversationId, copyFeedbackFor } =
+    useCopyConversationIdFeedback(onCopyId);
   const columns: TableProps<Conversation>["columns"] = [
     {
       title: t("table.protectionStatus"),
@@ -217,75 +211,28 @@ export function ConversationTable(props: ConversationTableProps) {
         const protectedConversation =
           view === "standalone" &&
           props.protectedConversationIds.has(conversation.id);
-        const copyLabel = t("table.copyId", { id: conversation.id });
-        const currentCopyFeedback =
-          copyFeedback?.conversationId === conversation.id
-            ? copyFeedback.kind
-            : null;
-        const copyFeedbackLabel =
-          currentCopyFeedback === "copied"
-            ? t("table.copySuccess")
-            : currentCopyFeedback === "failed"
-              ? t("table.copyFailure")
-              : copyLabel;
         return (
-          <Space size="small">
-            <Tooltip title={copyFeedbackLabel}>
-              <Button
-                type="text"
-                aria-label={copyFeedbackLabel}
-                icon={
-                  currentCopyFeedback === "copied" ? (
-                    <CheckOutlined
-                      aria-hidden
-                      style={{ color: token.colorSuccess }}
-                    />
-                  ) : (
-                    <CopyOutlined aria-hidden />
-                  )
-                }
-                size="small"
-                onClick={() => {
-                  onCopyId(conversation.id)
-                    .then(() =>
-                      setCopyFeedback({
-                        conversationId: conversation.id,
-                        kind: "copied",
-                      }),
-                    )
-                    .catch(() =>
-                      setCopyFeedback({
-                        conversationId: conversation.id,
-                        kind: "failed",
-                      }),
-                    );
-                }}
-              />
-            </Tooltip>
-            <Button
-              type="text"
-              size="small"
-              onClick={() => onOpen(conversation.id)}
-            >
-              {t("table.open")}
-            </Button>
-            {view === "standalone" && (
-              <Button
-                type="text"
-                size="small"
-                disabled={props.protectionDisabled}
-                onClick={() =>
-                  protectedConversation
-                    ? props.onUnprotect(conversation.id)
-                    : props.onProtect(conversation.id)
-                }
-              >
-                {protectedConversation
-                  ? t("table.unprotect")
-                  : t("table.protect")}
-              </Button>
-            )}
-          </Space>
+          <ConversationRowActions
+            conversationId={conversation.id}
+            copyFeedback={copyFeedbackFor(conversation.id)}
+            onCopy={copyConversationId}
+            onOpen={onOpen}
+            protectionAction={
+              view === "projects"
+                ? null
+                : protectedConversation
+                  ? {
+                      kind: "unprotect",
+                      disabled: props.protectionDisabled,
+                      onInvoke: props.onUnprotect,
+                    }
+                  : {
+                      kind: "protect",
+                      disabled: props.protectionDisabled,
+                      onInvoke: props.onProtect,
+                    }
+            }
+          />
         );
       },
     },

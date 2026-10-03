@@ -25,10 +25,12 @@ body {
 }
 
 .manager-panel {
+  display: flex;
   width: 100%;
   max-width: 1520px;
+  flex-direction: column;
+  gap: 20px;
   margin-inline: auto;
-  row-gap: 20px;
 }
 
 .manager-page-header h2,
@@ -47,6 +49,30 @@ body {
   min-width: 0;
 }
 
+.manager-header-actions {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.manager-header-status {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.manager-header-status > [role="status"] {
+  min-width: 0;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+}
+
+.manager-header-status .ant-typography {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .manager-header-controls {
   flex: 0 0 auto;
   max-width: 100%;
@@ -58,6 +84,81 @@ body {
 
 .full-width {
   width: 100%;
+}
+
+.current-state-strip {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  min-width: 0;
+  padding-block: 8px;
+  box-shadow: var(--ant-box-shadow-tertiary);
+}
+
+.current-state-strip .ant-alert-content,
+.current-state-strip .ant-alert-message,
+.current-state-message {
+  min-width: 0;
+}
+
+.current-state-message {
+  overflow-wrap: anywhere;
+}
+
+.current-state-strip .ant-alert-action {
+  flex: 0 0 auto;
+}
+
+.current-operation-strip {
+  box-sizing: border-box;
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  padding-inline: 12px;
+  color: var(--ant-color-text);
+  border: 1px solid;
+  border-radius: var(--ant-border-radius-lg);
+}
+
+.current-operation-strip-info {
+  background: var(--ant-color-info-bg);
+  border-color: var(--ant-color-info-border);
+}
+
+.current-operation-strip-warning {
+  background: var(--ant-color-warning-bg);
+  border-color: var(--ant-color-warning-border);
+}
+
+.current-operation-strip-error {
+  background: var(--ant-color-error-bg);
+  border-color: var(--ant-color-error-border);
+}
+
+.current-operation-strip-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: var(--ant-color-info);
+  font-size: var(--ant-font-size-lg);
+}
+
+.current-operation-strip-warning .current-operation-strip-icon {
+  color: var(--ant-color-warning);
+}
+
+.current-operation-strip-error .current-operation-strip-icon {
+  color: var(--ant-color-error);
+}
+
+.current-operation-strip-message {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow-wrap: anywhere;
+}
+
+.current-operation-strip-action {
+  flex: 0 0 auto;
 }
 
 .view-segmented .ant-segmented-item-selected {
@@ -181,77 +282,79 @@ body {
   max-width: 100%;
 }
 
-.filter-primary-controls,
-.filter-preset-controls {
+.filter-toolbar {
   min-width: 0;
   align-items: center;
   row-gap: 12px;
 }
 
-.filter-preset-controls {
-  padding-top: 2px;
+.date-filter-popover-content {
+  width: min(360px, calc(100vw - 48px));
+  max-width: 100%;
 }
 
-.filter-preset {
-  border-radius: 999px;
+.date-filter-popover-title.ant-typography {
+  margin-top: 0;
+  margin-bottom: 12px;
 }
 
-.filter-preset-controls
-  .filter-preset.ant-btn-default:not(:disabled):not(.ant-btn-disabled):hover {
-  color: var(--ant-color-text);
-  background: var(--ant-color-fill-alter);
-  border-color: var(--ant-color-border);
+.date-filter-radio-group {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
 }
 
-.filter-preset-controls
-  .filter-preset.ant-btn-primary.ant-btn-background-ghost {
-  color: var(--ant-color-primary);
-  background: var(--ant-color-primary-bg);
-  border-color: var(--ant-color-primary-border);
-}
-
-.filter-preset-controls
-  .filter-preset.ant-btn-primary.ant-btn-background-ghost:not(:disabled):not(
-    .ant-btn-disabled
-  ):hover {
-  color: var(--ant-color-primary-hover);
-  background: var(--ant-color-primary-bg-hover);
-  border-color: var(--ant-color-primary-border);
-}
-
-.filter-preset-controls .filter-preset.ant-btn:focus-visible {
-  outline: 2px solid var(--ant-color-primary);
-  outline-offset: 2px;
-  box-shadow: none;
-}
-
-.filter-date-field {
-  min-width: 160px;
-}
-
-.filter-date-comparison {
-  min-width: 140px;
+.date-filter-exact-controls {
+  display: grid;
+  gap: 12px;
 }
 
 .filter-date-picker {
-  min-width: 150px;
+  width: 100%;
 }
 
-.workspace-toolbar,
-.selection-toolbar {
+.applied-date-filter.ant-tag {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 4px;
+  margin-inline-end: 0;
+  padding-inline: 10px 2px;
+  white-space: normal;
+}
+
+.applied-date-filter .ant-btn {
+  flex: 0 0 auto;
+}
+
+.workspace-toolbar {
   min-width: 0;
   column-gap: 24px;
   row-gap: 12px;
 }
 
 .selection-toolbar {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px 24px;
   padding: 10px 12px;
   background: light-dark(
     var(--ant-color-bg-container),
     var(--ant-color-fill-tertiary)
   );
-  border: 1px solid var(--ant-color-border-secondary);
   border-radius: var(--ant-border-radius);
+}
+
+.selection-summary {
+  justify-self: center;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.selection-primary-actions {
+  justify-self: end;
 }
 
 .deletion-operation {
@@ -322,7 +425,7 @@ body {
 
 .view-control-group,
 .delete-rate-group,
-.selection-actions,
+.selection-controls,
 .selection-primary-actions {
   flex: 0 0 auto;
   min-width: 0;
@@ -332,6 +435,14 @@ body {
 @media (max-width: 991px) {
   .filter-title-search {
     flex-basis: 100%;
+  }
+
+  .selection-toolbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .selection-primary-actions {
+    grid-column: 1 / -1;
   }
 
   .summary-metric:nth-child(2)::after {
@@ -344,14 +455,34 @@ body {
     padding-top: 20px;
   }
 
+  .manager-header-actions,
   .manager-header-controls,
   .manager-header-controls > .ant-segmented,
   .manager-header-controls > .ant-btn {
     width: 100%;
   }
 
+  .selection-toolbar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .selection-summary,
+  .selection-primary-actions {
+    justify-self: start;
+  }
+
   .summary-metric::after {
     display: none;
+  }
+
+  .current-state-strip {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .current-state-strip .ant-alert-action,
+  .current-operation-strip-action {
+    margin-inline-start: 30px;
   }
 }
 

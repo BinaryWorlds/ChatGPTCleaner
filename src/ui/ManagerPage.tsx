@@ -51,10 +51,6 @@ import {
   type ConversationSortField,
   type SortDirection,
 } from "../domain/conversation";
-import {
-  invertMatchingSelection,
-  selectAllMatching,
-} from "../domain/selection";
 import { ConversationFiltersBar } from "./ConversationFilters";
 import {
   CONVERSATION_TABLE_PAGINATION,
@@ -66,6 +62,7 @@ import { DeletionConfirmationModal } from "./DeletionConfirmationModal";
 import { DeletionProgressPanel } from "./DeletionProgressPanel";
 import { ManagerHeader } from "./ManagerHeader";
 import { SafetyStatus, type SafetyStatusState } from "./SafetyStatus";
+import { useConversationSelection } from "./useConversationSelection";
 import { useDeletionWorkflow } from "./useDeletionWorkflow";
 import { useManagerInventory } from "./useManagerInventory";
 
@@ -111,9 +108,15 @@ export function ManagerPage({
     setRequestsPerMinute,
   } = useManagerInventory(dependencies);
   const [sourceLost, setSourceLost] = useState(false);
-  const [selectedConversationIds, setSelectedConversationIds] = useState<
-    ReadonlySet<string>
-  >(new Set());
+  const {
+    selectedConversationIds,
+    replaceSelection,
+    selectCurrentPage,
+    selectAllMatching,
+    invertMatchingSelection,
+    clearSelection,
+    removeFromSelection,
+  } = useConversationSelection();
   const [filters, setFilters] = useState<ConversationFilters>(
     EMPTY_CONVERSATION_FILTERS,
   );
@@ -182,11 +185,7 @@ export function ManagerPage({
     isProtectionMutationPending: () => protectionMutationPendingRef.current,
     onConversationRemoved: (removedId) => {
       removeConversation(removedId);
-      setSelectedConversationIds((currentSelection) => {
-        const nextSelection = new Set(currentSelection);
-        nextSelection.delete(removedId);
-        return nextSelection;
-      });
+      removeFromSelection([removedId]);
     },
     onNotice: setNotice,
     onOperationAttempt: () => setNotice(null),
@@ -470,7 +469,7 @@ export function ManagerPage({
         }
         if (result.kind === "blocked") return;
         recoverSafetyAfterCompleteRefresh();
-        setSelectedConversationIds(new Set());
+        clearSelection();
         cancelConfirmation();
         if (
           safetyOverride === null ||
@@ -500,11 +499,21 @@ export function ManagerPage({
             });
 
   return (
-    <Space orientation="vertical" size="middle" className="manager-panel">
+    <div className="manager-panel">
       <ManagerHeader
         themePreference={themePreference}
         themePreferencePending={themePreferencePending}
         onThemePreferenceChange={onThemePreferenceChange}
+        status={
+          refreshing ? (
+            <Flex align="center" gap="small" role="status">
+              <Spin size="small" />
+              <Typography.Text type="secondary">
+                {t("refresh.loading")}
+              </Typography.Text>
+            </Flex>
+          ) : null
+        }
       >
         <Button
           aria-label={t("refresh.ariaLabel")}
@@ -519,14 +528,6 @@ export function ManagerPage({
         >
           {t("refresh.button")}
         </Button>
-        {refreshing && (
-          <Flex align="center" gap="small" role="status">
-            <Spin size="small" />
-            <Typography.Text type="secondary">
-              {t("refresh.loading")}
-            </Typography.Text>
-          </Flex>
-        )}
       </ManagerHeader>
 
       {mode === "demo" && (
@@ -540,7 +541,10 @@ export function ManagerPage({
 
       <SafetyStatus
         state={safetyState}
+        operationState={runState}
         onRetry={hasAcceptedSnapshot ? handleRefresh : retryInitialInventory}
+        onRetryFailed={retryFailed}
+        onStop={stopRun}
       />
 
       {notice !== null && safetyState.kind !== "blocked" && (
@@ -752,68 +756,67 @@ export function ManagerPage({
                   <span>{t("selection.title")}</span>
                 </Space>
               </Typography.Title>
-              <Flex
-                className="selection-toolbar"
-                justify="space-between"
-                align="center"
-                wrap
-                gap="small"
-              >
-                <Flex className="selection-actions" wrap gap="small">
+              <div className="selection-toolbar">
+                <Flex className="selection-controls" wrap gap="small">
                   <Button
                     disabled={
                       conversationView === "projects" || selectionLocked
                     }
                     onClick={() =>
-                      setSelectedConversationIds(
-                        selectAllMatching(
-                          selectedConversationIds,
-                          currentStandalonePageConversations,
-                        ),
+                      selectCurrentPage(
+                        currentStandalonePageConversations.map(({ id }) => id),
                       )
                     }
                   >
                     {t("selection.currentPage")}
                   </Button>
-                  <Button
-                    disabled={
-                      conversationView === "projects" || selectionLocked
-                    }
-                    onClick={() =>
-                      setSelectedConversationIds(
+                  <Tooltip
+                    title={t("selection.allMatchingHelp")}
+                    trigger={["hover", "focus"]}
+                  >
+                    <Button
+                      disabled={
+                        conversationView === "projects" || selectionLocked
+                      }
+                      onClick={() =>
                         selectAllMatching(
-                          selectedConversationIds,
-                          protectionFilteredConversations,
-                        ),
-                      )
-                    }
-                  >
-                    {t("selection.allMatching")}
-                  </Button>
-                  <Button
-                    disabled={
-                      conversationView === "projects" || selectionLocked
-                    }
-                    onClick={() => setSelectedConversationIds(new Set())}
-                  >
-                    {t("selection.clear")}
-                  </Button>
+                          protectionFilteredConversations.map(({ id }) => id),
+                        )
+                      }
+                    >
+                      {t("selection.allMatching")}
+                    </Button>
+                  </Tooltip>
                   <Button
                     disabled={
                       conversationView === "projects" || selectionLocked
                     }
                     onClick={() =>
-                      setSelectedConversationIds(
-                        invertMatchingSelection(
-                          selectedConversationIds,
-                          protectionFilteredConversations,
-                        ),
+                      invertMatchingSelection(
+                        protectionFilteredConversations.map(({ id }) => id),
                       )
                     }
                   >
                     {t("selection.invert")}
                   </Button>
+                  <Button
+                    disabled={
+                      conversationView === "projects" || selectionLocked
+                    }
+                    onClick={clearSelection}
+                  >
+                    {t("selection.clear")}
+                  </Button>
                 </Flex>
+                <Typography.Text
+                  className="selection-summary"
+                  strong
+                  data-testid="selection-summary"
+                >
+                  {t("selection.summary", {
+                    count: selectedConversationIds.size,
+                  })}
+                </Typography.Text>
                 <Flex className="selection-primary-actions" wrap gap="small">
                   <Button
                     icon={<LockOutlined aria-hidden />}
@@ -858,7 +861,7 @@ export function ManagerPage({
                     })}
                   </Button>
                 </Flex>
-              </Flex>
+              </div>
             </Space>
           </section>
 
@@ -915,7 +918,7 @@ export function ManagerPage({
               sortDirection={sortDirection}
               page={visibleStandalonePage}
               pageSize={pageSize}
-              onSelectionChange={setSelectedConversationIds}
+              onSelectionChange={replaceSelection}
               onProtectionFilterChange={(nextFilter) => {
                 setProtectionFilter(nextFilter);
                 setPage(1);
@@ -992,6 +995,6 @@ export function ManagerPage({
           </Typography.Paragraph>
         </Modal>
       )}
-    </Space>
+    </div>
   );
 }
