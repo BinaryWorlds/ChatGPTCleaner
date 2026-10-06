@@ -18,6 +18,7 @@ import {
   canRetryFailedDeletion,
   DeletionRun,
   deletionRunOwnsWorkflow,
+  isDeletionRunActive,
   type DeletionRunProgress,
 } from "./deletionRun";
 import type {
@@ -234,6 +235,19 @@ describe("deletion workflow ownership", () => {
     currentConversationId: null,
     failedConversationIds: [],
   };
+
+  it.each(["running", "pausing", "paused", "stopping"] as const)(
+    "treats %s as an active deletion run",
+    (kind) => {
+      expect(isDeletionRunActive({ kind, progress })).toBe(true);
+    },
+  );
+
+  it("does not treat absent or terminal deletion runs as active", () => {
+    expect(isDeletionRunActive(null)).toBe(false);
+    expect(isDeletionRunActive({ kind: "stopped", progress })).toBe(false);
+    expect(isDeletionRunActive({ kind: "finished", progress })).toBe(false);
+  });
 
   it("owns active and retryable states but releases terminal states without failed work", () => {
     expect(deletionRunOwnsWorkflow({ kind: "paused", progress })).toBe(true);

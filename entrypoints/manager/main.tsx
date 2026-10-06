@@ -2,8 +2,8 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "antd/dist/reset.css";
 import { createManagerComposition } from "@manager-composition";
-import { App } from "../../src/ui/App";
-import { ManagerErrorBoundary } from "../../src/ui/ManagerErrorBoundary";
+import App from "../../src/ui/App";
+import ManagerErrorBoundary from "../../src/ui/ManagerErrorBoundary";
 import { installGlobalErrorHandlers } from "../../src/infrastructure/observability/globalErrors";
 import {
   logger,

@@ -53,18 +53,28 @@ export function canRetryFailedDeletion(state: DeletionRunState): boolean {
   );
 }
 
+export function isDeletionRunActive(state: DeletionRunState | null): boolean {
+  return (
+    state?.kind === "running" ||
+    state?.kind === "pausing" ||
+    state?.kind === "paused" ||
+    state?.kind === "stopping"
+  );
+}
+
+export function canStopDeletionRun(state: DeletionRunState): boolean {
+  return (
+    state.kind === "running" ||
+    state.kind === "pausing" ||
+    state.kind === "paused"
+  );
+}
+
 export function deletionRunOwnsWorkflow(
   state: DeletionRunState | null,
 ): boolean {
   if (state === null) return false;
-  if (
-    state.kind === "running" ||
-    state.kind === "pausing" ||
-    state.kind === "paused" ||
-    state.kind === "stopping"
-  ) {
-    return true;
-  }
+  if (isDeletionRunActive(state)) return true;
   return canRetryFailedDeletion(state);
 }
 
@@ -182,13 +192,7 @@ export class DeletionRun implements ProtectionMutationLockOwner {
   }
 
   public stopDeletion(): void {
-    if (
-      this.state.kind !== "running" &&
-      this.state.kind !== "pausing" &&
-      this.state.kind !== "paused"
-    ) {
-      return;
-    }
+    if (!canStopDeletionRun(this.state)) return;
 
     this.command = "stop";
     this.publish("stopping", null);
