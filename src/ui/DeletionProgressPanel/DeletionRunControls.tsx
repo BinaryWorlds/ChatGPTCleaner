@@ -9,6 +9,7 @@ import {
 interface DeletionRunControlsProps {
   readonly state: DeletionRunState;
   readonly resumeDisabled: boolean;
+  readonly retryFailedDisabled: boolean;
   readonly onPause: () => void;
   readonly onResume: () => void;
   readonly onStop: () => void;
@@ -18,6 +19,7 @@ interface DeletionRunControlsProps {
 export default function DeletionRunControls({
   state,
   resumeDisabled,
+  retryFailedDisabled,
   onPause,
   onResume,
   onStop,
@@ -43,7 +45,9 @@ export default function DeletionRunControls({
         </Button>
       )}
       {canRetry && (
-        <Button onClick={onRetryFailed}>{t("deletion.retryFailed")}</Button>
+        <Button disabled={retryFailedDisabled} onClick={onRetryFailed}>
+          {t("deletion.retryFailed")}
+        </Button>
       )}
     </Space>
   );

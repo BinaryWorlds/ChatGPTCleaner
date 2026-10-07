@@ -1805,7 +1805,8 @@ README.md
 CHANGELOG.md
 SECURITY.md
 AGENTS.md
-MIT LICENSE
+ChatGPTCleaner Source License 1.0 (`LICENSE`)
+EULA.md
 docs/PROJECT_SPEC.md
 docs/adr/*
 ```

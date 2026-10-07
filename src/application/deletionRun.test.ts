@@ -261,23 +261,38 @@ describe("deletion workflow ownership", () => {
     expect(deletionRunOwnsWorkflow({ kind: "stopped", progress })).toBe(false);
   });
 
-  it.each([
-    { kind: "stopped" } as const,
-    { kind: "fatal", reason: "unexpected-run-error" } as const,
-  ])("keeps failed work retryable in the $kind state", (terminalState) => {
-    const state = {
-      ...terminalState,
-      progress: {
-        ...progress,
-        failed: 1,
-        skipped: 0,
-        failedConversationIds: ["failed"],
-      },
-    };
+  it.each([{ kind: "finished" } as const, { kind: "stopped" } as const])(
+    "keeps failed work retryable in the $kind state",
+    (terminalState) => {
+      const state = {
+        ...terminalState,
+        progress: {
+          ...progress,
+          failed: 1,
+          skipped: 0,
+          failedConversationIds: ["failed"],
+        },
+      };
 
-    expect(state.kind).toBe(terminalState.kind);
-    expect(state.progress.failedConversationIds).toEqual(["failed"]);
-    expect(canRetryFailedDeletion(state)).toBe(true);
+      expect(state.kind).toBe(terminalState.kind);
+      expect(state.progress.failedConversationIds).toEqual(["failed"]);
+      expect(canRetryFailedDeletion(state)).toBe(true);
+    },
+  );
+
+  it("rejects retry eligibility after a fatal safety stop", () => {
+    expect(
+      canRetryFailedDeletion({
+        kind: "fatal",
+        reason: "response-anomaly",
+        progress: {
+          ...progress,
+          failed: 1,
+          skipped: 0,
+          failedConversationIds: ["failed"],
+        },
+      }),
+    ).toBe(false);
   });
 });
 
@@ -424,6 +439,38 @@ describe("destructive run", () => {
       expect(lockState.active).toBe(false);
     },
   );
+
+  it("rejects a direct retry after an earlier failure is followed by a fatal stop", async () => {
+    const ids = ["failed", "fatal"];
+    const clock = new FakeClock();
+    const gateway = new FakeConversationGateway(
+      fixtureForDeletion(ids, {
+        failed: [500, 500, 500, 500, 500, "success"],
+        fatal: [403],
+      }),
+      clock,
+    );
+    const run = new DeletionRun({
+      confirmedPlan: confirmedPlan(ids),
+      requestsPerMinute: 60,
+      gateway,
+      protectedConversationStore: new FakeProtectedConversationStore(),
+      clock,
+      destructiveRunLock: new FakeDestructiveRunLock(),
+    });
+
+    const fatalState = await run.startDeletion();
+    const attemptsBeforeRetry = gateway.deleteAttempts.length;
+
+    expect(fatalState).toMatchObject({
+      kind: "fatal",
+      reason: "authorization",
+      progress: { failedConversationIds: ["failed"] },
+    });
+    expect(attemptsBeforeRetry).toBe(6);
+    expect(await run.retryFailedDeletion()).toBe(fatalState);
+    expect(gateway.deleteAttempts).toHaveLength(attemptsBeforeRetry);
+  });
 
   it("continues after exhausted server and network failures", async () => {
     const ids = ["server-failed", "network-failed", "success"];

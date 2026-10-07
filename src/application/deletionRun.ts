@@ -47,9 +47,7 @@ export type DeletionRunState =
 export function canRetryFailedDeletion(state: DeletionRunState): boolean {
   return (
     state.progress.failedConversationIds.length > 0 &&
-    (state.kind === "finished" ||
-      state.kind === "stopped" ||
-      state.kind === "fatal")
+    (state.kind === "finished" || state.kind === "stopped")
   );
 }
 

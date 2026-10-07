@@ -132,6 +132,7 @@ export default function ManagerPage({
     runState,
     runActive,
     runOwnsWorkflow,
+    retryFailedAvailable,
     protectionMutationLockOwner,
     safetyOverride,
     currentConversationId,
@@ -421,6 +422,7 @@ export default function ManagerPage({
                 state={runState}
                 currentConversationLabel={currentConversationLabel}
                 resumeDisabled={protectionMutationPending}
+                retryFailedDisabled={!retryFailedAvailable}
                 onPause={pauseRun}
                 onResume={resumeRun}
                 onStop={stopRun}

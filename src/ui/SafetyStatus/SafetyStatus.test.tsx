@@ -148,9 +148,7 @@ describe("SafetyStatus", () => {
     expect(screen.queryByText("Deleting 42 / 180")).not.toBeInTheDocument();
   });
 
-  it("preserves non-live fatal progress, cause, and recovery", async () => {
-    const user = userEvent.setup();
-    const onRetryFailed = vi.fn();
+  it("preserves non-live fatal progress and cause without destructive recovery", () => {
     render(
       <SafetyStatus
         state={{ kind: "blocked", reason: "authorization" }}
@@ -158,7 +156,7 @@ describe("SafetyStatus", () => {
           kind: "fatal",
           reason: "authorization",
         })}
-        onRetryFailed={onRetryFailed}
+        onRetryFailed={vi.fn()}
       />,
     );
 
@@ -168,10 +166,9 @@ describe("SafetyStatus", () => {
     );
     expect(strip).not.toHaveTextContent("No deletion has started");
     expectNonLiveVisualStrip(strip);
-    await user.click(
-      within(strip).getByRole("button", { name: "Retry Failed" }),
-    );
-    expect(onRetryFailed).toHaveBeenCalledOnce();
+    expect(
+      within(strip).queryByRole("button", { name: "Retry Failed" }),
+    ).not.toBeInTheDocument();
   });
 
   it("shows non-live stopped progress only while recovery remains actionable", async () => {
@@ -224,7 +221,7 @@ describe("SafetyStatus", () => {
 
     rerender(
       <SafetyStatus
-        state={{ kind: "ready" }}
+        state={{ kind: "blocked", reason: "authorization" }}
         operationState={operationState({
           kind: "fatal",
           reason: "authorization",
@@ -250,7 +247,7 @@ describe("SafetyStatus", () => {
 
     rerender(
       <SafetyStatus
-        state={{ kind: "ready" }}
+        state={{ kind: "blocked", reason: "authorization" }}
         operationState={operationState({
           kind: "fatal",
           reason: "authorization",
@@ -259,7 +256,7 @@ describe("SafetyStatus", () => {
     );
     rerender(
       <SafetyStatus
-        state={{ kind: "ready" }}
+        state={{ kind: "blocked", reason: "authorization" }}
         operationState={{
           ...operationState({ kind: "fatal", reason: "authorization" }),
           progress: { ...operationProgress, processed: 43 },

@@ -12,6 +12,7 @@ interface DeletionProgressPanelProps {
   readonly onPause: () => void;
   readonly onResume: () => void;
   readonly resumeDisabled: boolean;
+  readonly retryFailedDisabled?: boolean;
   readonly onStop: () => void;
   readonly onRetryFailed: () => void;
 }
@@ -22,6 +23,7 @@ export default function DeletionProgressPanel({
   onPause,
   onResume,
   resumeDisabled,
+  retryFailedDisabled = false,
   onStop,
   onRetryFailed,
 }: DeletionProgressPanelProps) {
@@ -44,6 +46,7 @@ export default function DeletionProgressPanel({
       <DeletionRunControls
         state={state}
         resumeDisabled={resumeDisabled}
+        retryFailedDisabled={retryFailedDisabled}
         onPause={onPause}
         onResume={onResume}
         onStop={onStop}

@@ -9,6 +9,7 @@ interface DeletionRunSectionProps {
   readonly state: DeletionRunState;
   readonly currentConversationLabel: string;
   readonly resumeDisabled: boolean;
+  readonly retryFailedDisabled: boolean;
   readonly onPause: () => void;
   readonly onResume: () => void;
   readonly onStop: () => void;
@@ -19,6 +20,7 @@ export default function DeletionRunSection({
   state,
   currentConversationLabel,
   resumeDisabled,
+  retryFailedDisabled,
   onPause,
   onResume,
   onStop,
@@ -51,6 +53,7 @@ export default function DeletionRunSection({
           onPause={onPause}
           onResume={onResume}
           resumeDisabled={resumeDisabled}
+          retryFailedDisabled={retryFailedDisabled}
           onStop={onStop}
           onRetryFailed={onRetryFailed}
         />

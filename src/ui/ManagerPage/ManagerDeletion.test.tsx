@@ -7,6 +7,10 @@ import type {
   ProtectedConversationIdsResult,
   ProtectedConversationStore,
 } from "../../application/ports/ProtectedConversationStore";
+import type {
+  SourceTabLifecycle,
+  SourceTabValidationResult,
+} from "../../application/ports/SourceTabLifecycle";
 import { FakeClock } from "../../infrastructure/fake/FakeClock";
 import { FakeConversationGateway } from "../../infrastructure/fake/FakeConversationGateway";
 import { FakeDestructiveRunLock } from "../../infrastructure/fake/FakeDestructiveRunLock";
@@ -23,6 +27,29 @@ import ManagerPage from ".";
 
 const DAY_MS = 86_400_000;
 const FIXED_NOW = Date.UTC(2026, 0, 15, 12);
+
+class FakeSourceTabLifecycle implements SourceTabLifecycle {
+  private valid = true;
+  private listener: (() => void) | null = null;
+
+  public validate(): Promise<SourceTabValidationResult> {
+    return Promise.resolve(
+      this.valid ? { kind: "valid", tabId: 42 } : { kind: "invalid" },
+    );
+  }
+
+  public subscribe(listener: () => void): () => void {
+    this.listener = listener;
+    return () => {
+      this.listener = null;
+    };
+  }
+
+  public loseSource(): void {
+    this.valid = false;
+    this.listener?.();
+  }
+}
 
 class DeferredProtectedConversationStore implements ProtectedConversationStore {
   public readonly pendingSaves: {
@@ -124,6 +151,7 @@ function renderManager(input?: {
   readonly protectedConversationStore?: ProtectedConversationStore;
   readonly clock?: FakeClock;
   readonly destructiveRunLock?: DestructiveRunLock;
+  readonly sourceTabLifecycle?: SourceTabLifecycle;
 }) {
   const clock = input?.clock ?? new FakeClock(FIXED_NOW);
   const gateway = new FakeConversationGateway(
@@ -163,6 +191,9 @@ function renderManager(input?: {
       dependencies={dependencies}
       openConversation={openConversation}
       copyConversationId={() => Promise.resolve()}
+      {...(input?.sourceTabLifecycle === undefined
+        ? {}
+        : { sourceTabLifecycle: input.sourceTabLifecycle })}
     />,
   );
   return { gateway, protectedConversationStore, openConversation };
@@ -463,6 +494,40 @@ describe("ManagerPage destructive flow", () => {
     ).toBeEnabled();
   });
 
+  it("blocks Retry Failed when canonical deletion availability becomes blocked", async () => {
+    const user = userEvent.setup();
+    const sourceTabLifecycle = new FakeSourceTabLifecycle();
+    const { gateway } = renderManager({
+      sourceTabLifecycle,
+      gatewayFixture: fixture(
+        [{ id: "network", title: "Network failure", updatedAt: 100 }],
+        { network: [500, 500, 500, 500, 500, "success"] },
+      ),
+    });
+    await waitForInventory();
+    await openConfirmation(user, "Network failure");
+    await user.click(
+      screen.getByRole("button", { name: "Delete 1 conversation" }),
+    );
+
+    expect(
+      await screen.findByRole("button", { name: "Retry Failed" }),
+    ).toBeEnabled();
+    expect(gateway.deleteAttempts).toHaveLength(5);
+
+    sourceTabLifecycle.loseSource();
+
+    expect(await screen.findByTestId("current-state-strip")).toHaveTextContent(
+      "ChatGPT source tab is unavailable",
+    );
+    const blockedRetryButton = screen.getByRole("button", {
+      name: "Retry Failed",
+    });
+    expect(blockedRetryButton).toBeDisabled();
+    await user.click(blockedRetryButton);
+    expect(gateway.deleteAttempts).toHaveLength(5);
+  });
+
   it("keeps Retry Failed available after contention and clears the stale notice on success", async () => {
     const user = userEvent.setup();
     const sharedLockState = { active: false };
@@ -528,6 +593,47 @@ describe("ManagerPage destructive flow", () => {
     expect(
       screen.queryByText(/No deletion has started/),
     ).not.toBeInTheDocument();
+  });
+
+  it("does not expose or execute Retry Failed after an earlier failure and fatal stop", async () => {
+    const user = userEvent.setup();
+    const { gateway } = renderManager({
+      gatewayFixture: fixture(
+        [
+          { id: "failed", title: "Failed first", updatedAt: 200 },
+          { id: "fatal", title: "Fatal second", updatedAt: 100 },
+        ],
+        {
+          failed: [500, 500, 500, 500, 500, "success"],
+          fatal: [403],
+        },
+      ),
+    });
+    await waitForInventory();
+    await selectConversation(user, "Failed first");
+    await selectConversation(user, "Fatal second");
+    await user.click(screen.getByRole("button", { name: "Delete (2)" }));
+    await user.click(
+      await screen.findByRole("button", { name: "Delete 2 conversations" }),
+    );
+
+    expect(await screen.findByTestId("current-state-strip")).toHaveTextContent(
+      "Authorization denied",
+    );
+    expect(gateway.deleteAttempts.map(({ id }) => id)).toEqual([
+      "failed",
+      "failed",
+      "failed",
+      "failed",
+      "failed",
+      "fatal",
+    ]);
+    expect(
+      screen.queryByRole("button", { name: "Retry Failed" }),
+    ).not.toBeInTheDocument();
+
+    await Promise.resolve();
+    expect(gateway.deleteAttempts).toHaveLength(6);
   });
 
   it("keeps a destructive-only blocker and operation history after Refresh", async () => {

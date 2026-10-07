@@ -73,7 +73,9 @@ export default function SafetyStatus({
     (state.kind === "blocked" || canRetryFailedDeletion(establishedFailure));
   if (establishedFailureNeedsAttention) {
     const retryFailed =
-      canRetryFailedDeletion(establishedFailure) && onRetryFailed !== undefined;
+      state.kind === "ready" &&
+      canRetryFailedDeletion(establishedFailure) &&
+      onRetryFailed !== undefined;
     return withOperationAnnouncement(
       <OperationStatusStrip
         tone="error"

@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  canRetryFailedDeletion,
   DeletionRun,
   deletionRunOwnsWorkflow,
   isDeletionRunActive,
@@ -58,6 +59,9 @@ export function useDeletionWorkflow({
 
   const runActive = isDeletionRunActive(runState);
   const runOwnsWorkflow = deletionRunOwnsWorkflow(runState);
+  const deletionAvailable = inventoryReady && safetyOverride === null;
+  const retryFailedAvailable =
+    deletionAvailable && runState !== null && canRetryFailedDeletion(runState);
 
   const beginDeletionPreview = () => {
     if (
@@ -174,7 +178,13 @@ export function useDeletionWorkflow({
   };
 
   const retryFailed = () => {
-    if (currentRun === null) return;
+    if (
+      currentRun === null ||
+      !deletionAvailable ||
+      !canRetryFailedDeletion(currentRun.getState())
+    ) {
+      return;
+    }
     onOperationAttempt();
     currentRun
       .retryFailedDeletion()
@@ -210,6 +220,7 @@ export function useDeletionWorkflow({
     runState,
     runActive,
     runOwnsWorkflow,
+    retryFailedAvailable,
     protectionMutationLockOwner:
       runState?.kind === "paused" ? currentRun : null,
     safetyOverride,
