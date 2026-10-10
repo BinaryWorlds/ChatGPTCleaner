@@ -1,59 +1,77 @@
-import { Descriptions, Tag } from "antd";
 import { useTranslation } from "react-i18next";
 import type { DeletionRunState } from "../../application/deletionRun";
 import { formatDeletionDuration } from "./deletionProgressPresentation";
+import { useDisplayedDeletionElapsedMs } from "./useDisplayedDeletionElapsedMs";
 
 interface DeletionProgressDetailsProps {
   readonly state: DeletionRunState;
-  readonly currentConversationLabel: string;
 }
 
 export default function DeletionProgressDetails({
   state,
-  currentConversationLabel,
 }: DeletionProgressDetailsProps) {
   const { t } = useTranslation();
   const { progress } = state;
+  const displayedElapsedMs = useDisplayedDeletionElapsedMs(state);
+  const terminal = ["stopped", "finished", "blocked", "fatal"].includes(
+    state.kind,
+  );
+  const hidesEta =
+    terminal || state.kind === "pausing" || state.kind === "stopping";
+
+  const eta = (() => {
+    if (hidesEta) return null;
+    if (state.kind === "paused") return t("deletion.etaPaused");
+    if (progress.processed < 3) return t("deletion.etaEstimating");
+    if (progress.etaMs === null) return t("deletion.unknown");
+    return t("deletion.etaAbout", {
+      duration: formatDeletionDuration(progress.etaMs, t),
+    });
+  })();
 
   return (
-    <Descriptions size="small" column={{ xs: 2, md: 4 }}>
-      <Descriptions.Item label={t("deletion.state")}>
-        <Tag>{t(`deletion.states.${state.kind}`)}</Tag>
-      </Descriptions.Item>
-      <Descriptions.Item label={t("deletion.processedTotal")}>
-        {progress.processed} / {progress.total}
-      </Descriptions.Item>
-      <Descriptions.Item label={t("deletion.deleted")}>
-        {progress.deleted}
-      </Descriptions.Item>
-      <Descriptions.Item label={t("deletion.failed")}>
-        {progress.failed}
-      </Descriptions.Item>
-      <Descriptions.Item label={t("deletion.skipped")}>
-        {progress.skipped}
-      </Descriptions.Item>
-      <Descriptions.Item label={t("deletion.remaining")}>
-        {progress.remaining}
-      </Descriptions.Item>
-      <Descriptions.Item label={t("deletion.retries")}>
-        {progress.retries}
-      </Descriptions.Item>
-      <Descriptions.Item label={t("deletion.configuredRate")}>
-        {t("deletion.perMinute", { count: progress.requestsPerMinute })}
-      </Descriptions.Item>
-      <Descriptions.Item label={t("deletion.activeElapsed")}>
-        {formatDeletionDuration(progress.activeElapsedMs, t)}
-      </Descriptions.Item>
-      <Descriptions.Item label={t("deletion.eta")}>
-        {state.kind === "paused"
-          ? t("deletion.states.paused")
-          : progress.etaMs === null
-            ? t("deletion.unknown")
-            : formatDeletionDuration(progress.etaMs, t)}
-      </Descriptions.Item>
-      <Descriptions.Item label={t("deletion.currentConversation")} span={2}>
-        {currentConversationLabel}
-      </Descriptions.Item>
-    </Descriptions>
+    <div className="deletion-progress-details">
+      <dl className="deletion-metric-group">
+        <div className="deletion-metric">
+          <dt>{t("deletion.deleted")}</dt>
+          <dd>{progress.deleted + progress.skipped}</dd>
+        </div>
+        <div
+          className={`deletion-metric${
+            progress.failed > 0 ? " deletion-metric-failed" : ""
+          }`}
+        >
+          <dt>{t("deletion.failed")}</dt>
+          <dd>{progress.failed}</dd>
+        </div>
+        {!terminal && (
+          <div className="deletion-metric">
+            <dt>{t("deletion.inProgress")}</dt>
+            <dd>{progress.activeRequestCount}</dd>
+          </div>
+        )}
+        {terminal && (
+          <div className="deletion-metric">
+            <dt>{t("deletion.deletionTime")}</dt>
+            <dd>{formatDeletionDuration(displayedElapsedMs, t)}</dd>
+          </div>
+        )}
+      </dl>
+
+      {!terminal && (
+        <dl className="deletion-metric-group">
+          <div className="deletion-metric">
+            <dt>{t("deletion.deletionTime")}</dt>
+            <dd>{formatDeletionDuration(displayedElapsedMs, t)}</dd>
+          </div>
+          {eta !== null && (
+            <div className="deletion-metric">
+              <dt>{t("deletion.estimatedTimeRemaining")}</dt>
+              <dd>{eta}</dd>
+            </div>
+          )}
+        </dl>
+      )}
+    </div>
   );
 }

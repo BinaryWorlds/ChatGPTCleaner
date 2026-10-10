@@ -173,15 +173,14 @@ export class FakeConversationGateway implements ConversationGateway {
   public async deleteConversation(
     conversationId: string,
   ): Promise<DeleteAttemptResult> {
-    const latencyMs = this.fixture.latencyMs ?? 0;
-    if (latencyMs > 0) {
-      await this.clock.sleep(latencyMs, new AbortController().signal);
-    }
-
     this.deleteAttempts.push({
       id: conversationId,
       startedAt: this.clock.now(),
     });
+    const latencyMs = this.fixture.latencyMs ?? 0;
+    if (latencyMs > 0) {
+      await this.clock.sleep(latencyMs, new AbortController().signal);
+    }
     const outcomes = this.fixture.deleteOutcomes?.[conversationId] ?? [
       "success",
     ];

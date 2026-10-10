@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { safetyBlockReasons } from "../../application/SafetyBlockReason";
 import type {
@@ -21,8 +21,10 @@ const operationProgress: DeletionRunProgress = {
   activeElapsedMs: 60_000,
   paused: false,
   etaMs: 120_000,
-  currentConversationId: "current",
+  activeRequestCount: 1,
+  maximumConcurrentDeleteRequests: 2,
   failedConversationIds: ["failed-1", "failed-2"],
+  slowDeleteResponseDetected: false,
 };
 
 type OperationStateWithoutProgress<State> = State extends unknown
@@ -33,12 +35,6 @@ function operationState(
   state: OperationStateWithoutProgress<DeletionRunState>,
 ): DeletionRunState {
   return { ...state, progress: operationProgress };
-}
-
-function expectNonLiveVisualStrip(strip: HTMLElement) {
-  expect(strip).not.toHaveAttribute("role", "alert");
-  expect(strip).not.toHaveAttribute("role", "status");
-  expect(strip).not.toHaveAttribute("aria-live");
 }
 
 describe("SafetyStatus", () => {
@@ -108,20 +104,18 @@ describe("SafetyStatus", () => {
     expect(screen.queryByText("Project protection")).not.toBeInTheDocument();
   });
 
-  it("shows active progress and routes Stop through the supplied handler", async () => {
-    const user = userEvent.setup();
-    const onStop = vi.fn();
+  it("keeps active operation transitions nonvisual without duplicate controls", () => {
     render(
       <SafetyStatus
         state={{ kind: "ready" }}
         operationState={operationState({ kind: "running" })}
-        onStop={onStop}
       />,
     );
 
-    const strip = screen.getByTestId("current-state-strip");
-    expect(strip).toHaveTextContent("Deleting 42 / 180");
-    expectNonLiveVisualStrip(strip);
+    expect(screen.queryByTestId("current-state-strip")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Stop" }),
+    ).not.toBeInTheDocument();
     const announcement = screen.getByTestId(
       "operation-transition-announcement",
     );
@@ -129,8 +123,6 @@ describe("SafetyStatus", () => {
     expect(announcement).toHaveAttribute("aria-live", "polite");
     expect(announcement).toHaveAttribute("aria-atomic", "true");
     expect(announcement).not.toHaveAttribute("role");
-    await user.click(within(strip).getByRole("button", { name: "Stop" }));
-    expect(onStop).toHaveBeenCalledOnce();
   });
 
   it("prioritizes one blocking cause over active operation progress", () => {
@@ -148,7 +140,7 @@ describe("SafetyStatus", () => {
     expect(screen.queryByText("Deleting 42 / 180")).not.toBeInTheDocument();
   });
 
-  it("preserves non-live fatal progress and cause without destructive recovery", () => {
+  it("preserves the canonical fatal safety blocker without destructive recovery", () => {
     render(
       <SafetyStatus
         state={{ kind: "blocked", reason: "authorization" }}
@@ -156,39 +148,28 @@ describe("SafetyStatus", () => {
           kind: "fatal",
           reason: "authorization",
         })}
-        onRetryFailed={vi.fn()}
       />,
     );
 
     const strip = screen.getByTestId("current-state-strip");
-    expect(strip).toHaveTextContent(
-      "Deletion stopped after 42 / 180 · Authorization denied",
-    );
-    expect(strip).not.toHaveTextContent("No deletion has started");
-    expectNonLiveVisualStrip(strip);
+    expect(strip).toHaveTextContent("ChatGPT rejected the deletion request");
     expect(
-      within(strip).queryByRole("button", { name: "Retry Failed" }),
+      screen.queryByRole("button", { name: "Retry Failed" }),
     ).not.toBeInTheDocument();
   });
 
-  it("shows non-live stopped progress only while recovery remains actionable", async () => {
-    const user = userEvent.setup();
-    const onRetryFailed = vi.fn();
+  it("does not duplicate stopped progress or retry controls", () => {
     const { rerender } = render(
       <SafetyStatus
         state={{ kind: "ready" }}
         operationState={operationState({ kind: "stopped" })}
-        onRetryFailed={onRetryFailed}
       />,
     );
 
-    const strip = screen.getByTestId("current-state-strip");
-    expect(strip).toHaveTextContent("Deletion stopped after 42 / 180");
-    expectNonLiveVisualStrip(strip);
-    await user.click(
-      within(strip).getByRole("button", { name: "Retry Failed" }),
-    );
-    expect(onRetryFailed).toHaveBeenCalledOnce();
+    expect(screen.queryByTestId("current-state-strip")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Retry Failed" }),
+    ).not.toBeInTheDocument();
 
     rerender(
       <SafetyStatus
@@ -201,7 +182,6 @@ describe("SafetyStatus", () => {
             failedConversationIds: [],
           },
         }}
-        onRetryFailed={vi.fn()}
       />,
     );
     expect(screen.queryByTestId("current-state-strip")).not.toBeInTheDocument();
@@ -229,9 +209,9 @@ describe("SafetyStatus", () => {
       />,
     );
     await waitFor(() =>
-      expect(announcement).toHaveTextContent(
-        "Deletion stopped. Authorization denied",
-      ),
+      expect(
+        screen.getByTestId("operation-transition-announcement"),
+      ).toHaveTextContent("Deletion stopped. Authorization denied"),
     );
     expect(announcement).not.toHaveTextContent("42 / 180");
 
@@ -239,7 +219,10 @@ describe("SafetyStatus", () => {
     const observer = new MutationObserver((records) => {
       announcementMutations.push(...records);
     });
-    observer.observe(announcement, {
+    const fatalAnnouncement = screen.getByTestId(
+      "operation-transition-announcement",
+    );
+    observer.observe(fatalAnnouncement, {
       characterData: true,
       childList: true,
       subtree: true,
@@ -263,15 +246,13 @@ describe("SafetyStatus", () => {
         }}
       />,
     );
-    await waitFor(() =>
-      expect(screen.getByTestId("current-state-strip")).toHaveTextContent(
-        "Deletion stopped after 43 / 180",
-      ),
+    expect(screen.getByTestId("current-state-strip")).toHaveTextContent(
+      "ChatGPT rejected the deletion request",
     );
-    expect(announcement).toHaveTextContent(
+    expect(fatalAnnouncement).toHaveTextContent(
       "Deletion stopped. Authorization denied",
     );
-    expect(announcement).not.toHaveTextContent("43 / 180");
+    expect(fatalAnnouncement).not.toHaveTextContent("43 / 180");
     expect(announcementMutations).toEqual([]);
     observer.disconnect();
 
@@ -281,17 +262,22 @@ describe("SafetyStatus", () => {
         operationState={operationState({ kind: "running" })}
       />,
     );
-    await waitFor(() => expect(announcement).toBeEmptyDOMElement());
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("operation-transition-announcement"),
+      ).toBeEmptyDOMElement(),
+    );
 
     rerender(
       <SafetyStatus
         state={{ kind: "ready" }}
         operationState={operationState({ kind: "stopped" })}
-        onRetryFailed={vi.fn()}
       />,
     );
     await waitFor(() =>
-      expect(announcement).toHaveTextContent("Deletion stopped."),
+      expect(
+        screen.getByTestId("operation-transition-announcement"),
+      ).toHaveTextContent("Deletion stopped."),
     );
   });
 

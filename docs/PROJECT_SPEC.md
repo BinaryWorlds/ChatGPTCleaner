@@ -114,7 +114,7 @@ explicit selection
 -> preview from the loaded standalone snapshot
 -> destructive-modal confirmation
 -> destructive Web Lock
--> sequential execution
+-> bounded rate-limited execution
 ```
 
 ### 3.3 Privacy by design
@@ -711,8 +711,8 @@ whole inventory. Because a window must settle before the next is scheduled, a
 request waiting for 429/5xx/network retry prevents aggressive scheduling of
 another window. Project discovery remains sequential. Different Projects may
 be enumerated with at most the same three-read limit, while cursor-dependent
-pages inside each Project remain sequential. All destructive operations remain
-sequential.
+pages inside each Project remain sequential. Destructive operations use the
+bounded scheduler described below.
 
 Hitting the safety ceiling means inventory is incomplete and deletion is blocked.
 
@@ -849,17 +849,19 @@ Deletion safety = BLOCKED
 
 Do not silently discard the protection set and continue.
 
-### Requests-per-minute preference
+### Deletion scheduling preferences
 
-The rate preference is not destructive eligibility data.
+The rate and maximum-concurrency preferences are not destructive eligibility
+data.
 
 If missing/invalid/out of range:
 
 ```text
-fall back to the safe default: 60
+attempt starts per minute => fall back to 60
+maximum concurrency => fall back to 1
 ```
 
-Then persist a normalized value when appropriate.
+Then persist normalized values when appropriate.
 
 ---
 
@@ -1344,55 +1346,77 @@ If lock acquisition fails after confirmation, no destructive request starts.
 
 ---
 
-## 30. Requests per minute
+## 30. Deletion scheduling
 
 UI:
 
 ```text
-Requests per minute: [60]
+Deletion rate: [60] /min
+Chats at once: [1]
 ```
 
-Default:
+Each setting has its own keyboard-accessible explanation of its semantics and
+default. Keep the input's accessible name aligned with its visible label.
+
+Defaults:
 
 ```text
-60
+60 attempts/minute
+1 simultaneous request
 ```
 
-Allowed range:
+Allowed ranges:
 
 ```text
-1..120
+attempt starts per minute: 1..120
+simultaneous requests: 1..20
 ```
 
-Persist only the validated preference.
+Persist only the validated preferences.
+
+The concurrency range is an application product constraint, not an official
+ChatGPT limit. It caps active operations rather than creating fixed batches;
+when timing and rate limits permit, the scheduler may fill a released slot
+without waiting for the other active operations. The upper bound is neither a
+recommendation nor a guarantee of API safety or improved throughput.
 
 Semantics:
 
 > Limit the start rate of DELETE attempts. Retries count.
 
-Sequential spacing:
+Actual-start spacing:
 
 ```text
 minimum interval = 60,000 / requestsPerMinute
 ```
 
-No concurrency.
+Initial attempts and retries share one start limiter. The scheduler does not
+accumulate credits or catch up with a burst. A normalized HTTP 429 Retry-After
+creates a global cooldown for all new DELETE starts. Retry fallback backoff is
+per conversation and does not block other eligible work.
 
-Disable the rate input while running/paused/stopping.
+Disable both inputs for the full deletion-workflow ownership state, including
+confirmed-run preflight, pending Start/Resume/Retry, Running, Pausing, Paused,
+Stopping or fatal drain, and a terminal run with Retry Failed available. Enable
+them only after ownership is released and active operations have settled.
 
-Changed value applies to the next new destructive batch.
+Snapshot both values at destructive confirmation. Changed values apply only to
+the next new destructive batch; Pause, Resume, and Retry Failed keep the
+snapshot.
 
 ---
 
 ## 31. DELETE policy
 
-All DELETE attempts are sequential.
+All DELETE attempts start through the single `DeletionRun` scheduler and are
+bounded by the configured concurrency.
 
 ```text
 valid 2xx                    => deleted; continue
 404 / 410                    => skipped/already gone; continue
 429                          => retry
-5xx                          => retry, then failed; continue
+500 + detail Request timeout => retry when retryDeleteTimeouts; otherwise failed; continue
+other 5xx                    => retry, then failed; continue
 transient network error      => retry, then failed; continue
 401 / 403                    => fatal stop
 unexpected non-retryable 4xx => fatal stop
@@ -1412,9 +1436,24 @@ Honor server `Retry-After` according to the centralized parser.
 
 No random jitter.
 
+`AppConfig.deletion.retryDeleteTimeouts` is a code-only boolean with default
+`true`. It controls automatic retries only for an actual DELETE response with
+HTTP 500 and JSON `detail === "Request timeout"`. When `false`, that item fails
+without an automatic retry, other eligible work continues, and explicit Retry
+Failed remains available. It is not a UI or persisted setting. Network errors,
+other 500 responses, source/session preparation, and the three-second slow
+notice keep their existing behavior.
+
 Do not treat `response.ok` alone as proof of successful deletion.
 
 Conservatively detect unexpected redirect/login/response-contract anomalies.
+
+If a dispatched DELETE remains awaiting its response for 3 seconds, show one
+non-blocking informational notice. Measure from the actual DELETE `fetch`
+dispatch, excluding source/session preparation, scheduler waits, and retry
+backoff. Latch the notice in memory for the logical run through
+Pause/Resume/Stop/Fatal/completion and Retry Failed; reset it only for a newly
+confirmed run. Do not persist or log this signal.
 
 ---
 
@@ -1466,17 +1505,28 @@ A future new batch requires a new destructive-modal confirmation.
 During execution show:
 
 ```text
-processed / total
+Conversation deletion + status
+Completed X of Y
+progress bar
 Deleted
 Failed
-Skipped
-Remaining
-Retries
-Configured rate
-Elapsed active time
-ETA
-Current conversation
+In progress
+Deletion time
+Estimated time remaining
+relevant alerts and lifecycle controls
 ```
+
+The result row always shows Deleted and Failed, including zero values. Displayed
+Deleted is `deleted + skipped`, so it includes conversations whose DELETE
+returned 404/410 because they were already absent. The internal outcome and
+processed accounting remain distinct. In progress is the active
+gateway-operation count and therefore includes source/session preparation
+before a DELETE dispatch.
+
+The captured attempt-start rate and maximum concurrency remain internal to the
+logical run and are not repeated in the deletion section. The scheduled-retry
+counter still counts retryable outcomes accepted for a future attempt; a Pause
+or Stop can prevent a scheduled retry from dispatching.
 
 Maintain:
 
@@ -1487,10 +1537,39 @@ remaining = total - processed
 
 ETA:
 
-- before 3 processed items: estimate from configured rate;
-- afterwards: use measured active throughput;
+- before 3 processed items, the UI displays `Estimating…`; the unchanged domain
+  estimate is based on the configured rate;
+- afterwards, use measured active throughput and prefix the displayed duration
+  with `about`;
 - exclude paused time;
-- paused state displays `ETA: Paused`.
+- paused state displays paused text;
+- Pausing and Stopping hide ETA;
+- stable terminal states hide ETA and In progress.
+
+The displayed progress percentage is presentational only. Clamp it to 99% while
+`remaining > 0`; never use the percentage as a completion predicate. A pending
+empty preflight does not render a successful `0/0` result. Finished work with
+failed items is labelled `Completed with failures` and does not use full-success
+styling.
+
+While Running, Pausing, or Stopping, a presentation-only one-second ticker
+advances Deletion time from the most recently published elapsed value. Rebase
+the ticker whenever a new run snapshot is published. Freeze it during stable
+Pause and terminal states, exclude preflight time, and preserve the Retry Failed
+elapsed reset. The ticker does not mutate `DeletionRun`, recalculate or count
+down ETA, start work, or produce per-second announcements.
+
+New-run preflight shows preparation feedback without publishing a synthetic run
+result. Resume and Retry Failed show a pending presentation and reject repeated
+UI submission until their protection/lock preflight resolves. These are UI
+presentation states, not Application lifecycle states. Retry Failed preserves
+the logical-run identity and slow-response latch but resets its result/time
+accounting; while it executes, label it `Retrying failed conversations`.
+
+While running or draining, the slow-response notice uses `ChatGPT’s servers are
+responding slowly.` In stable Paused or terminal states, use the retrospective
+copy `ChatGPT responded slowly during deletion.` The signal remains latched
+according to the DELETE policy above.
 
 ### Inventory/selection after outcomes
 
@@ -1541,7 +1620,8 @@ An already-dispatched network request may still complete remotely.
 
 Next launch starts fresh.
 
-Only protected IDs, the rate preference, and the theme preference persist.
+Only protected IDs, the rate and maximum-concurrency preferences, and the theme
+preference persist.
 
 ---
 
@@ -1588,7 +1668,7 @@ varied/null dates
 untitled conversations
 duplicates
 latency
-successful sequential deletion
+successful bounded deletion
 ```
 
 Automated tests cover malformed responses and relevant HTTP/network failures
@@ -1730,9 +1810,14 @@ Table
 Delete selected (N)
 ```
 
-Once a run exists, show a separate `Deletion operation` section between
+Once a run exists or confirmed preflight is pending, show a separate
+`Conversation deletion` section between
 Selection and the table. Keep progress, run alerts, statistics, and
 Pause/Resume/Stop/Retry controls in that section rather than Selection.
+Show one heading with the current status and one visible run-control set. The
+top safety surface continues to show canonical blockers and preserve operation
+transition announcements, but does not duplicate routine run status or run
+controls.
 
 ### Safety status
 
@@ -1762,6 +1847,8 @@ stop.
 ### Finished
 
 Show current-run result and failed items.
+
+Use `Completed with failures` when any items failed.
 
 If failed IDs can still be retried as part of the current run, Selection stays
 disabled. Once the run has no execute/resume/stop/retry path, Selection becomes
@@ -1871,7 +1958,7 @@ UI selection
 -> destructive-modal confirmation
 -> confirmed ID set
 -> atomic single-run lock
--> sequential rate-limited executor
+-> bounded rate-limited executor
 -> narrow ChatGPT DELETE operation
 ```
 

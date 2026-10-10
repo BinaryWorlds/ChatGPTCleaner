@@ -53,6 +53,7 @@ describe("useDeletionWorkflow retry command", () => {
       protectedConversationIds: new Set<string>(),
       selectedConversationIds: new Set(["failed"]),
       requestsPerMinute: 60,
+      maximumConcurrentDeleteRequests: 1,
       isProtectionMutationPending: () => false,
       onConversationRemoved: vi.fn(),
       onNotice: vi.fn(),

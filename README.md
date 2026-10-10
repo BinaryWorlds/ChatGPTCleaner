@@ -11,7 +11,7 @@ I created it because manually managing a ChatGPT history of more than 1,500 conv
 - Loads standalone conversations into a paginated table with filtering, sorting, and explicit selection.
 - Discovers Projects, enumerates their conversations, and presents them in a separate read-only view. Project conversations are excluded from deletion.
 - Stores locally protected standalone conversation IDs. Protection does not prevent selection; Delete reduces the selected set to its eligible, unprotected subset.
-- Deletes confirmed conversations sequentially with a configurable rate, retry handling, progress, and Pause, Resume, and Stop controls.
+- Deletes confirmed conversations with configurable attempt-start rate and bounded concurrency, retry handling, progress, and Pause, Resume, and Stop controls.
 
 ## Safety model
 
@@ -19,7 +19,7 @@ I created it because manually managing a ChatGPT history of more than 1,500 conv
 - Project membership is resolved while building the safety inventory. If a conversation appears in both sources, Project membership takes precedence and the conversation is excluded from destructive planning.
 - The selected set is validated against the accepted inventory and current local protection state to derive the deletable target. Deletion requires explicit confirmation.
 - After confirmation, there are no standalone or Project inventory reads. The manager acquires an exclusive Web Lock, reloads and validates local protected IDs while holding that lock, and removes newly protected conversations from the confirmed target. The target can shrink but cannot expand; Resume and Retry remain subsets of the same confirmed set.
-- DELETE attempts are sequential. The configured request rate applies to attempts, and only retryable failures use bounded retry handling.
+- DELETE attempts use one bounded scheduler. The configured start rate applies to initial attempts and retries, concurrency defaults to one, and only retryable failures use bounded retry handling.
 
 Closing or reloading the manager prevents new DELETE attempts from starting, although a request already sent to ChatGPT may still complete.
 
@@ -88,7 +88,7 @@ flowchart TB
     subgraph C["3. Execute deletion"]
         Lock["Acquire lock + reload protection"]
         Shrink["Shrink confirmed target only"]
-        Delete["Sequential DELETE"]
+        Delete["Bounded DELETE scheduler"]
         Result["Progress + result"]
         Confirm -->|No inventory refresh| Lock
         Lock --> Shrink
@@ -103,7 +103,7 @@ The inventory is established before confirmation. After confirmation, only local
 
 ChatGPTCleaner has no backend, analytics, telemetry, or remote logging. It uses the authenticated `chatgpt.com` tab from which the extension was launched to communicate with ChatGPT. Authentication credentials are not persisted in Chrome extension storage or logged by the extension.
 
-Chrome extension storage contains protected conversation IDs, the deletion-rate preference, and the theme preference. Conversation and Project inventories, confirmed deletion plans, deletion queues, and run history are not persisted.
+Chrome extension storage contains protected conversation IDs, deletion-rate and maximum-concurrency preferences, and the theme preference. Conversation and Project inventories, confirmed deletion plans, deletion queues, and run history are not persisted.
 
 See [PRIVACY.md](PRIVACY.md) for details.
 

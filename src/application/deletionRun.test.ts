@@ -4,11 +4,17 @@ import {
   confirmDeletionPlan,
   type ConfirmedDeletionPlan,
 } from "../domain/deletionPlan";
+import { AppConfig } from "../config";
 import type { Conversation } from "../domain/conversation";
 import type {
   DestructiveRunLock,
   LockResult,
 } from "./ports/DestructiveRunLock";
+import type {
+  DeleteAttemptEvents,
+  DeleteAttemptResult,
+} from "./ports/ConversationGateway";
+import { createAppError } from "./AppError";
 import { FakeClock } from "../infrastructure/fake/FakeClock";
 import { FakeConversationGateway } from "../infrastructure/fake/FakeConversationGateway";
 import { FakeDestructiveRunLock } from "../infrastructure/fake/FakeDestructiveRunLock";
@@ -72,6 +78,14 @@ async function settleAsyncWork(): Promise<void> {
   for (let turn = 0; turn < 50; turn += 1) {
     await Promise.resolve();
   }
+}
+
+async function advanceAndSettle(
+  clock: FakeClock,
+  milliseconds: number,
+): Promise<void> {
+  clock.advanceBy(milliseconds);
+  await settleAsyncWork();
 }
 
 class MutatingDestructiveRunLock implements DestructiveRunLock {
@@ -219,6 +233,142 @@ class ConcurrencyTrackingDeleteGateway extends FakeConversationGateway {
   }
 }
 
+class DeferredDeleteGateway extends FakeConversationGateway {
+  public activeDeletes = 0;
+  public maxActiveDeletes = 0;
+  public sameIdOverlap = false;
+  private readonly activeIds = new Set<string>();
+  private readonly pendingAttempts: Array<{
+    readonly id: string;
+    readonly events?: DeleteAttemptEvents;
+    readonly resolve: (result: DeleteAttemptResult) => void;
+    readonly reject: (cause: unknown) => void;
+  }> = [];
+
+  public constructor(private readonly schedulingClock: FakeClock) {
+    super(fixtureForDeletion([], {}), schedulingClock);
+  }
+
+  public override deleteConversation(
+    conversationId: string,
+    events?: DeleteAttemptEvents,
+  ): Promise<DeleteAttemptResult> {
+    this.deleteAttempts.push({
+      id: conversationId,
+      startedAt: this.schedulingClock.now(),
+    });
+    if (this.activeIds.has(conversationId)) this.sameIdOverlap = true;
+    this.activeIds.add(conversationId);
+    this.activeDeletes += 1;
+    this.maxActiveDeletes = Math.max(this.maxActiveDeletes, this.activeDeletes);
+
+    return new Promise((resolve, reject) => {
+      this.pendingAttempts.push({
+        id: conversationId,
+        ...(events === undefined ? {} : { events }),
+        resolve: (result) => {
+          this.finish(conversationId);
+          resolve(result);
+        },
+        reject: (cause) => {
+          this.finish(conversationId);
+          reject(cause instanceof Error ? cause : new Error("Rejected"));
+        },
+      });
+    });
+  }
+
+  public resolveNext(
+    conversationId: string,
+    result: DeleteAttemptResult,
+  ): void {
+    const index = this.pendingAttempts.findIndex(
+      ({ id }) => id === conversationId,
+    );
+    const pending = this.pendingAttempts[index];
+    if (pending === undefined) throw new Error(`No active ${conversationId}`);
+    this.pendingAttempts.splice(index, 1);
+    pending.resolve(result);
+  }
+
+  public rejectNext(conversationId: string, cause: unknown): void {
+    const index = this.pendingAttempts.findIndex(
+      ({ id }) => id === conversationId,
+    );
+    const pending = this.pendingAttempts[index];
+    if (pending === undefined) throw new Error(`No active ${conversationId}`);
+    this.pendingAttempts.splice(index, 1);
+    pending.reject(cause);
+  }
+
+  public reportSlowResponse(conversationId: string): void {
+    this.slowResponseCallback(conversationId)();
+  }
+
+  public slowResponseCallback(conversationId: string): () => void {
+    const pending = this.pendingAttempts.find(
+      ({ id }) => id === conversationId,
+    );
+    if (pending === undefined) throw new Error(`No active ${conversationId}`);
+    const callback = pending.events?.onResponseSlow;
+    if (callback === undefined)
+      throw new Error(`No slow event for ${conversationId}`);
+    return callback;
+  }
+
+  private finish(conversationId: string): void {
+    this.activeDeletes -= 1;
+    this.activeIds.delete(conversationId);
+  }
+}
+
+const deletedResult: DeleteAttemptResult = { kind: "deleted", status: 204 };
+const retryableServerResult = {
+  kind: "retryable",
+  reason: "server",
+} satisfies DeleteAttemptResult;
+const retryableDeleteTimeoutResult = {
+  kind: "retryable",
+  reason: "delete-timeout",
+  status: 500,
+} satisfies DeleteAttemptResult;
+const retryableNetworkResult = {
+  kind: "retryable",
+  reason: "network",
+} satisfies DeleteAttemptResult;
+
+function createRunWithRetryDeleteTimeouts(
+  retryDeleteTimeouts: boolean,
+  input: ConstructorParameters<typeof DeletionRun>[0],
+): DeletionRun {
+  const originalValue = AppConfig.deletion.retryDeleteTimeouts;
+  if (
+    !Reflect.set(AppConfig.deletion, "retryDeleteTimeouts", retryDeleteTimeouts)
+  ) {
+    throw new Error("Could not override retryDeleteTimeouts for test");
+  }
+  try {
+    return new DeletionRun(input);
+  } finally {
+    Reflect.set(AppConfig.deletion, "retryDeleteTimeouts", originalValue);
+  }
+}
+
+async function exhaustActiveDeletion(
+  clock: FakeClock,
+  gateway: DeferredDeleteGateway,
+  conversationId: string,
+  finalResult: Extract<DeleteAttemptResult, { readonly kind: "retryable" }>,
+): Promise<void> {
+  for (const retryDelayMs of [1_000, 2_000, 4_000, 8_000]) {
+    gateway.resolveNext(conversationId, retryableServerResult);
+    await settleAsyncWork();
+    await advanceAndSettle(clock, retryDelayMs);
+  }
+  gateway.resolveNext(conversationId, finalResult);
+  await settleAsyncWork();
+}
+
 describe("deletion workflow ownership", () => {
   const progress: DeletionRunProgress = {
     total: 1,
@@ -232,8 +382,10 @@ describe("deletion workflow ownership", () => {
     activeElapsedMs: 0,
     etaMs: 0,
     paused: false,
-    currentConversationId: null,
+    activeRequestCount: 0,
+    maximumConcurrentDeleteRequests: 1,
     failedConversationIds: [],
+    slowDeleteResponseDetected: false,
   };
 
   it.each(["running", "pausing", "paused", "stopping"] as const)(
@@ -318,7 +470,411 @@ describe("destructive run", () => {
     },
   );
 
-  it("keeps DELETE strictly sequential with one request in flight", async () => {
+  it.each([0, 21, 1.5, Number.NaN])(
+    "rejects an invalid maximum concurrent DELETE value: %s",
+    (maximumConcurrentDeleteRequests) => {
+      const clock = new FakeClock();
+      expect(
+        () =>
+          new DeletionRun({
+            confirmedPlan: confirmedPlan(["one"]),
+            requestsPerMinute: 60,
+            maximumConcurrentDeleteRequests,
+            gateway: new FakeConversationGateway(
+              fixtureForDeletion(["one"], {}),
+              clock,
+            ),
+            protectedConversationStore: new FakeProtectedConversationStore(),
+            clock,
+            destructiveRunLock: new FakeDestructiveRunLock(),
+          }),
+      ).toThrow(RangeError);
+    },
+  );
+
+  it.each([2, 3, 4, 20])(
+    "reaches concurrency %i, never exceeds it, and fills a released slot",
+    async (maximumConcurrentDeleteRequests) => {
+      const ids = Array.from(
+        { length: maximumConcurrentDeleteRequests + 1 },
+        (_, index) => `conversation-${index}`,
+      );
+      const clock = new FakeClock(0, false);
+      const gateway = new DeferredDeleteGateway(clock);
+      const run = new DeletionRun({
+        confirmedPlan: confirmedPlan(ids),
+        requestsPerMinute: 120,
+        maximumConcurrentDeleteRequests,
+        gateway,
+        protectedConversationStore: new FakeProtectedConversationStore(),
+        clock,
+        destructiveRunLock: new FakeDestructiveRunLock(),
+      });
+
+      const completion = run.startDeletion();
+      await settleAsyncWork();
+      for (let index = 1; index < maximumConcurrentDeleteRequests; index += 1) {
+        await advanceAndSettle(clock, 500);
+      }
+      expect(gateway.activeDeletes).toBe(maximumConcurrentDeleteRequests);
+      expect(gateway.maxActiveDeletes).toBe(maximumConcurrentDeleteRequests);
+
+      await advanceAndSettle(clock, 10_000);
+      expect(gateway.deleteAttempts).toHaveLength(
+        maximumConcurrentDeleteRequests,
+      );
+      gateway.resolveNext(ids[0] ?? "", deletedResult);
+      await settleAsyncWork();
+      expect(gateway.deleteAttempts).toHaveLength(
+        maximumConcurrentDeleteRequests + 1,
+      );
+      expect(gateway.sameIdOverlap).toBe(false);
+
+      for (const id of ids.slice(1)) gateway.resolveNext(id, deletedResult);
+      await expect(completion).resolves.toMatchObject({ kind: "finished" });
+      expect(gateway.maxActiveDeletes).toBe(maximumConcurrentDeleteRequests);
+    },
+  );
+
+  it("does not catch up with a burst after a full concurrency slot", async () => {
+    const clock = new FakeClock(0, false);
+    const gateway = new DeferredDeleteGateway(clock);
+    const run = new DeletionRun({
+      confirmedPlan: confirmedPlan(["one", "two", "three"]),
+      requestsPerMinute: 120,
+      maximumConcurrentDeleteRequests: 1,
+      gateway,
+      protectedConversationStore: new FakeProtectedConversationStore(),
+      clock,
+      destructiveRunLock: new FakeDestructiveRunLock(),
+    });
+
+    const completion = run.startDeletion();
+    await settleAsyncWork();
+    await advanceAndSettle(clock, 10_000);
+    gateway.resolveNext("one", deletedResult);
+    await settleAsyncWork();
+    expect(gateway.deleteAttempts.map(({ id }) => id)).toEqual(["one", "two"]);
+    gateway.resolveNext("two", deletedResult);
+    await settleAsyncWork();
+    expect(gateway.deleteAttempts).toHaveLength(2);
+    await advanceAndSettle(clock, 499);
+    expect(gateway.deleteAttempts).toHaveLength(2);
+    await advanceAndSettle(clock, 1);
+    expect(gateway.deleteAttempts.map(({ id }) => id)).toEqual([
+      "one",
+      "two",
+      "three",
+    ]);
+    gateway.resolveNext("three", deletedResult);
+    await expect(completion).resolves.toMatchObject({ kind: "finished" });
+  });
+
+  it("shares actual-start limiting across initial attempts and retries without blocking unrelated work", async () => {
+    const clock = new FakeClock(0, false);
+    const gateway = new DeferredDeleteGateway(clock);
+    const run = new DeletionRun({
+      confirmedPlan: confirmedPlan(["retry", "unrelated"]),
+      requestsPerMinute: 120,
+      maximumConcurrentDeleteRequests: 2,
+      gateway,
+      protectedConversationStore: new FakeProtectedConversationStore(),
+      clock,
+      destructiveRunLock: new FakeDestructiveRunLock(),
+    });
+
+    const completion = run.startDeletion();
+    await settleAsyncWork();
+    gateway.resolveNext("retry", { kind: "retryable", reason: "server" });
+    await settleAsyncWork();
+    await advanceAndSettle(clock, 500);
+    expect(gateway.deleteAttempts).toEqual([
+      { id: "retry", startedAt: 0 },
+      { id: "unrelated", startedAt: 500 },
+    ]);
+    gateway.resolveNext("unrelated", deletedResult);
+    await settleAsyncWork();
+    await advanceAndSettle(clock, 500);
+    expect(gateway.deleteAttempts.at(-1)).toEqual({
+      id: "retry",
+      startedAt: 1_000,
+    });
+    expect(gateway.sameIdOverlap).toBe(false);
+    gateway.resolveNext("retry", deletedResult);
+    await expect(completion).resolves.toMatchObject({ kind: "finished" });
+  });
+
+  it("applies Retry-After as a global cooldown for every new start", async () => {
+    const clock = new FakeClock(0, false);
+    const gateway = new DeferredDeleteGateway(clock);
+    const run = new DeletionRun({
+      confirmedPlan: confirmedPlan(["limited", "other"]),
+      requestsPerMinute: 120,
+      maximumConcurrentDeleteRequests: 2,
+      gateway,
+      protectedConversationStore: new FakeProtectedConversationStore(),
+      clock,
+      destructiveRunLock: new FakeDestructiveRunLock(),
+    });
+
+    const completion = run.startDeletion();
+    await settleAsyncWork();
+    gateway.resolveNext("limited", {
+      kind: "retryable",
+      reason: "rate-limit",
+      retryAfterMs: 2_000,
+      status: 429,
+    });
+    await settleAsyncWork();
+    await advanceAndSettle(clock, 1_999);
+    expect(gateway.deleteAttempts).toHaveLength(1);
+    await advanceAndSettle(clock, 1);
+    expect(gateway.deleteAttempts.at(-1)?.startedAt).toBe(2_000);
+    gateway.resolveNext("limited", deletedResult);
+    await advanceAndSettle(clock, 500);
+    gateway.resolveNext("other", deletedResult);
+    await expect(completion).resolves.toMatchObject({ kind: "finished" });
+  });
+
+  it("keeps the longest absolute cooldown when overlapping 429 responses settle out of order", async () => {
+    const clock = new FakeClock(0, false);
+    const gateway = new DeferredDeleteGateway(clock);
+    const run = new DeletionRun({
+      confirmedPlan: confirmedPlan(["first", "second", "third"]),
+      requestsPerMinute: 120,
+      maximumConcurrentDeleteRequests: 2,
+      gateway,
+      protectedConversationStore: new FakeProtectedConversationStore(),
+      clock,
+      destructiveRunLock: new FakeDestructiveRunLock(),
+    });
+
+    const completion = run.startDeletion();
+    await settleAsyncWork();
+    await advanceAndSettle(clock, 500);
+    gateway.resolveNext("second", {
+      kind: "retryable",
+      reason: "rate-limit",
+      retryAfterMs: 5_000,
+      status: 429,
+    });
+    await settleAsyncWork();
+    await advanceAndSettle(clock, 500);
+    gateway.resolveNext("first", {
+      kind: "retryable",
+      reason: "rate-limit",
+      retryAfterMs: 2_000,
+      status: 429,
+    });
+    await settleAsyncWork();
+
+    await advanceAndSettle(clock, 4_499);
+    expect(gateway.deleteAttempts).toHaveLength(2);
+    await advanceAndSettle(clock, 1);
+    expect(gateway.deleteAttempts.at(-1)).toEqual({
+      id: "first",
+      startedAt: 5_500,
+    });
+
+    gateway.resolveNext("first", deletedResult);
+    await settleAsyncWork();
+    await advanceAndSettle(clock, 500);
+    gateway.resolveNext("second", deletedResult);
+    await settleAsyncWork();
+    await advanceAndSettle(clock, 500);
+    gateway.resolveNext("third", deletedResult);
+    await expect(completion).resolves.toMatchObject({ kind: "finished" });
+  });
+
+  it("does not infer a slow DELETE from gateway duration and ignores a stale signal", async () => {
+    const clock = new FakeClock(0, false);
+    const gateway = new DeferredDeleteGateway(clock);
+    const run = new DeletionRun({
+      confirmedPlan: confirmedPlan(["one"]),
+      requestsPerMinute: 120,
+      gateway,
+      protectedConversationStore: new FakeProtectedConversationStore(),
+      clock,
+      destructiveRunLock: new FakeDestructiveRunLock(),
+    });
+
+    const completion = run.startDeletion();
+    await settleAsyncWork();
+    const staleSlowResponse = gateway.slowResponseCallback("one");
+    await advanceAndSettle(clock, 10_000);
+    expect(run.getState().progress.slowDeleteResponseDetected).toBe(false);
+
+    gateway.resolveNext("one", deletedResult);
+    await expect(completion).resolves.toMatchObject({
+      kind: "finished",
+      progress: { slowDeleteResponseDetected: false },
+    });
+    staleSlowResponse();
+    expect(run.getState().progress.slowDeleteResponseDetected).toBe(false);
+  });
+
+  it("does not latch the notice during scheduler spacing or retry backoff", async () => {
+    const clock = new FakeClock(0, false);
+    const gateway = new DeferredDeleteGateway(clock);
+    const run = new DeletionRun({
+      confirmedPlan: confirmedPlan(["retry", "waiting"]),
+      requestsPerMinute: 120,
+      maximumConcurrentDeleteRequests: 2,
+      gateway,
+      protectedConversationStore: new FakeProtectedConversationStore(),
+      clock,
+      destructiveRunLock: new FakeDestructiveRunLock(),
+    });
+
+    const completion = run.startDeletion();
+    await settleAsyncWork();
+    gateway.resolveNext("retry", retryableServerResult);
+    await settleAsyncWork();
+    await advanceAndSettle(clock, 499);
+    expect(gateway.deleteAttempts).toHaveLength(1);
+    expect(run.getState().progress.slowDeleteResponseDetected).toBe(false);
+
+    await advanceAndSettle(clock, 1);
+    expect(gateway.deleteAttempts.at(-1)?.id).toBe("waiting");
+    gateway.resolveNext("waiting", deletedResult);
+    await settleAsyncWork();
+    await advanceAndSettle(clock, 500);
+    expect(gateway.deleteAttempts.at(-1)?.id).toBe("retry");
+    expect(run.getState().progress.slowDeleteResponseDetected).toBe(false);
+
+    gateway.resolveNext("retry", deletedResult);
+    await expect(completion).resolves.toMatchObject({
+      kind: "finished",
+      progress: { slowDeleteResponseDetected: false },
+    });
+  });
+
+  it("latches a slow DELETE through Pause, Resume, and Stop", async () => {
+    const clock = new FakeClock(0, false);
+    const gateway = new DeferredDeleteGateway(clock);
+    const run = new DeletionRun({
+      confirmedPlan: confirmedPlan(["one"]),
+      requestsPerMinute: 120,
+      gateway,
+      protectedConversationStore: new FakeProtectedConversationStore(),
+      clock,
+      destructiveRunLock: new FakeDestructiveRunLock(),
+    });
+
+    const completion = run.startDeletion();
+    await settleAsyncWork();
+    gateway.reportSlowResponse("one");
+    expect(run.getState()).toMatchObject({
+      kind: "running",
+      progress: { slowDeleteResponseDetected: true },
+    });
+
+    run.pauseDeletion();
+    expect(run.getState()).toMatchObject({
+      kind: "pausing",
+      progress: { slowDeleteResponseDetected: true },
+    });
+    gateway.resolveNext("one", retryableServerResult);
+    await settleAsyncWork();
+    expect(run.getState()).toMatchObject({
+      kind: "paused",
+      progress: { slowDeleteResponseDetected: true },
+    });
+
+    run.resumeDeletion();
+    await settleAsyncWork();
+    expect(run.getState()).toMatchObject({
+      kind: "running",
+      progress: { slowDeleteResponseDetected: true },
+    });
+    run.stopDeletion();
+    await expect(completion).resolves.toMatchObject({
+      kind: "stopped",
+      progress: { slowDeleteResponseDetected: true },
+    });
+  });
+
+  it("latches a slow DELETE through Fatal", async () => {
+    const clock = new FakeClock(0, false);
+    const gateway = new DeferredDeleteGateway(clock);
+    const run = new DeletionRun({
+      confirmedPlan: confirmedPlan(["fatal"]),
+      requestsPerMinute: 120,
+      gateway,
+      protectedConversationStore: new FakeProtectedConversationStore(),
+      clock,
+      destructiveRunLock: new FakeDestructiveRunLock(),
+    });
+
+    const completion = run.startDeletion();
+    await settleAsyncWork();
+    gateway.reportSlowResponse("fatal");
+    gateway.resolveNext("fatal", {
+      kind: "fatal",
+      reason: "authorization",
+      error: createAppError("AuthorizationDenied", {
+        operation: "conversation.delete",
+      }),
+      status: 403,
+    });
+
+    await expect(completion).resolves.toMatchObject({
+      kind: "fatal",
+      progress: { slowDeleteResponseDetected: true },
+    });
+  });
+
+  it("latches a slow DELETE through completion and Retry Failed, then resets for a new run", async () => {
+    const clock = new FakeClock(0, false);
+    const gateway = new DeferredDeleteGateway(clock);
+    const run = new DeletionRun({
+      confirmedPlan: confirmedPlan(["failed"]),
+      requestsPerMinute: 120,
+      gateway,
+      protectedConversationStore: new FakeProtectedConversationStore(),
+      clock,
+      destructiveRunLock: new FakeDestructiveRunLock(),
+    });
+
+    const initialCompletion = run.startDeletion();
+    await settleAsyncWork();
+    gateway.reportSlowResponse("failed");
+    await exhaustActiveDeletion(
+      clock,
+      gateway,
+      "failed",
+      retryableServerResult,
+    );
+    await expect(initialCompletion).resolves.toMatchObject({
+      kind: "finished",
+      progress: { failed: 1, slowDeleteResponseDetected: true },
+    });
+
+    const retryCompletion = run.retryFailedDeletion();
+    await settleAsyncWork();
+    expect(run.getState().progress.slowDeleteResponseDetected).toBe(true);
+    await advanceAndSettle(clock, 500);
+    gateway.resolveNext("failed", deletedResult);
+    await expect(retryCompletion).resolves.toMatchObject({
+      kind: "finished",
+      progress: { slowDeleteResponseDetected: true },
+    });
+
+    const nextRun = new DeletionRun({
+      confirmedPlan: confirmedPlan(["new"]),
+      requestsPerMinute: 120,
+      gateway: new DeferredDeleteGateway(clock),
+      protectedConversationStore: new FakeProtectedConversationStore(),
+      clock,
+      destructiveRunLock: new FakeDestructiveRunLock(),
+    });
+    expect(nextRun.getState()).toMatchObject({
+      kind: "ready",
+      progress: { slowDeleteResponseDetected: false },
+    });
+  });
+
+  it("preserves sequential behavior at the default concurrency", async () => {
     const ids = ["one", "two", "three"];
     const clock = new FakeClock();
     const gateway = new ConcurrencyTrackingDeleteGateway(
@@ -363,7 +919,7 @@ describe("destructive run", () => {
     ]);
   });
 
-  it("handles success, 404, 410, retries, and sequential rate limiting", async () => {
+  it("handles success, 404, 410, retries, and shared rate limiting", async () => {
     const ids = ["success", "gone", "removed", "limited", "server", "network"];
     const removedIds: string[] = [];
     const clock = new FakeClock();
@@ -404,6 +960,158 @@ describe("destructive run", () => {
         1_000,
       );
     }
+  });
+
+  it.each([404, 410] as const)(
+    "retries an explicit DELETE timeout, then counts terminal %i once while queued work continues",
+    async (terminalStatus) => {
+      const clock = new FakeClock(0, false);
+      const gateway = new DeferredDeleteGateway(clock);
+      const removedIds: string[] = [];
+      const run = createRunWithRetryDeleteTimeouts(true, {
+        confirmedPlan: confirmedPlan(["timeout", "queued"]),
+        requestsPerMinute: 120,
+        maximumConcurrentDeleteRequests: 2,
+        gateway,
+        protectedConversationStore: new FakeProtectedConversationStore(),
+        clock,
+        destructiveRunLock: new FakeDestructiveRunLock(),
+        onConversationRemoved: (id) => removedIds.push(id),
+      });
+
+      const completion = run.startDeletion();
+      await settleAsyncWork();
+      await advanceAndSettle(clock, 500);
+      gateway.resolveNext("timeout", retryableDeleteTimeoutResult);
+      gateway.resolveNext("queued", deletedResult);
+      await settleAsyncWork();
+
+      expect(run.getState()).toMatchObject({
+        kind: "running",
+        progress: {
+          processed: 1,
+          deleted: 1,
+          skipped: 0,
+          failed: 0,
+          retries: 1,
+          remaining: 1,
+        },
+      });
+      await advanceAndSettle(clock, 999);
+      expect(gateway.deleteAttempts).toHaveLength(2);
+      await advanceAndSettle(clock, 1);
+      gateway.resolveNext("timeout", {
+        kind: "skipped",
+        status: terminalStatus,
+      });
+
+      await expect(completion).resolves.toMatchObject({
+        kind: "finished",
+        progress: {
+          processed: 2,
+          deleted: 1,
+          skipped: 1,
+          failed: 0,
+          retries: 1,
+          remaining: 0,
+        },
+      });
+      expect(gateway.deleteAttempts.map(({ id }) => id)).toEqual([
+        "timeout",
+        "queued",
+        "timeout",
+      ]);
+      expect(removedIds).toEqual(["queued", "timeout"]);
+      expect(new Set(removedIds).size).toBe(2);
+    },
+  );
+
+  it("fails a DELETE timeout without automatic retry when disabled, while other retries and Retry Failed continue", async () => {
+    const clock = new FakeClock(0, false);
+    const gateway = new DeferredDeleteGateway(clock);
+    const run = createRunWithRetryDeleteTimeouts(false, {
+      confirmedPlan: confirmedPlan(["timeout", "server", "network", "queued"]),
+      requestsPerMinute: 120,
+      maximumConcurrentDeleteRequests: 4,
+      gateway,
+      protectedConversationStore: new FakeProtectedConversationStore(),
+      clock,
+      destructiveRunLock: new FakeDestructiveRunLock(),
+    });
+
+    const completion = run.startDeletion();
+    await settleAsyncWork();
+    await advanceAndSettle(clock, 500);
+    await advanceAndSettle(clock, 500);
+    await advanceAndSettle(clock, 500);
+    gateway.resolveNext("timeout", retryableDeleteTimeoutResult);
+    gateway.resolveNext("server", retryableServerResult);
+    gateway.resolveNext("network", retryableNetworkResult);
+    gateway.resolveNext("queued", deletedResult);
+    await settleAsyncWork();
+
+    expect(run.getState()).toMatchObject({
+      kind: "running",
+      progress: {
+        processed: 2,
+        deleted: 1,
+        failed: 1,
+        retries: 2,
+        remaining: 2,
+        failedConversationIds: ["timeout"],
+      },
+    });
+    await advanceAndSettle(clock, 999);
+    expect(gateway.deleteAttempts).toHaveLength(4);
+    await advanceAndSettle(clock, 1);
+    gateway.resolveNext("server", deletedResult);
+    await settleAsyncWork();
+    await advanceAndSettle(clock, 500);
+    gateway.resolveNext("network", deletedResult);
+
+    await expect(completion).resolves.toMatchObject({
+      kind: "finished",
+      progress: {
+        processed: 4,
+        deleted: 3,
+        failed: 1,
+        retries: 2,
+        remaining: 0,
+        failedConversationIds: ["timeout"],
+      },
+    });
+    expect(gateway.deleteAttempts.map(({ id }) => id)).toEqual([
+      "timeout",
+      "server",
+      "network",
+      "queued",
+      "server",
+      "network",
+    ]);
+
+    const manualRetry = run.retryFailedDeletion();
+    await settleAsyncWork();
+    await advanceAndSettle(clock, 500);
+    gateway.resolveNext("timeout", deletedResult);
+
+    await expect(manualRetry).resolves.toMatchObject({
+      kind: "finished",
+      progress: {
+        processed: 1,
+        deleted: 1,
+        failed: 0,
+        remaining: 0,
+      },
+    });
+    expect(gateway.deleteAttempts.map(({ id }) => id)).toEqual([
+      "timeout",
+      "server",
+      "network",
+      "queued",
+      "server",
+      "network",
+      "timeout",
+    ]);
   });
 
   it.each([
@@ -465,9 +1173,9 @@ describe("destructive run", () => {
     expect(fatalState).toMatchObject({
       kind: "fatal",
       reason: "authorization",
-      progress: { failedConversationIds: ["failed"] },
+      progress: { failedConversationIds: [] },
     });
-    expect(attemptsBeforeRetry).toBe(6);
+    expect(attemptsBeforeRetry).toBe(3);
     expect(await run.retryFailedDeletion()).toBe(fatalState);
     expect(gateway.deleteAttempts).toHaveLength(attemptsBeforeRetry);
   });
@@ -507,7 +1215,7 @@ describe("destructive run", () => {
       progress: { failed: 2, deleted: 1, processed: 3 },
     });
     expect(removedIds).toEqual(["success"]);
-    expect(gateway.deleteAttempts.at(-1)?.id).toBe("success");
+    expect(gateway.deleteAttempts.map(({ id }) => id)).toContain("success");
   });
 
   it("logs destructive ordinals without IDs and only one terminal fatal error", async () => {
@@ -565,6 +1273,128 @@ describe("destructive run", () => {
         ({ event }) => event === "deletion.attempt.retry",
       ),
     ).toBe(true);
+  });
+
+  it("keeps captured scheduling settings for Retry Failed", async () => {
+    const clock = new FakeClock();
+    const observability = new CapturingObservability();
+    const gateway = new FakeConversationGateway(
+      fixtureForDeletion(["failed"], {
+        failed: [500, 500, 500, 500, 500, "success"],
+      }),
+      clock,
+    );
+    const mutableInput = {
+      confirmedPlan: confirmedPlan(["failed"]),
+      requestsPerMinute: 120,
+      maximumConcurrentDeleteRequests: 1,
+      gateway,
+      protectedConversationStore: new FakeProtectedConversationStore(),
+      clock,
+      destructiveRunLock: new FakeDestructiveRunLock(),
+      observability,
+    };
+    const run = new DeletionRun(mutableInput);
+
+    expect((await run.startDeletion()).progress.failed).toBe(1);
+    mutableInput.requestsPerMinute = 1;
+    mutableInput.maximumConcurrentDeleteRequests = 4;
+    const retried = await run.retryFailedDeletion();
+
+    expect(retried).toMatchObject({
+      kind: "finished",
+      progress: {
+        requestsPerMinute: 120,
+        maximumConcurrentDeleteRequests: 1,
+      },
+    });
+    expect(
+      observability.entries
+        .filter(({ event }) => event === "deletion.run.started")
+        .map(({ fields }) => fields?.maximumConcurrentDeleteRequests),
+    ).toEqual([1, 1]);
+  });
+
+  it("preserves the remaining global cooldown across Retry Failed", async () => {
+    const clock = new FakeClock(0, false);
+    const gateway = new DeferredDeleteGateway(clock);
+    const run = new DeletionRun({
+      confirmedPlan: confirmedPlan(["limited"]),
+      requestsPerMinute: 120,
+      maximumConcurrentDeleteRequests: 1,
+      gateway,
+      protectedConversationStore: new FakeProtectedConversationStore(),
+      clock,
+      destructiveRunLock: new FakeDestructiveRunLock(),
+    });
+
+    const initialCompletion = run.startDeletion();
+    await settleAsyncWork();
+    await exhaustActiveDeletion(clock, gateway, "limited", {
+      kind: "retryable",
+      reason: "rate-limit",
+      retryAfterMs: 2_000,
+      status: 429,
+    });
+    await expect(initialCompletion).resolves.toMatchObject({
+      kind: "finished",
+      progress: { failed: 1 },
+    });
+
+    const retryCompletion = run.retryFailedDeletion();
+    await settleAsyncWork();
+    expect(gateway.deleteAttempts).toHaveLength(5);
+    await advanceAndSettle(clock, 1_999);
+    expect(gateway.deleteAttempts).toHaveLength(5);
+    await advanceAndSettle(clock, 1);
+    expect(gateway.deleteAttempts.at(-1)).toEqual({
+      id: "limited",
+      startedAt: 17_000,
+    });
+
+    gateway.resolveNext("limited", deletedResult);
+    await expect(retryCompletion).resolves.toMatchObject({ kind: "finished" });
+  });
+
+  it("preserves only the remaining start interval across Retry Failed", async () => {
+    const clock = new FakeClock(0, false);
+    const gateway = new DeferredDeleteGateway(clock);
+    const run = new DeletionRun({
+      confirmedPlan: confirmedPlan(["failed"]),
+      requestsPerMinute: 120,
+      maximumConcurrentDeleteRequests: 1,
+      gateway,
+      protectedConversationStore: new FakeProtectedConversationStore(),
+      clock,
+      destructiveRunLock: new FakeDestructiveRunLock(),
+    });
+
+    const initialCompletion = run.startDeletion();
+    await settleAsyncWork();
+    await exhaustActiveDeletion(
+      clock,
+      gateway,
+      "failed",
+      retryableServerResult,
+    );
+    await expect(initialCompletion).resolves.toMatchObject({
+      kind: "finished",
+      progress: { failed: 1 },
+    });
+
+    const retryCompletion = run.retryFailedDeletion();
+    await settleAsyncWork();
+    expect(gateway.deleteAttempts).toHaveLength(5);
+    await advanceAndSettle(clock, 499);
+    expect(gateway.deleteAttempts).toHaveLength(5);
+    await advanceAndSettle(clock, 1);
+    expect(gateway.deleteAttempts.at(-1)).toEqual({
+      id: "failed",
+      startedAt: 15_500,
+    });
+
+    gateway.resolveNext("failed", deletedResult);
+    await expect(retryCompletion).resolves.toMatchObject({ kind: "finished" });
   });
 
   it("maps an exhausted rate limit to RATE_LIMITED without a terminal run error", async () => {
@@ -804,6 +1634,45 @@ describe("destructive run", () => {
     expect(removedIds).toEqual(["a", "b"]);
   });
 
+  it("keeps captured scheduling settings across Pause and Resume", async () => {
+    const clock = new FakeClock(0, false);
+    const gateway = new DeferredDeleteGateway(clock);
+    const mutableInput = {
+      confirmedPlan: confirmedPlan(["one", "two", "three"]),
+      requestsPerMinute: 120,
+      maximumConcurrentDeleteRequests: 1,
+      gateway,
+      protectedConversationStore: new FakeProtectedConversationStore(),
+      clock,
+      destructiveRunLock: new FakeDestructiveRunLock(),
+    };
+    const run = new DeletionRun(mutableInput);
+
+    const completion = run.startDeletion();
+    await settleAsyncWork();
+    mutableInput.requestsPerMinute = 1;
+    mutableInput.maximumConcurrentDeleteRequests = 4;
+    run.pauseDeletion();
+    gateway.resolveNext("one", deletedResult);
+    await settleAsyncWork();
+    expect(run.getState().kind).toBe("paused");
+    run.resumeDeletion();
+    await settleAsyncWork();
+    await advanceAndSettle(clock, 500);
+    expect(gateway.deleteAttempts.map(({ id }) => id)).toEqual(["one", "two"]);
+    await advanceAndSettle(clock, 10_000);
+    expect(gateway.deleteAttempts).toHaveLength(2);
+    gateway.resolveNext("two", deletedResult);
+    await settleAsyncWork();
+    expect(gateway.deleteAttempts.map(({ id }) => id)).toEqual([
+      "one",
+      "two",
+      "three",
+    ]);
+    gateway.resolveNext("three", deletedResult);
+    await expect(completion).resolves.toMatchObject({ kind: "finished" });
+  });
+
   it("lets an in-flight attempt finish and holds the lock while paused", async () => {
     const ids = ["a", "b"];
     const clock = new FakeClock(0, false);
@@ -836,6 +1705,269 @@ describe("destructive run", () => {
     run.stopDeletion();
     expect((await completion).kind).toBe("stopped");
     expect(sharedLockState.active).toBe(false);
+  });
+
+  it("closes Pause immediately, drains concurrent attempts, and leaves retry work pending", async () => {
+    const clock = new FakeClock(0, false);
+    const gateway = new DeferredDeleteGateway(clock);
+    const run = new DeletionRun({
+      confirmedPlan: confirmedPlan(["retry", "active", "not-started"]),
+      requestsPerMinute: 120,
+      maximumConcurrentDeleteRequests: 2,
+      gateway,
+      protectedConversationStore: new FakeProtectedConversationStore(),
+      clock,
+      destructiveRunLock: new FakeDestructiveRunLock(),
+    });
+
+    const completion = run.startDeletion();
+    await settleAsyncWork();
+    await advanceAndSettle(clock, 500);
+    run.pauseDeletion();
+    expect(run.getState()).toMatchObject({
+      kind: "pausing",
+      progress: { activeRequestCount: 2 },
+    });
+    gateway.resolveNext("retry", { kind: "retryable", reason: "server" });
+    await settleAsyncWork();
+    expect(run.getState()).toMatchObject({
+      kind: "pausing",
+      progress: { activeRequestCount: 1, retries: 1 },
+    });
+    await advanceAndSettle(clock, 10_000);
+    expect(gateway.deleteAttempts).toHaveLength(2);
+    gateway.resolveNext("active", deletedResult);
+    await settleAsyncWork();
+    expect(run.getState()).toMatchObject({
+      kind: "paused",
+      progress: { activeRequestCount: 0 },
+    });
+    run.stopDeletion();
+    await expect(completion).resolves.toMatchObject({ kind: "stopped" });
+    expect(gateway.deleteAttempts).toHaveLength(2);
+  });
+
+  it("resumes successful, retryable, and not-started work after a concurrent Pause drain without replay", async () => {
+    const clock = new FakeClock(0, false);
+    const gateway = new DeferredDeleteGateway(clock);
+    const removedIds: string[] = [];
+    const run = new DeletionRun({
+      confirmedPlan: confirmedPlan(["success", "retry", "not-started"]),
+      requestsPerMinute: 120,
+      maximumConcurrentDeleteRequests: 2,
+      gateway,
+      protectedConversationStore: new FakeProtectedConversationStore(),
+      clock,
+      destructiveRunLock: new FakeDestructiveRunLock(),
+      onConversationRemoved: (id) => removedIds.push(id),
+    });
+
+    const completion = run.startDeletion();
+    await settleAsyncWork();
+    await advanceAndSettle(clock, 500);
+    run.pauseDeletion();
+    gateway.resolveNext("retry", retryableServerResult);
+    gateway.resolveNext("success", deletedResult);
+    await settleAsyncWork();
+
+    expect(run.getState()).toMatchObject({
+      kind: "paused",
+      progress: {
+        activeRequestCount: 0,
+        deleted: 1,
+        retries: 1,
+        remaining: 2,
+      },
+    });
+    expect(gateway.deleteAttempts.map(({ id }) => id)).toEqual([
+      "success",
+      "retry",
+    ]);
+    expect(removedIds).toEqual(["success"]);
+
+    run.resumeDeletion();
+    await settleAsyncWork();
+    await advanceAndSettle(clock, 500);
+    expect(gateway.deleteAttempts.at(-1)).toEqual({
+      id: "not-started",
+      startedAt: 1_000,
+    });
+    gateway.resolveNext("not-started", deletedResult);
+    await settleAsyncWork();
+    await advanceAndSettle(clock, 500);
+    expect(gateway.deleteAttempts.at(-1)).toEqual({
+      id: "retry",
+      startedAt: 1_500,
+    });
+    gateway.resolveNext("retry", deletedResult);
+
+    await expect(completion).resolves.toMatchObject({
+      kind: "finished",
+      progress: { deleted: 3, retries: 1, remaining: 0 },
+    });
+    expect(gateway.deleteAttempts.map(({ id }) => id)).toEqual([
+      "success",
+      "retry",
+      "not-started",
+      "retry",
+    ]);
+    expect(removedIds).toEqual(["success", "not-started", "retry"]);
+  });
+
+  it("gives Fatal precedence over Stop and publishes it only after concurrent drain", async () => {
+    const clock = new FakeClock(0, false);
+    const gateway = new DeferredDeleteGateway(clock);
+    const run = new DeletionRun({
+      confirmedPlan: confirmedPlan(["fatal", "active", "not-started"]),
+      requestsPerMinute: 120,
+      maximumConcurrentDeleteRequests: 2,
+      gateway,
+      protectedConversationStore: new FakeProtectedConversationStore(),
+      clock,
+      destructiveRunLock: new FakeDestructiveRunLock(),
+    });
+
+    const completion = run.startDeletion();
+    await settleAsyncWork();
+    await advanceAndSettle(clock, 500);
+    gateway.resolveNext("fatal", {
+      kind: "fatal",
+      reason: "authorization",
+      error: createAppError("AuthorizationDenied", {
+        operation: "conversation.delete",
+      }),
+      status: 403,
+    });
+    await settleAsyncWork();
+    expect(run.getState()).toMatchObject({
+      kind: "running",
+      progress: { activeRequestCount: 1 },
+    });
+    await advanceAndSettle(clock, 10_000);
+    expect(gateway.deleteAttempts).toHaveLength(2);
+    run.stopDeletion();
+    expect(gateway.deleteAttempts).toHaveLength(2);
+    gateway.resolveNext("active", deletedResult);
+    await expect(completion).resolves.toMatchObject({
+      kind: "fatal",
+      reason: "authorization",
+      progress: { activeRequestCount: 0 },
+    });
+  });
+
+  it("applies out-of-order completions exactly once with correct accounting", async () => {
+    const clock = new FakeClock(0, false);
+    const gateway = new DeferredDeleteGateway(clock);
+    const removedIds: string[] = [];
+    const run = new DeletionRun({
+      confirmedPlan: confirmedPlan(["one", "two", "three"]),
+      requestsPerMinute: 120,
+      maximumConcurrentDeleteRequests: 3,
+      gateway,
+      protectedConversationStore: new FakeProtectedConversationStore(),
+      clock,
+      destructiveRunLock: new FakeDestructiveRunLock(),
+      onConversationRemoved: (id) => removedIds.push(id),
+    });
+
+    const completion = run.startDeletion();
+    await settleAsyncWork();
+    await advanceAndSettle(clock, 500);
+    await advanceAndSettle(clock, 500);
+    gateway.resolveNext("three", deletedResult);
+    gateway.resolveNext("one", { kind: "skipped", status: 404 });
+    gateway.resolveNext("two", deletedResult);
+
+    await expect(completion).resolves.toMatchObject({
+      kind: "finished",
+      progress: {
+        processed: 3,
+        deleted: 2,
+        skipped: 1,
+        failed: 0,
+        remaining: 0,
+        activeRequestCount: 0,
+      },
+    });
+    expect(removedIds).toEqual(["three", "one", "two"]);
+    expect(new Set(removedIds).size).toBe(3);
+  });
+
+  it("reports failed IDs in confirmed order after out-of-order failures", async () => {
+    const clock = new FakeClock(0, false);
+    const gateway = new DeferredDeleteGateway(clock);
+    const run = new DeletionRun({
+      confirmedPlan: confirmedPlan(["one", "two"]),
+      requestsPerMinute: 120,
+      maximumConcurrentDeleteRequests: 2,
+      gateway,
+      protectedConversationStore: new FakeProtectedConversationStore(),
+      clock,
+      destructiveRunLock: new FakeDestructiveRunLock(),
+    });
+
+    const completion = run.startDeletion();
+    await settleAsyncWork();
+    await advanceAndSettle(clock, 500);
+    await exhaustActiveDeletion(clock, gateway, "two", retryableServerResult);
+    expect(run.getState().progress.failedConversationIds).toEqual(["two"]);
+    await exhaustActiveDeletion(clock, gateway, "one", retryableServerResult);
+
+    await expect(completion).resolves.toMatchObject({
+      kind: "finished",
+      progress: {
+        processed: 2,
+        failed: 2,
+        remaining: 0,
+        activeRequestCount: 0,
+        failedConversationIds: ["one", "two"],
+      },
+    });
+  });
+
+  it("routes synchronous and rejected gateway failures through drained fatal completion", async () => {
+    const clock = new FakeClock();
+    const synchronousGateway = new FakeConversationGateway(
+      fixtureForDeletion(["sync"], {}),
+      clock,
+    );
+    synchronousGateway.deleteConversation = () => {
+      throw new Error("sync failure");
+    };
+    const synchronousRun = new DeletionRun({
+      confirmedPlan: confirmedPlan(["sync"]),
+      requestsPerMinute: 60,
+      maximumConcurrentDeleteRequests: 1,
+      gateway: synchronousGateway,
+      protectedConversationStore: new FakeProtectedConversationStore(),
+      clock,
+      destructiveRunLock: new FakeDestructiveRunLock(),
+    });
+    await expect(synchronousRun.startDeletion()).resolves.toMatchObject({
+      kind: "fatal",
+      reason: "unexpected-run-error",
+      progress: { activeRequestCount: 0 },
+    });
+
+    const deferredClock = new FakeClock(0, false);
+    const rejectedGateway = new DeferredDeleteGateway(deferredClock);
+    const rejectedRun = new DeletionRun({
+      confirmedPlan: confirmedPlan(["rejected"]),
+      requestsPerMinute: 60,
+      maximumConcurrentDeleteRequests: 1,
+      gateway: rejectedGateway,
+      protectedConversationStore: new FakeProtectedConversationStore(),
+      clock: deferredClock,
+      destructiveRunLock: new FakeDestructiveRunLock(),
+    });
+    const rejectedCompletion = rejectedRun.startDeletion();
+    await settleAsyncWork();
+    rejectedGateway.rejectNext("rejected", new Error("async failure"));
+    await expect(rejectedCompletion).resolves.toMatchObject({
+      kind: "fatal",
+      reason: "unexpected-run-error",
+      progress: { activeRequestCount: 0 },
+    });
   });
 
   it("holds the destructive lock until a paused protection write settles after Stop", async () => {
@@ -1057,6 +2189,43 @@ describe("destructive run", () => {
 
     expect((await completion).kind).toBe("stopped");
     expect(gateway.deleteAttempts.map(({ id }) => id)).toEqual(["a"]);
+  });
+
+  it("closes Stop immediately and publishes stopped only after concurrent drain", async () => {
+    const clock = new FakeClock(0, false);
+    const gateway = new DeferredDeleteGateway(clock);
+    const run = new DeletionRun({
+      confirmedPlan: confirmedPlan(["one", "two", "three"]),
+      requestsPerMinute: 120,
+      maximumConcurrentDeleteRequests: 2,
+      gateway,
+      protectedConversationStore: new FakeProtectedConversationStore(),
+      clock,
+      destructiveRunLock: new FakeDestructiveRunLock(),
+    });
+
+    const completion = run.startDeletion();
+    await settleAsyncWork();
+    await advanceAndSettle(clock, 500);
+    run.stopDeletion();
+    expect(run.getState()).toMatchObject({
+      kind: "stopping",
+      progress: { activeRequestCount: 2 },
+    });
+    gateway.resolveNext("two", { kind: "retryable", reason: "server" });
+    await settleAsyncWork();
+    expect(run.getState()).toMatchObject({
+      kind: "stopping",
+      progress: { activeRequestCount: 1 },
+    });
+    expect(gateway.deleteAttempts).toHaveLength(2);
+    gateway.resolveNext("one", deletedResult);
+    await expect(completion).resolves.toMatchObject({
+      kind: "stopped",
+      progress: { activeRequestCount: 0, remaining: 2 },
+    });
+    await advanceAndSettle(clock, 10_000);
+    expect(gateway.deleteAttempts).toHaveLength(2);
   });
 
   it("stop during a retry delay prevents another DELETE attempt", async () => {

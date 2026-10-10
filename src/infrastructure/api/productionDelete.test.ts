@@ -11,6 +11,7 @@ import {
 } from "./PageContextDeleteTransport";
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   Reflect.deleteProperty(globalThis, "__chatgptCleanerDeleteAccessToken");
 });
@@ -26,6 +27,7 @@ function responseEnvelope(
     readonly redirected?: boolean;
     readonly responseType?: string;
     readonly contentType?: string | null;
+    readonly deleteTimeout?: boolean;
   } = {},
 ): unknown {
   return [
@@ -37,9 +39,21 @@ function responseEnvelope(
         redirected: options.redirected ?? false,
         responseType: options.responseType ?? "basic",
         contentType: options.contentType ?? null,
+        deleteTimeout: options.deleteTimeout ?? false,
       },
     },
   ];
+}
+
+function deferred<T>() {
+  let resolvePromise: (value: T) => void = () => undefined;
+  const promise = new Promise<T>((resolve) => {
+    resolvePromise = resolve;
+  });
+  return {
+    promise,
+    resolve: (value: T) => resolvePromise(value),
+  } as const;
 }
 
 describe("production DELETE classification", () => {
@@ -48,6 +62,7 @@ describe("production DELETE classification", () => {
     redirected: false,
     responseType: "basic",
     contentType: null,
+    deleteTimeout: false,
   } as const;
 
   it.each([200, 202, 204, 299])("classifies empty %i as deleted", (status) => {
@@ -91,6 +106,19 @@ describe("production DELETE classification", () => {
       });
     },
   );
+
+  it("classifies only the explicit DELETE timeout response separately", () => {
+    expect(
+      classifyDeleteResponse({ ...base, status: 500, deleteTimeout: true }),
+    ).toEqual({
+      kind: "retryable",
+      reason: "delete-timeout",
+      status: 500,
+    });
+    expect(
+      classifyDeleteResponse({ ...base, status: 502, deleteTimeout: true }),
+    ).toEqual({ kind: "retryable", reason: "server", status: 502 });
+  });
 
   it("maps 401 and 403 to distinct typed fatal errors", () => {
     expect(classifyDeleteResponse({ ...base, status: 401 })).toMatchObject({
@@ -167,6 +195,45 @@ describe("production DELETE transport", () => {
       error: { code: "SOURCE_TAB_UNAVAILABLE" },
     });
     expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("does not report a slow response during source preparation", async () => {
+    let resolveSource:
+      | ((value: { readonly kind: "valid"; readonly tabId: number }) => void)
+      | undefined;
+    const sourceValidation = new Promise<{
+      readonly kind: "valid";
+      readonly tabId: number;
+    }>((resolve) => {
+      resolveSource = resolve;
+    });
+    const onResponseSlow = vi.fn();
+    const execute = vi.fn(
+      (
+        _tabId: number,
+        _operation: DeleteConversationOperation,
+        reportSlow?: () => void,
+      ) => {
+        reportSlow?.();
+        return Promise.resolve(responseEnvelope(204));
+      },
+    );
+    const transport = new PageContextDeleteTransport(
+      { validate: vi.fn(() => sourceValidation) },
+      { execute },
+      new FakeClock(),
+    );
+
+    const deletion = transport.deleteConversation("conversation-1", {
+      onResponseSlow,
+    });
+    await Promise.resolve();
+    expect(execute).not.toHaveBeenCalled();
+    expect(onResponseSlow).not.toHaveBeenCalled();
+
+    resolveSource?.({ kind: "valid", tabId: 17 });
+    await expect(deletion).resolves.toEqual({ kind: "deleted", status: 204 });
+    expect(onResponseSlow).toHaveBeenCalledOnce();
   });
 
   it("normalizes network and malformed bridge results fail-closed", async () => {
@@ -324,10 +391,61 @@ describe("production DELETE transport", () => {
 });
 
 describe("narrow injected DELETE operation", () => {
+  interface SlowResponseSignal {
+    readonly signalId: string;
+    readonly thresholdMs: number;
+  }
+
   interface ScriptDetails {
     readonly world: string;
-    readonly args: readonly [DeleteConversationOperation];
-    readonly func: (operation: DeleteConversationOperation) => Promise<unknown>;
+    readonly args: readonly [
+      DeleteConversationOperation,
+      SlowResponseSignal | null,
+    ];
+    readonly func: (
+      operation: DeleteConversationOperation,
+      slowResponseSignal?: unknown,
+    ) => Promise<unknown>;
+  }
+
+  type RuntimeMessageListener = Parameters<
+    typeof browser.runtime.onMessage.addListener
+  >[0];
+
+  function createRuntimeMessageBridge(tabId: number) {
+    const listeners = new Set<RuntimeMessageListener>();
+    const sendMessage = vi.fn(
+      (message: unknown, callback?: () => void): void => {
+        for (const listener of listeners) {
+          Reflect.apply(listener, undefined, [
+            message,
+            { id: "test-extension", tab: { id: tabId } },
+            vi.fn(),
+          ]);
+        }
+        callback?.();
+      },
+    );
+    return {
+      browserRuntime: {
+        id: "test-extension",
+        onMessage: {
+          addListener: (listener: RuntimeMessageListener) => {
+            listeners.add(listener);
+          },
+          removeListener: (listener: RuntimeMessageListener) => {
+            listeners.delete(listener);
+          },
+        },
+      },
+      chromeRuntime: { sendMessage, lastError: undefined },
+      listenerCount: () => listeners.size,
+      sendMessage,
+    };
+  }
+
+  async function settleAsyncWork(): Promise<void> {
+    for (let turn = 0; turn < 20; turn += 1) await Promise.resolve();
   }
 
   async function captureInjectedOperation(): Promise<ScriptDetails> {
@@ -401,6 +519,253 @@ describe("narrow injected DELETE operation", () => {
     expect(
       Reflect.get(createChromePageContextDeleteExecutor(), "fetchUrl"),
     ).toBeUndefined();
+  });
+
+  it.each([
+    {
+      caseName: "exact timeout detail",
+      body: { detail: "Request timeout" },
+      expectedDeleteTimeout: true,
+    },
+    {
+      caseName: "different server detail",
+      body: { detail: "Internal server error" },
+      expectedDeleteTimeout: false,
+    },
+  ])(
+    "marks only a DELETE 500 with $caseName",
+    async ({ body, expectedDeleteTimeout }) => {
+      vi.stubGlobal("window", { location: { origin: "https://chatgpt.com" } });
+      Reflect.set(
+        globalThis,
+        "__chatgptCleanerDeleteAccessToken",
+        "test-token",
+      );
+      const fetchMock = vi
+        .fn<(url: string, init: RequestInit) => Promise<unknown>>()
+        .mockResolvedValue({
+          status: 500,
+          ok: false,
+          redirected: false,
+          type: "basic",
+          headers: { get: () => "application/json" },
+          json: () => Promise.resolve(body),
+        });
+      vi.stubGlobal("fetch", fetchMock);
+      const captured = await captureInjectedOperation();
+
+      await expect(captured.func(captured.args[0])).resolves.toMatchObject({
+        kind: "response",
+        status: 500,
+        deleteTimeout: expectedDeleteTimeout,
+      });
+      expect(fetchMock).toHaveBeenCalledOnce();
+      expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: "DELETE" });
+    },
+  );
+
+  it("signals only after a dispatched DELETE has awaited its response for 3 seconds", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { location: { origin: "https://chatgpt.com" } });
+    const runtime = createRuntimeMessageBridge(17);
+    const sessionResponse = deferred<unknown>();
+    const deleteResponse = deferred<unknown>();
+    const fetchMock = vi
+      .fn<() => Promise<unknown>>()
+      .mockReturnValueOnce(sessionResponse.promise)
+      .mockReturnValueOnce(deleteResponse.promise);
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("chrome", { runtime: runtime.chromeRuntime });
+    const executeScript = vi.fn(async (details: ScriptDetails) => [
+      {
+        result: await details.func(details.args[0], details.args[1]),
+      },
+    ]);
+    vi.stubGlobal("browser", {
+      runtime: runtime.browserRuntime,
+      scripting: { executeScript },
+    });
+    const onResponseSlow = vi.fn();
+
+    const execution = createChromePageContextDeleteExecutor().execute(
+      17,
+      {
+        kind: "delete-conversation",
+        conversationId: "conversation-123",
+      },
+      onResponseSlow,
+    );
+    await settleAsyncWork();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(runtime.listenerCount()).toBe(1);
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(onResponseSlow).not.toHaveBeenCalled();
+    sessionResponse.resolve({
+      status: 200,
+      ok: true,
+      redirected: false,
+      type: "basic",
+      headers: { get: () => null },
+      json: () => Promise.resolve({ accessToken: "test-token" }),
+    });
+    await settleAsyncWork();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    await vi.advanceTimersByTimeAsync(2_999);
+    expect(onResponseSlow).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(onResponseSlow).toHaveBeenCalledOnce();
+
+    deleteResponse.resolve({
+      status: 204,
+      ok: true,
+      redirected: false,
+      type: "basic",
+      headers: { get: () => null },
+    });
+    await expect(execution).resolves.toMatchObject([
+      { result: { kind: "response", status: 204 } },
+    ]);
+    expect(runtime.listenerCount()).toBe(0);
+    const slowSignal = runtime.sendMessage.mock.calls[0]?.[0];
+    runtime.sendMessage(slowSignal, vi.fn());
+    expect(onResponseSlow).toHaveBeenCalledOnce();
+  });
+
+  it("routes concurrent slow signals only to their matching attempt and cleans up stale listeners", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { location: { origin: "https://chatgpt.com" } });
+    Reflect.set(globalThis, "__chatgptCleanerDeleteAccessToken", "test-token");
+    const runtime = createRuntimeMessageBridge(17);
+    const firstResponse = deferred<unknown>();
+    const secondResponse = deferred<unknown>();
+    const fetchMock = vi.fn((url: string) =>
+      url.endsWith("/first") ? firstResponse.promise : secondResponse.promise,
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("chrome", { runtime: runtime.chromeRuntime });
+    vi.stubGlobal("browser", {
+      runtime: runtime.browserRuntime,
+      scripting: {
+        executeScript: vi.fn(async (details: ScriptDetails) => [
+          {
+            result: await details.func(details.args[0], details.args[1]),
+          },
+        ]),
+      },
+    });
+    const firstSlow = vi.fn();
+    const secondSlow = vi.fn();
+    const executor = createChromePageContextDeleteExecutor();
+
+    const firstExecution = executor.execute(
+      17,
+      { kind: "delete-conversation", conversationId: "first" },
+      firstSlow,
+    );
+    await settleAsyncWork();
+    await vi.advanceTimersByTimeAsync(1_000);
+    const secondExecution = executor.execute(
+      17,
+      { kind: "delete-conversation", conversationId: "second" },
+      secondSlow,
+    );
+    await settleAsyncWork();
+    expect(runtime.listenerCount()).toBe(2);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(firstSlow).toHaveBeenCalledOnce();
+    expect(secondSlow).not.toHaveBeenCalled();
+    const firstSignal = runtime.sendMessage.mock.calls[0]?.[0];
+
+    firstResponse.resolve({
+      status: 204,
+      ok: true,
+      redirected: false,
+      type: "basic",
+      headers: { get: () => null },
+    });
+    await expect(firstExecution).resolves.toMatchObject([
+      { result: { kind: "response", status: 204 } },
+    ]);
+    expect(runtime.listenerCount()).toBe(1);
+    runtime.sendMessage(firstSignal, vi.fn());
+    expect(firstSlow).toHaveBeenCalledOnce();
+    expect(secondSlow).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(firstSlow).toHaveBeenCalledOnce();
+    expect(secondSlow).toHaveBeenCalledOnce();
+    const secondSignal = runtime.sendMessage.mock.calls.at(-1)?.[0];
+
+    secondResponse.resolve({
+      status: 204,
+      ok: true,
+      redirected: false,
+      type: "basic",
+      headers: { get: () => null },
+    });
+    await expect(secondExecution).resolves.toMatchObject([
+      { result: { kind: "response", status: 204 } },
+    ]);
+    expect(runtime.listenerCount()).toBe(0);
+    runtime.sendMessage(secondSignal, vi.fn());
+    expect(firstSlow).toHaveBeenCalledOnce();
+    expect(secondSlow).toHaveBeenCalledOnce();
+  });
+
+  it("cleans up the timer without a signal when DELETE responds before the threshold", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { location: { origin: "https://chatgpt.com" } });
+    const runtime = createRuntimeMessageBridge(17);
+    const fetchMock = vi
+      .fn<() => Promise<unknown>>()
+      .mockResolvedValueOnce({
+        status: 200,
+        ok: true,
+        redirected: false,
+        type: "basic",
+        headers: { get: () => null },
+        json: () => Promise.resolve({ accessToken: "test-token" }),
+      })
+      .mockResolvedValueOnce({
+        status: 204,
+        ok: true,
+        redirected: false,
+        type: "basic",
+        headers: { get: () => null },
+      });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("chrome", { runtime: runtime.chromeRuntime });
+    vi.stubGlobal("browser", {
+      runtime: runtime.browserRuntime,
+      scripting: {
+        executeScript: vi.fn(async (details: ScriptDetails) => [
+          {
+            result: await details.func(details.args[0], details.args[1]),
+          },
+        ]),
+      },
+    });
+    const onResponseSlow = vi.fn();
+
+    await expect(
+      createChromePageContextDeleteExecutor().execute(
+        17,
+        {
+          kind: "delete-conversation",
+          conversationId: "conversation-123",
+        },
+        onResponseSlow,
+      ),
+    ).resolves.toMatchObject([{ result: { kind: "response", status: 204 } }]);
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    expect(onResponseSlow).not.toHaveBeenCalled();
+    expect(runtime.sendMessage).not.toHaveBeenCalled();
+    expect(runtime.listenerCount()).toBe(0);
   });
 
   it("rejects malformed/arbitrary operations and wrong origin before fetch", async () => {

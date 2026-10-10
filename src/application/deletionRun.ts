@@ -1,28 +1,35 @@
+import { AppConfig } from "../config";
 import type { ConfirmedDeletionPlan } from "../domain/deletionPlan";
 import {
   calculateDeletionProgress,
   type DeletionProgress,
 } from "../domain/progress";
-import { AppConfig } from "../config";
+import { appErrorCode, createAppError, type AppErrorCode } from "./AppError";
 import type { Clock } from "./ports/Clock";
 import type {
   ConversationGateway,
   DeleteAttemptResult,
 } from "./ports/ConversationGateway";
-import { appErrorCode, createAppError, type AppErrorCode } from "./AppError";
-import type { DestructiveRunLock } from "./ports/DestructiveRunLock";
-import type { LockResult } from "./ports/DestructiveRunLock";
-import type { ProtectedConversationStore } from "./ports/ProtectedConversationStore";
+import type {
+  DestructiveRunLock,
+  LockResult,
+} from "./ports/DestructiveRunLock";
 import type { ApplicationObservability } from "./ports/Observability";
-import { isValidRequestsPerMinute } from "./settings";
-import type { SafetyBlockReason } from "./SafetyBlockReason";
+import type { ProtectedConversationStore } from "./ports/ProtectedConversationStore";
 import type { ProtectionMutationLockOwner } from "./protection";
+import type { SafetyBlockReason } from "./SafetyBlockReason";
+import {
+  isValidMaximumConcurrentDeleteRequests,
+  isValidRequestsPerMinute,
+} from "./settings";
 
 const MILLISECONDS_PER_MINUTE = 60_000;
 
 export interface DeletionRunProgress extends DeletionProgress {
-  readonly currentConversationId: string | null;
+  readonly activeRequestCount: number;
+  readonly maximumConcurrentDeleteRequests: number;
   readonly failedConversationIds: readonly string[];
+  readonly slowDeleteResponseDetected: boolean;
 }
 
 export type DeletionRunState =
@@ -87,24 +94,45 @@ interface MutableRunCounts {
   retries: number;
 }
 
+interface ScheduledDeletion {
+  readonly conversationId: string;
+  readonly ordinal: number;
+  attempt: number;
+  readyAt: number;
+  state: "pending" | "active";
+}
+
+interface LatchedFatal {
+  readonly reason: SafetyBlockReason;
+  readonly errorCode: AppErrorCode;
+}
+
 export class DeletionRun implements ProtectionMutationLockOwner {
   private state: DeletionRunState;
   private command: ControlCommand = "run";
-  private waitAbortController: AbortController | null = null;
+  private schedulerWaitAbortController: AbortController | null = null;
+  private resolveSchedulerWake: (() => void) | null = null;
   private resolveResumeDecision: ((decision: ResumeDecision) => void) | null =
     null;
   private readonly confirmedPlan: ConfirmedDeletionPlan;
-  private remainingConversationIds: string[];
-  private failedConversationIds: string[] = [];
+  private readonly requestsPerMinute: number;
+  private readonly maximumConcurrentDeleteRequests: number;
+  private readonly retryDeleteTimeouts: boolean;
+  private scheduledDeletions: ScheduledDeletion[];
+  private failedConversationIds = new Set<string>();
   private counts: MutableRunCounts = {
     deleted: 0,
     failed: 0,
     skipped: 0,
     retries: 0,
   };
+  private activeRequestCount = 0;
   private activeElapsedMs = 0;
   private activeStartedAt: number | null = null;
   private lastAttemptStartedAt: number | null = null;
+  private globalCooldownUntil = 0;
+  private slowDeleteResponseDetected = false;
+  private fatal: LatchedFatal | null = null;
   private operationId: string | null = null;
   private pendingProtectionMutation: Promise<void> | null = null;
 
@@ -112,6 +140,7 @@ export class DeletionRun implements ProtectionMutationLockOwner {
     private readonly input: {
       readonly confirmedPlan: ConfirmedDeletionPlan;
       readonly requestsPerMinute: number;
+      readonly maximumConcurrentDeleteRequests?: number;
       readonly gateway: ConversationGateway;
       readonly protectedConversationStore: ProtectedConversationStore;
       readonly clock: Clock;
@@ -127,11 +156,24 @@ export class DeletionRun implements ProtectionMutationLockOwner {
         `requestsPerMinute must be an integer from ${AppConfig.deletion.requestsPerMinute.min} to ${AppConfig.deletion.requestsPerMinute.max}`,
       );
     }
+    const maximumConcurrentDeleteRequests =
+      input.maximumConcurrentDeleteRequests ??
+      AppConfig.deletion.maximumConcurrentDeleteRequests.default;
+    if (
+      !isValidMaximumConcurrentDeleteRequests(maximumConcurrentDeleteRequests)
+    ) {
+      throw new RangeError(
+        `maximumConcurrentDeleteRequests must be an integer from ${AppConfig.deletion.maximumConcurrentDeleteRequests.min} to ${AppConfig.deletion.maximumConcurrentDeleteRequests.max}`,
+      );
+    }
     this.confirmedPlan = input.confirmedPlan;
-    this.remainingConversationIds = [
-      ...input.confirmedPlan.confirmedConversationIds,
-    ];
-    this.state = { kind: "ready", progress: this.progress(null, false) };
+    this.requestsPerMinute = input.requestsPerMinute;
+    this.maximumConcurrentDeleteRequests = maximumConcurrentDeleteRequests;
+    this.retryDeleteTimeouts = AppConfig.deletion.retryDeleteTimeouts;
+    this.scheduledDeletions = this.createScheduledDeletions(
+      input.confirmedPlan.confirmedConversationIds,
+    );
+    this.state = { kind: "ready", progress: this.progress(false) };
   }
 
   public getState(): DeletionRunState {
@@ -145,19 +187,14 @@ export class DeletionRun implements ProtectionMutationLockOwner {
 
   public pauseDeletion(): void {
     if (this.state.kind !== "running") return;
-
     this.command = "pause";
-    this.publish("pausing", null);
-    this.waitAbortController?.abort();
+    this.publish("pausing");
+    this.wakeScheduler();
   }
 
   public resumeDeletion(): void {
-    if (
-      this.state.kind !== "paused" ||
-      this.pendingProtectionMutation !== null
-    ) {
+    if (this.state.kind !== "paused" || this.pendingProtectionMutation !== null)
       return;
-    }
     this.resolveResumeDecision?.("resume");
   }
 
@@ -171,44 +208,38 @@ export class DeletionRun implements ProtectionMutationLockOwner {
         operation: "protectedStore.mutate",
       });
     }
-
     const mutation = Promise.resolve().then(work);
     const barrier = mutation.then(
       () => undefined,
       () => this.blockForPendingProtectionFailure(),
     );
     this.pendingProtectionMutation = barrier;
-
     try {
       return await mutation;
     } finally {
       await barrier;
-      if (this.pendingProtectionMutation === barrier) {
+      if (this.pendingProtectionMutation === barrier)
         this.pendingProtectionMutation = null;
-      }
     }
   }
 
   public stopDeletion(): void {
     if (!canStopDeletionRun(this.state)) return;
-
     this.command = "stop";
-    this.publish("stopping", null);
-    this.waitAbortController?.abort();
+    this.publish("stopping");
+    this.wakeScheduler();
     this.resolveResumeDecision?.("stop");
   }
 
   public async retryFailedDeletion(): Promise<DeletionRunState> {
     if (!canRetryFailedDeletion(this.state)) return this.state;
-
     return this.runWithLock({
       prepareAfterLockAcquired: () => {
         const failedIds = new Set(this.failedConversationIds);
-        this.remainingConversationIds =
-          this.confirmedPlan.confirmedConversationIds.filter((conversationId) =>
-            failedIds.has(conversationId),
-          );
-        this.resetCurrentRun();
+        const retryIds = this.confirmedPlan.confirmedConversationIds.filter(
+          (id) => failedIds.has(id),
+        );
+        this.resetCurrentRun(retryIds);
       },
       preserveRetryabilityOnContention: true,
     });
@@ -223,14 +254,14 @@ export class DeletionRun implements ProtectionMutationLockOwner {
         try {
           options?.prepareAfterLockAcquired();
           const protectionResult =
-            await this.removeCurrentlyProtectedRemainingIds();
+            await this.removeCurrentlyProtectedPendingIds();
           if (protectionResult === "blocked") return;
           if (protectionResult === "empty") {
             this.completeRun();
             return;
           }
           this.beginExecution();
-          await this.executeRemainingConversations();
+          await this.runScheduler();
         } finally {
           await this.waitForPendingProtectionMutation();
         }
@@ -241,7 +272,7 @@ export class DeletionRun implements ProtectionMutationLockOwner {
         this.input.onLockUnavailable?.();
         return this.state;
       }
-      this.publish("blocked", null, "destructive-run-lock");
+      this.publish("blocked", "destructive-run-lock");
     }
     return this.state;
   }
@@ -251,14 +282,253 @@ export class DeletionRun implements ProtectionMutationLockOwner {
       this.input.observability?.createOperationId() ?? this.operationId;
     this.command = "run";
     this.activeStartedAt = this.input.clock.now();
-    this.publish("running", null);
+    this.publish("running");
     this.logInfo("deletion.run.started", {
-      total: this.remainingConversationIds.length,
-      requestsPerMinute: this.input.requestsPerMinute,
+      total: this.scheduledDeletions.length,
+      requestsPerMinute: this.requestsPerMinute,
+      maximumConcurrentDeleteRequests: this.maximumConcurrentDeleteRequests,
     });
   }
 
-  private async removeCurrentlyProtectedRemainingIds(): Promise<LocalProtectionResult> {
+  private async runScheduler(): Promise<void> {
+    while (true) {
+      if (!this.launchGateOpen()) {
+        if (this.activeRequestCount > 0) {
+          await this.waitForSchedulerWake();
+          continue;
+        }
+        if (this.fatal !== null) {
+          this.publishFatal();
+          return;
+        }
+        if (this.command === "stop") {
+          await this.publishStoppedAfterPendingProtection();
+          return;
+        }
+        if (!(await this.waitForResume())) return;
+        continue;
+      }
+
+      if (this.scheduledDeletions.length === 0) {
+        this.completeRun();
+        return;
+      }
+
+      const now = this.input.clock.now();
+      const eligible = this.findEligibleDeletion(now);
+      const hasCapacity =
+        this.activeRequestCount < this.maximumConcurrentDeleteRequests;
+      const nextStartAt = Math.max(
+        this.nextRateLimitedStartAt(),
+        this.globalCooldownUntil,
+      );
+      if (hasCapacity && eligible !== undefined && now >= nextStartAt) {
+        this.startDeleteAttempt(eligible);
+        continue;
+      }
+      if (!hasCapacity || this.noPendingDeletions()) {
+        await this.waitForSchedulerWake();
+        continue;
+      }
+      const wakeAt = Math.max(nextStartAt, this.earliestPendingReadyAt());
+      await this.waitForSchedulerWake(Math.max(0, wakeAt - now));
+    }
+  }
+
+  private startDeleteAttempt(deletion: ScheduledDeletion): void {
+    deletion.state = "active";
+    deletion.attempt += 1;
+    this.activeRequestCount += 1;
+    this.lastAttemptStartedAt = this.input.clock.now();
+    this.publish("running");
+
+    let attempt: Promise<DeleteAttemptResult>;
+    try {
+      attempt = this.input.gateway.deleteConversation(deletion.conversationId, {
+        onResponseSlow: () => this.reportSlowDeleteResponse(deletion),
+      });
+    } catch (cause) {
+      this.applyRejectedAttempt(deletion, cause);
+      return;
+    }
+    attempt.then(
+      (result) => this.applyAttemptResult(deletion, result),
+      (cause: unknown) => this.applyRejectedAttempt(deletion, cause),
+    );
+  }
+
+  private applyAttemptResult(
+    deletion: ScheduledDeletion,
+    result: DeleteAttemptResult,
+  ): void {
+    if (!this.releaseActiveReservation(deletion)) return;
+    if (result.kind === "deleted" || result.kind === "skipped") {
+      this.applyTerminalSuccess(deletion, result.kind);
+      this.wakeScheduler();
+      return;
+    }
+    if (result.kind === "fatal") {
+      this.logWarn("deletion.attempt.failed", {
+        ordinal: deletion.ordinal,
+        total: this.currentTotal(),
+        attempt: deletion.attempt,
+        errorCode: result.error.code,
+      });
+      this.latchFatal(result.reason, result.error.code);
+      this.publishTransientProgress();
+      this.wakeScheduler();
+      return;
+    }
+
+    const observedAt = this.input.clock.now();
+    if (result.reason === "rate-limit" && result.retryAfterMs !== undefined) {
+      this.globalCooldownUntil = Math.max(
+        this.globalCooldownUntil,
+        observedAt + result.retryAfterMs,
+      );
+    }
+    const retryDisabled =
+      result.reason === "delete-timeout" && !this.retryDeleteTimeouts;
+    if (
+      retryDisabled ||
+      deletion.attempt >= AppConfig.deletion.maxAttemptsPerConversation
+    ) {
+      this.logWarn("deletion.attempt.failed", {
+        ordinal: deletion.ordinal,
+        total: this.currentTotal(),
+        attempt: deletion.attempt,
+        errorCode: retryableFailureErrorCode(result.reason),
+      });
+      this.counts.failed += 1;
+      this.failedConversationIds.add(deletion.conversationId);
+      this.removeScheduledDeletion(deletion);
+      this.publishTransientProgress();
+      this.wakeScheduler();
+      return;
+    }
+
+    this.counts.retries += 1;
+    const retryDelay = this.retryDelay(result, deletion.attempt);
+    deletion.readyAt = observedAt + retryDelay;
+    this.logWarn("deletion.attempt.retry", {
+      ordinal: deletion.ordinal,
+      total: this.currentTotal(),
+      attempt: deletion.attempt,
+      reason: result.reason,
+      delayMs: retryDelay,
+    });
+    this.publishTransientProgress();
+    this.wakeScheduler();
+  }
+
+  private applyRejectedAttempt(
+    deletion: ScheduledDeletion,
+    cause: unknown,
+  ): void {
+    if (!this.releaseActiveReservation(deletion)) return;
+    const error = createAppError("UnexpectedFailure", {
+      operation: "conversation.delete",
+      cause,
+    });
+    this.logWarn("deletion.attempt.failed", {
+      ordinal: deletion.ordinal,
+      total: this.currentTotal(),
+      attempt: deletion.attempt,
+      errorCode: error.code,
+    });
+    this.latchFatal("unexpected-run-error", error.code);
+    this.publishTransientProgress();
+    this.wakeScheduler();
+  }
+
+  private releaseActiveReservation(deletion: ScheduledDeletion): boolean {
+    if (deletion.state !== "active") return false;
+    deletion.state = "pending";
+    this.activeRequestCount -= 1;
+    return true;
+  }
+
+  private reportSlowDeleteResponse(deletion: ScheduledDeletion): void {
+    if (deletion.state !== "active" || this.slowDeleteResponseDetected) return;
+    this.slowDeleteResponseDetected = true;
+    this.publishTransientProgress();
+  }
+
+  private applyTerminalSuccess(
+    deletion: ScheduledDeletion,
+    kind: "deleted" | "skipped",
+  ): void {
+    if (kind === "deleted") this.counts.deleted += 1;
+    if (kind === "skipped") this.counts.skipped += 1;
+    this.removeScheduledDeletion(deletion);
+    this.input.onConversationRemoved?.(deletion.conversationId);
+    this.publishTransientProgress();
+  }
+
+  private latchFatal(reason: SafetyBlockReason, errorCode: AppErrorCode): void {
+    if (this.fatal !== null) return;
+    this.fatal = { reason, errorCode };
+    this.wakeScheduler();
+  }
+
+  private publishFatal(): void {
+    const fatal = this.fatal;
+    if (fatal === null) return;
+    this.finishActivePeriod();
+    this.publish("fatal", fatal.reason);
+    this.input.observability?.error(
+      "deletion.run.failed",
+      fatal.errorCode,
+      this.logFields({
+        processedCount: this.progress(false).processed,
+        remainingCount: this.scheduledDeletions.length,
+      }),
+    );
+  }
+
+  private async waitForResume(): Promise<boolean> {
+    this.finishActivePeriod();
+    this.publish("paused");
+    const decision = await new Promise<ResumeDecision>((resolve) => {
+      this.resolveResumeDecision = resolve;
+    });
+    this.resolveResumeDecision = null;
+    if (decision === "stop") {
+      await this.publishStoppedAfterPendingProtection();
+      return false;
+    }
+    const protectionResult = await this.removeCurrentlyProtectedPendingIds();
+    if (protectionResult === "blocked") {
+      this.command = "stop";
+      return false;
+    }
+    if (protectionResult === "empty") {
+      this.command = "run";
+      this.completeRun();
+      return false;
+    }
+    this.command = "run";
+    this.activeStartedAt = this.input.clock.now();
+    this.publish("running");
+    return true;
+  }
+
+  private async publishStoppedAfterPendingProtection(): Promise<void> {
+    this.finishActivePeriod();
+    await this.waitForPendingProtectionMutation();
+    if (this.state.kind === "blocked") return;
+    if (this.fatal !== null) {
+      this.publishFatal();
+      return;
+    }
+    this.publish("stopped");
+    this.logInfo("deletion.run.stopped", {
+      processedCount: this.progress(false).processed,
+      remainingCount: this.scheduledDeletions.length,
+    });
+  }
+
+  private async removeCurrentlyProtectedPendingIds(): Promise<LocalProtectionResult> {
     let protectedIdsResult;
     try {
       protectedIdsResult =
@@ -266,20 +536,19 @@ export class DeletionRun implements ProtectionMutationLockOwner {
     } catch {
       return this.blockForProtectedStorage();
     }
-    if (protectedIdsResult.kind === "invalid") {
+    if (protectedIdsResult.kind === "invalid")
       return this.blockForProtectedStorage();
-    }
-
-    this.remainingConversationIds = this.remainingConversationIds.filter(
-      (conversationId) =>
+    this.scheduledDeletions = this.scheduledDeletions.filter(
+      ({ conversationId, state }) =>
+        state === "active" ||
         !protectedIdsResult.protectedConversationIds.has(conversationId),
     );
-    return this.remainingConversationIds.length > 0 ? "ready" : "empty";
+    return this.scheduledDeletions.length > 0 ? "ready" : "empty";
   }
 
   private blockForProtectedStorage(): LocalProtectionResult {
     this.logWarn("deletion.run.protectedStateBlocked");
-    this.publish("blocked", null, "protected-storage");
+    this.publish("blocked", "protected-storage");
     return "blocked";
   }
 
@@ -287,7 +556,8 @@ export class DeletionRun implements ProtectionMutationLockOwner {
     this.command = "stop";
     this.finishActivePeriod();
     this.logWarn("deletion.run.protectedStateBlocked");
-    this.publish("blocked", null, "protected-storage");
+    this.publish("blocked", "protected-storage");
+    this.wakeScheduler();
     this.resolveResumeDecision?.("stop");
   }
 
@@ -295,66 +565,10 @@ export class DeletionRun implements ProtectionMutationLockOwner {
     await this.pendingProtectionMutation;
   }
 
-  private async executeRemainingConversations(): Promise<void> {
-    while (this.remainingConversationIds.length > 0) {
-      const mayContinue = await this.waitForRunnableState();
-      if (!mayContinue) break;
-
-      const conversationId = this.remainingConversationIds[0];
-      if (conversationId === undefined) break;
-
-      const outcome = await this.deleteWithRetries(conversationId);
-      if (outcome === "stopped") break;
-      if (outcome === "excluded") continue;
-      if (outcome.kind === "fatal") {
-        this.finishActivePeriod();
-        this.publish("fatal", conversationId, outcome.reason);
-        this.input.observability?.error(
-          "deletion.run.failed",
-          outcome.errorCode,
-          this.logFields({
-            processedCount: this.progress(null, false).processed,
-            remainingCount: this.remainingConversationIds.length,
-          }),
-        );
-        return;
-      }
-
-      this.remainingConversationIds.shift();
-      if (outcome.kind === "deleted") {
-        this.counts.deleted += 1;
-      }
-      if (outcome.kind === "skipped") {
-        this.counts.skipped += 1;
-      }
-      if (outcome.kind === "failed") {
-        this.counts.failed += 1;
-        this.failedConversationIds.push(conversationId);
-      }
-      this.publish("running", conversationId);
-      if (outcome.kind === "deleted" || outcome.kind === "skipped") {
-        this.input.onConversationRemoved?.(conversationId);
-      }
-    }
-
-    this.finishActivePeriod();
-    if (this.state.kind === "blocked") return;
-    if (this.isStopRequested()) {
-      await this.waitForPendingProtectionMutation();
-      if (this.isBlocked()) return;
-      this.publish("stopped", null);
-      this.logInfo("deletion.run.stopped", {
-        processedCount: this.progress(null, false).processed,
-        remainingCount: this.remainingConversationIds.length,
-      });
-      return;
-    }
-    this.completeRun();
-  }
-
   private completeRun(): void {
-    this.publish("finished", null);
-    const finalProgress = this.progress(null, false);
+    this.finishActivePeriod();
+    this.publish("finished");
+    const finalProgress = this.progress(false);
     this.logInfo("deletion.run.completed", {
       total: finalProgress.total,
       deletedCount: finalProgress.deleted,
@@ -362,90 +576,6 @@ export class DeletionRun implements ProtectionMutationLockOwner {
       skippedCount: finalProgress.skipped,
       retryCount: finalProgress.retries,
     });
-  }
-
-  private async deleteWithRetries(conversationId: string): Promise<
-    | { readonly kind: "deleted" | "skipped" | "failed" }
-    | {
-        readonly kind: "fatal";
-        readonly reason: Extract<
-          DeleteAttemptResult,
-          { readonly kind: "fatal" }
-        >["reason"];
-        readonly errorCode: AppErrorCode;
-      }
-    | "excluded"
-    | "stopped"
-  > {
-    for (
-      let attempt = 1;
-      attempt <= AppConfig.deletion.maxAttemptsPerConversation;
-      attempt += 1
-    ) {
-      if (!(await this.waitForRunnableState())) return "stopped";
-      if (!this.remainingConversationIds.includes(conversationId)) {
-        return "excluded";
-      }
-      if (!(await this.waitForAttemptSpacing())) {
-        if (this.command === "stop") return "stopped";
-        attempt -= 1;
-        continue;
-      }
-      if (!(await this.waitForRunnableState())) return "stopped";
-      if (!this.remainingConversationIds.includes(conversationId)) {
-        return "excluded";
-      }
-
-      this.lastAttemptStartedAt = this.input.clock.now();
-      this.publish("running", conversationId);
-      const progressBeforeAttempt = this.progress(conversationId, false);
-      const ordinal = progressBeforeAttempt.processed + 1;
-      const result =
-        await this.input.gateway.deleteConversation(conversationId);
-
-      if (result.kind === "deleted") {
-        return result;
-      }
-      if (result.kind === "skipped") {
-        return result;
-      }
-      if (result.kind === "fatal") {
-        this.logWarn("deletion.attempt.failed", {
-          ordinal,
-          total: progressBeforeAttempt.total,
-          attempt,
-          errorCode: result.error.code,
-        });
-        return {
-          ...result,
-          errorCode: result.error.code,
-        };
-      }
-      if (attempt === AppConfig.deletion.maxAttemptsPerConversation) {
-        this.logWarn("deletion.attempt.failed", {
-          ordinal,
-          total: progressBeforeAttempt.total,
-          attempt,
-          errorCode: exhaustedRetryErrorCode(result.reason),
-        });
-        return { kind: "failed" };
-      }
-
-      this.counts.retries += 1;
-      const retryDelay = this.retryDelay(result, attempt);
-      this.logWarn("deletion.attempt.retry", {
-        ordinal,
-        total: progressBeforeAttempt.total,
-        attempt,
-        reason: result.reason,
-        delayMs: retryDelay,
-      });
-      if (!(await this.sleep(retryDelay))) {
-        if (this.command === "stop") return "stopped";
-      }
-    }
-
-    return { kind: "failed" };
   }
 
   private retryDelay(
@@ -459,51 +589,77 @@ export class DeletionRun implements ProtectionMutationLockOwner {
     return result.retryAfterMs ?? fallbackDelay;
   }
 
-  private async waitForAttemptSpacing(): Promise<boolean> {
-    if (this.lastAttemptStartedAt === null) return true;
-
-    const interval = MILLISECONDS_PER_MINUTE / this.input.requestsPerMinute;
-    const remaining =
-      this.lastAttemptStartedAt + interval - this.input.clock.now();
-    if (remaining <= 0) return true;
-    return this.sleep(remaining);
+  private launchGateOpen(): boolean {
+    return this.command === "run" && this.fatal === null;
   }
 
-  private async sleep(milliseconds: number): Promise<boolean> {
-    this.waitAbortController = new AbortController();
-    const result = await this.input.clock.sleep(
-      milliseconds,
-      this.waitAbortController.signal,
+  private findEligibleDeletion(now: number): ScheduledDeletion | undefined {
+    return this.scheduledDeletions.find(
+      ({ state, readyAt }) => state === "pending" && readyAt <= now,
     );
-    this.waitAbortController = null;
-    return result === "completed";
   }
 
-  private async waitForRunnableState(): Promise<boolean> {
-    if (this.command === "stop") return false;
-    if (this.command === "run") return true;
+  private noPendingDeletions(): boolean {
+    return this.scheduledDeletions.every(({ state }) => state === "active");
+  }
 
-    this.finishActivePeriod();
-    this.publish("paused", null);
-    const decision = await new Promise<ResumeDecision>((resolve) => {
-      this.resolveResumeDecision = resolve;
+  private earliestPendingReadyAt(): number {
+    let earliest = Number.POSITIVE_INFINITY;
+    for (const deletion of this.scheduledDeletions) {
+      if (deletion.state === "pending")
+        earliest = Math.min(earliest, deletion.readyAt);
+    }
+    return earliest;
+  }
+
+  private nextRateLimitedStartAt(): number {
+    if (this.lastAttemptStartedAt === null) return 0;
+    return (
+      this.lastAttemptStartedAt +
+      MILLISECONDS_PER_MINUTE / this.requestsPerMinute
+    );
+  }
+
+  private async waitForSchedulerWake(delayMs?: number): Promise<void> {
+    const controller = new AbortController();
+    this.schedulerWaitAbortController = controller;
+    const wake = new Promise<void>((resolve) => {
+      this.resolveSchedulerWake = resolve;
     });
-    this.resolveResumeDecision = null;
-    if (decision === "stop") return false;
+    if (delayMs === undefined) {
+      await wake;
+    } else {
+      await Promise.race([
+        this.input.clock.sleep(delayMs, controller.signal),
+        wake,
+      ]);
+    }
+    if (this.schedulerWaitAbortController === controller) {
+      this.schedulerWaitAbortController = null;
+      this.resolveSchedulerWake = null;
+    }
+  }
 
-    const protectionResult = await this.removeCurrentlyProtectedRemainingIds();
-    if (protectionResult === "blocked") {
-      this.command = "stop";
-      return false;
-    }
-    if (protectionResult === "empty") {
-      this.command = "run";
-      return false;
-    }
-    this.command = "run";
-    this.activeStartedAt = this.input.clock.now();
-    this.publish("running", null);
-    return true;
+  private wakeScheduler(): void {
+    this.schedulerWaitAbortController?.abort();
+    this.resolveSchedulerWake?.();
+  }
+
+  private removeScheduledDeletion(deletion: ScheduledDeletion): void {
+    const index = this.scheduledDeletions.indexOf(deletion);
+    if (index >= 0) this.scheduledDeletions.splice(index, 1);
+  }
+
+  private createScheduledDeletions(
+    conversationIds: readonly string[],
+  ): ScheduledDeletion[] {
+    return conversationIds.map((conversationId, index) => ({
+      conversationId,
+      ordinal: index + 1,
+      attempt: 0,
+      readyAt: 0,
+      state: "pending",
+    }));
   }
 
   private finishActivePeriod(): void {
@@ -512,57 +668,67 @@ export class DeletionRun implements ProtectionMutationLockOwner {
     this.activeStartedAt = null;
   }
 
-  private isStopRequested(): boolean {
-    return this.command === "stop";
-  }
-
-  private isBlocked(): boolean {
-    return this.state.kind === "blocked";
-  }
-
-  private resetCurrentRun(): void {
+  private resetCurrentRun(conversationIds: readonly string[]): void {
     this.command = "run";
-    this.failedConversationIds = [];
+    this.scheduledDeletions = this.createScheduledDeletions(conversationIds);
+    this.failedConversationIds = new Set<string>();
     this.counts = { deleted: 0, failed: 0, skipped: 0, retries: 0 };
+    this.activeRequestCount = 0;
     this.activeElapsedMs = 0;
     this.activeStartedAt = null;
-    this.lastAttemptStartedAt = null;
+    this.fatal = null;
   }
 
-  private progress(
-    currentConversationId: string | null,
-    paused: boolean,
-  ): DeletionRunProgress {
+  private currentTotal(): number {
+    return (
+      this.counts.deleted +
+      this.counts.failed +
+      this.counts.skipped +
+      this.scheduledDeletions.length
+    );
+  }
+
+  private progress(paused: boolean): DeletionRunProgress {
     const activeElapsedMs =
       this.activeStartedAt === null
         ? this.activeElapsedMs
         : this.activeElapsedMs +
           (this.input.clock.now() - this.activeStartedAt);
     const progress = calculateDeletionProgress({
-      total:
-        this.counts.deleted +
-        this.counts.failed +
-        this.counts.skipped +
-        this.remainingConversationIds.length,
+      total: this.currentTotal(),
       ...this.counts,
-      requestsPerMinute: this.input.requestsPerMinute,
+      requestsPerMinute: this.requestsPerMinute,
       activeElapsedMs,
       paused,
     });
-
     return {
       ...progress,
-      currentConversationId,
-      failedConversationIds: [...this.failedConversationIds],
+      activeRequestCount: this.activeRequestCount,
+      maximumConcurrentDeleteRequests: this.maximumConcurrentDeleteRequests,
+      failedConversationIds: this.confirmedPlan.confirmedConversationIds.filter(
+        (conversationId) => this.failedConversationIds.has(conversationId),
+      ),
+      slowDeleteResponseDetected: this.slowDeleteResponseDetected,
     };
+  }
+
+  private publishTransientProgress(): void {
+    if (this.command === "pause") {
+      this.publish("pausing");
+      return;
+    }
+    if (this.command === "stop") {
+      this.publish("stopping");
+      return;
+    }
+    this.publish("running");
   }
 
   private publish(
     kind: DeletionRunState["kind"],
-    currentConversationId: string | null,
     reason?: SafetyBlockReason,
   ): void {
-    const progress = this.progress(currentConversationId, kind === "paused");
+    const progress = this.progress(kind === "paused");
     this.state =
       kind === "blocked" || kind === "fatal"
         ? { kind, reason: reason ?? "unexpected-run-error", progress }
@@ -594,13 +760,14 @@ export class DeletionRun implements ProtectionMutationLockOwner {
   }
 }
 
-function exhaustedRetryErrorCode(
+function retryableFailureErrorCode(
   reason: Extract<
     DeleteAttemptResult,
     { readonly kind: "retryable" }
   >["reason"],
 ): AppErrorCode {
   if (reason === "rate-limit") return appErrorCode("RateLimited");
-  if (reason === "server") return appErrorCode("ServerFailure");
+  if (reason === "server" || reason === "delete-timeout")
+    return appErrorCode("ServerFailure");
   return appErrorCode("NetworkFailure");
 }

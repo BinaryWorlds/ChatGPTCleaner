@@ -10,6 +10,7 @@ interface DeletionRunControlsProps {
   readonly state: DeletionRunState;
   readonly resumeDisabled: boolean;
   readonly retryFailedDisabled: boolean;
+  readonly actionPending: boolean;
   readonly onPause: () => void;
   readonly onResume: () => void;
   readonly onStop: () => void;
@@ -20,6 +21,7 @@ export default function DeletionRunControls({
   state,
   resumeDisabled,
   retryFailedDisabled,
+  actionPending,
   onPause,
   onResume,
   onStop,
@@ -35,17 +37,26 @@ export default function DeletionRunControls({
         <Button onClick={onPause}>{t("deletion.pause")}</Button>
       )}
       {state.kind === "paused" && (
-        <Button type="primary" disabled={resumeDisabled} onClick={onResume}>
+        <Button
+          type="primary"
+          aria-busy={actionPending}
+          disabled={resumeDisabled || actionPending}
+          onClick={onResume}
+        >
           {t("deletion.resume")}
         </Button>
       )}
-      {canStop && (
+      {canStop && !actionPending && (
         <Button danger onClick={onStop}>
           {t("deletion.stop")}
         </Button>
       )}
       {canRetry && (
-        <Button disabled={retryFailedDisabled} onClick={onRetryFailed}>
+        <Button
+          aria-busy={actionPending}
+          disabled={retryFailedDisabled || actionPending}
+          onClick={onRetryFailed}
+        >
           {t("deletion.retryFailed")}
         </Button>
       )}

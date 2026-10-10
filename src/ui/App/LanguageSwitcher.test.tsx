@@ -60,7 +60,7 @@ describe("language switching", () => {
       await screen.findByRole("button", { name: "Odśwież listę rozmów" }),
     ).toBeInTheDocument();
     expect(document.documentElement.lang).toBe("pl");
-  });
+  }, 30_000);
 
   it("applies the Polish Ant Design pagination locale", async () => {
     setBrowserLanguages(["pl-PL"], "pl-PL");

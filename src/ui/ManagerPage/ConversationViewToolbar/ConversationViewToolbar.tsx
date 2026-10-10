@@ -6,17 +6,21 @@ import DeletionRateControl from "./DeletionRateControl";
 interface ConversationViewToolbarProps {
   readonly conversationView: ConversationView;
   readonly requestsPerMinute: number;
+  readonly maximumConcurrentDeleteRequests: number;
   readonly rateControlDisabled: boolean;
   readonly onConversationViewChange: (view: ConversationView) => void;
   readonly onRateChange: (value: number | null) => void;
+  readonly onConcurrencyChange: (value: number | null) => void;
 }
 
 export default function ConversationViewToolbar({
   conversationView,
   requestsPerMinute,
+  maximumConcurrentDeleteRequests,
   rateControlDisabled,
   onConversationViewChange,
   onRateChange,
+  onConcurrencyChange,
 }: ConversationViewToolbarProps) {
   return (
     <Flex
@@ -33,8 +37,10 @@ export default function ConversationViewToolbar({
       {conversationView === "standalone" && (
         <DeletionRateControl
           requestsPerMinute={requestsPerMinute}
+          maximumConcurrentDeleteRequests={maximumConcurrentDeleteRequests}
           disabled={rateControlDisabled}
-          onChange={onRateChange}
+          onRateChange={onRateChange}
+          onConcurrencyChange={onConcurrencyChange}
         />
       )}
     </Flex>

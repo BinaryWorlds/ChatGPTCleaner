@@ -28,6 +28,7 @@ interface UseDeletionWorkflowOptions {
   readonly protectedConversationIds: ReadonlySet<string>;
   readonly selectedConversationIds: ReadonlySet<string>;
   readonly requestsPerMinute: number;
+  readonly maximumConcurrentDeleteRequests: number;
   readonly isProtectionMutationPending: () => boolean;
   readonly onConversationRemoved: (conversationId: string) => void;
   readonly onNotice: (message: string) => void;
@@ -43,6 +44,7 @@ export function useDeletionWorkflow({
   protectedConversationIds,
   selectedConversationIds,
   requestsPerMinute,
+  maximumConcurrentDeleteRequests,
   isProtectionMutationPending,
   onConversationRemoved,
   onNotice,
@@ -53,12 +55,25 @@ export function useDeletionWorkflow({
   const [previewPlan, setPreviewPlan] = useState<DeletionPlan | null>(null);
   const [currentRun, setCurrentRun] = useState<DeletionRun | null>(null);
   const [runState, setRunState] = useState<DeletionRunState | null>(null);
+  const [deletionPreflightKind, setDeletionPreflightKind] = useState<
+    "new-run" | "resume" | "retry-failed" | null
+  >(null);
+  const [retryingFailedRun, setRetryingFailedRun] = useState(false);
   const [safetyOverride, setSafetyOverride] =
     useState<SafetyBlockReason | null>(null);
   const executionStartedRef = useRef(false);
 
   const runActive = isDeletionRunActive(runState);
-  const runOwnsWorkflow = deletionRunOwnsWorkflow(runState);
+  const runOwnsWorkflow =
+    deletionPreflightKind !== null || deletionRunOwnsWorkflow(runState);
+  const capturedRunSchedulingSettings =
+    currentRun === null
+      ? null
+      : {
+          requestsPerMinute: currentRun.getState().progress.requestsPerMinute,
+          maximumConcurrentDeleteRequests:
+            currentRun.getState().progress.maximumConcurrentDeleteRequests,
+        };
   const deletionAvailable = inventoryReady && safetyOverride === null;
   const retryFailedAvailable =
     deletionAvailable && runState !== null && canRetryFailedDeletion(runState);
@@ -101,22 +116,30 @@ export function useDeletionWorkflow({
   };
 
   const handleRunStateChange = (nextState: DeletionRunState) => {
-    if (nextState.kind === "running") executionStartedRef.current = true;
+    setDeletionPreflightKind(null);
+    if (nextState.kind === "running") {
+      executionStartedRef.current = true;
+    }
     if (
       nextState.kind === "blocked" &&
       nextState.reason === "destructive-run-lock"
     ) {
       onOperationLockConflict();
-      if (!executionStartedRef.current) setCurrentRun(null);
+      if (!executionStartedRef.current) {
+        setCurrentRun(null);
+        setRunState(null);
+      }
       return;
     }
     if (nextState.kind === "blocked" && !executionStartedRef.current) {
       setSafetyOverride(nextState.reason);
       setCurrentRun(null);
+      setRunState(null);
       return;
     }
     if (nextState.kind === "finished" && !executionStartedRef.current) {
       setCurrentRun(null);
+      setRunState(null);
       onNotice(t("deletion.noEligibleConfirmed"));
       return;
     }
@@ -130,6 +153,8 @@ export function useDeletionWorkflow({
     setSafetyOverride("unexpected-run-error");
     if (!executionStartedRef.current) {
       setCurrentRun(null);
+      setRunState(null);
+      setDeletionPreflightKind(null);
       return;
     }
     setRunState({
@@ -137,6 +162,11 @@ export function useDeletionWorkflow({
       reason: "unexpected-run-error",
       progress: deletionRun.getState().progress,
     });
+  };
+
+  const handleRetryLockUnavailable = () => {
+    setDeletionPreflightKind(null);
+    onOperationLockConflict();
   };
 
   const confirmAndStartDeletion = (confirmedPlan: ConfirmedDeletionPlan) => {
@@ -159,6 +189,7 @@ export function useDeletionWorkflow({
     const deletionRun = new DeletionRun({
       confirmedPlan: snapshotConfirmedPlan,
       requestsPerMinute,
+      maximumConcurrentDeleteRequests,
       gateway: dependencies.gateway,
       protectedConversationStore: dependencies.protectedConversationStore,
       clock: dependencies.clock,
@@ -168,10 +199,13 @@ export function useDeletionWorkflow({
         : { observability: dependencies.observability }),
       onStateChange: handleRunStateChange,
       onConversationRemoved,
-      onLockUnavailable: onOperationLockConflict,
+      onLockUnavailable: handleRetryLockUnavailable,
     });
     executionStartedRef.current = false;
+    setRetryingFailedRun(false);
     setCurrentRun(deletionRun);
+    setRunState(null);
+    setDeletionPreflightKind("new-run");
     deletionRun
       .startDeletion()
       .catch(() => recordUnexpectedRunFailure(deletionRun));
@@ -180,14 +214,18 @@ export function useDeletionWorkflow({
   const retryFailed = () => {
     if (
       currentRun === null ||
+      deletionPreflightKind !== null ||
       !deletionAvailable ||
       !canRetryFailedDeletion(currentRun.getState())
     ) {
       return;
     }
     onOperationAttempt();
+    setRetryingFailedRun(true);
+    setDeletionPreflightKind("retry-failed");
     currentRun
       .retryFailedDeletion()
+      .then(() => setDeletionPreflightKind(null))
       .catch(() => recordUnexpectedRunFailure(currentRun));
   };
 
@@ -195,10 +233,13 @@ export function useDeletionWorkflow({
     if (
       dependencies === null ||
       currentRun === null ||
+      runState?.kind !== "paused" ||
+      deletionPreflightKind !== null ||
       isProtectionMutationPending()
     ) {
       return;
     }
+    setDeletionPreflightKind("resume");
     currentRun.resumeDeletion();
   };
 
@@ -218,13 +259,15 @@ export function useDeletionWorkflow({
   return {
     previewPlan,
     runState,
+    deletionPreflightKind,
+    retryingFailedRun,
     runActive,
     runOwnsWorkflow,
+    capturedRunSchedulingSettings,
     retryFailedAvailable,
     protectionMutationLockOwner:
       runState?.kind === "paused" ? currentRun : null,
     safetyOverride,
-    currentConversationId: runState?.progress.currentConversationId ?? null,
     beginDeletionPreview,
     confirmAndStartDeletion,
     retryFailed,

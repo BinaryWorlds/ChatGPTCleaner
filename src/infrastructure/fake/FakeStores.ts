@@ -33,9 +33,12 @@ export class FakeProtectedConversationStore implements ProtectedConversationStor
 
 export class FakeSettingsStore implements SettingsStore {
   public savedValues: number[] = [];
+  public savedMaximumConcurrentDeleteRequests: number[] = [];
 
   public constructor(
     private storedValue: unknown = AppConfig.deletion.requestsPerMinute.default,
+    private storedMaximumConcurrentDeleteRequests: unknown = AppConfig.deletion
+      .maximumConcurrentDeleteRequests.default,
   ) {}
 
   public loadRequestsPerMinute(): Promise<unknown> {
@@ -45,6 +48,21 @@ export class FakeSettingsStore implements SettingsStore {
   public saveRequestsPerMinute(requestsPerMinute: number): Promise<void> {
     this.storedValue = requestsPerMinute;
     this.savedValues.push(requestsPerMinute);
+    return Promise.resolve();
+  }
+
+  public loadMaximumConcurrentDeleteRequests(): Promise<unknown> {
+    return Promise.resolve(this.storedMaximumConcurrentDeleteRequests);
+  }
+
+  public saveMaximumConcurrentDeleteRequests(
+    maximumConcurrentDeleteRequests: number,
+  ): Promise<void> {
+    this.storedMaximumConcurrentDeleteRequests =
+      maximumConcurrentDeleteRequests;
+    this.savedMaximumConcurrentDeleteRequests.push(
+      maximumConcurrentDeleteRequests,
+    );
     return Promise.resolve();
   }
 }

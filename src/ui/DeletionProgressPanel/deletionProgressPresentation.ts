@@ -1,11 +1,21 @@
 import type { TFunction } from "i18next";
-import type { DeletionRunProgress } from "../../application/deletionRun";
+import type {
+  DeletionRunProgress,
+  DeletionRunState,
+} from "../../application/deletionRun";
 
 const FAILED_CONVERSATION_PREVIEW_LIMIT = 20;
 
 export function deletionProgressPercent(progress: DeletionRunProgress): number {
-  if (progress.total === 0) return 100;
-  return Math.round((progress.processed / progress.total) * 100);
+  if (progress.total === 0) return 0;
+  const percentage = Math.round((progress.processed / progress.total) * 100);
+  return progress.remaining > 0 ? Math.min(99, percentage) : percentage;
+}
+
+export function showsActiveDeletionTime(
+  kind: DeletionRunState["kind"],
+): boolean {
+  return kind === "running" || kind === "pausing" || kind === "stopping";
 }
 
 export function failedConversationPreview(

@@ -57,12 +57,15 @@
     "standalone": "Standalone conversations",
     "projects": "Project conversations"
   },
-  "rate": {
-    "label": "Delete rate",
-    "ariaHelp": "About Delete rate",
-    "tooltip": "Maximum DELETE requests sent per minute during a deletion run.",
-    "unit": "/ min",
-    "saveFailure": "Could not save the deletion rate."
+  "scheduling": {
+    "rateLabel": "Deletion rate",
+    "rateHelp": "About deletion rate",
+    "rateTooltip": "How many deletion attempts the app can start per minute. Retries count too. Default: 60/min.",
+    "rateUnit": "/min",
+    "concurrencyLabel": "Chats at once",
+    "concurrencyHelp": "About chats at once",
+    "concurrencyTooltip": "How many chats can be deleted at the same time. Default: 1. A higher number may not make deletion faster.",
+    "saveFailure": "Could not save the deletion scheduling settings."
   },
   "filters": {
     "title": "Filters",
@@ -157,7 +160,7 @@
     "cancel": "Cancel"
   },
   "deletion": {
-    "operationTitle": "Deletion operation",
+    "operationTitle": "Conversation deletion",
     "currentState": {
       "running": "Deleting {{processed}} / {{total}}",
       "pausing": "Pausing deletion at {{processed}} / {{total}}",
@@ -171,28 +174,36 @@
     "failureAnnouncement": "Deletion stopped. {{reason}}",
     "noEligibleSelected": "No selected conversations remain eligible for deletion.",
     "noEligibleConfirmed": "No confirmed conversations remain eligible for deletion.",
-    "panelTitle": "Current deletion run",
     "stoppedForSafety": "Deletion stopped for safety",
     "blocked": "Deletion blocked",
     "reason": "Reason: {{reason}}",
     "failedConversations": "Failed conversations",
+    "slowResponseNotice": "ChatGPT’s servers are responding slowly.",
+    "slowResponseNoticePast": "ChatGPT responded slowly during deletion.",
     "failedCount": "{{count}} failed",
     "moreFailed": "+{{count}} more",
-    "state": "State",
-    "processedTotal": "Processed / total",
+    "completedCount": "Completed {{processed}} of {{total}}",
+    "completed": "Completed",
+    "completedWithFailures": "Completed with failures",
+    "nothingEligible": "Nothing to delete",
+    "retryingFailed": "Retrying failed conversations",
     "deleted": "Deleted",
     "failed": "Failed",
-    "skipped": "Skipped",
-    "remaining": "Remaining",
-    "retries": "Retries",
-    "configuredRate": "Configured rate",
-    "perMinute": "{{count}}/minute",
-    "activeElapsed": "Active elapsed",
-    "eta": "ETA",
-    "currentConversation": "Current conversation",
-    "none": "None",
-    "untitled": "(Untitled)",
+    "inProgress": "In progress",
+    "deletionTime": "Deletion time",
+    "estimatedTimeRemaining": "Estimated time remaining",
+    "etaEstimating": "Estimating…",
+    "etaAbout": "about {{duration}}",
+    "etaPaused": "Paused",
     "unknown": "Unknown",
+    "preflightStatus": {
+      "new-run": "Preparing deletion",
+      "resume": "Preparing to resume",
+      "retry-failed": "Preparing failed retry"
+    },
+    "preflightFeedback": {
+      "new-run": "Checking protection and acquiring the deletion lock…"
+    },
     "pause": "Pause",
     "resume": "Resume",
     "stop": "Stop",

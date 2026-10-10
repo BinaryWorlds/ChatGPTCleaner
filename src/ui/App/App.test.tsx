@@ -140,9 +140,9 @@ describe("App", () => {
       screen.getByRole("button", { name: "Delete 1 conversation" }),
     );
 
-    expect(await screen.findByText("FINISHED")).toBeInTheDocument();
-    expect(screen.getByText("1 / 1")).toBeInTheDocument();
-    expect(screen.getByText("Deletion operation")).toBeInTheDocument();
+    expect(await screen.findByText("Completed")).toBeInTheDocument();
+    expect(screen.getByText("Completed 1 of 1")).toBeInTheDocument();
+    expect(screen.getByText("Conversation deletion")).toBeInTheDocument();
     expect(
       screen.queryByText("Deletion stopped for safety"),
     ).not.toBeInTheDocument();

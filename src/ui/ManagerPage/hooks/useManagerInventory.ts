@@ -49,15 +49,16 @@ export function useManagerInventory(dependencies: ManagerDependencies) {
   const [projectConversations, setProjectConversations] = useState<
     readonly Conversation[]
   >([]);
-  const [conversationTitles, setConversationTitles] = useState<
-    ReadonlyMap<string, string>
-  >(new Map());
   const [protectedConversationIds, setProtectedConversationIds] = useState<
     ReadonlySet<string>
   >(new Set());
   const [requestsPerMinute, setRequestsPerMinute] = useState<number>(
     AppConfig.deletion.requestsPerMinute.default,
   );
+  const [maximumConcurrentDeleteRequests, setMaximumConcurrentDeleteRequests] =
+    useState<number>(
+      AppConfig.deletion.maximumConcurrentDeleteRequests.default,
+    );
   const [refreshing, setRefreshing] = useState(false);
   const [hasAcceptedSnapshot, setHasAcceptedSnapshot] = useState(false);
   const [initialLoadAttempt, setInitialLoadAttempt] = useState(0);
@@ -70,11 +71,6 @@ export function useManagerInventory(dependencies: ManagerDependencies) {
     }) => {
       setConversations(inventory.standaloneConversations);
       setProjectConversations(inventory.projectConversations);
-      setConversationTitles(
-        new Map(
-          inventory.standaloneConversations.map(({ id, title }) => [id, title]),
-        ),
-      );
     },
     [],
   );
@@ -115,6 +111,9 @@ export function useManagerInventory(dependencies: ManagerDependencies) {
         replaceInventorySnapshot(result.inventory);
         setProtectedConversationIds(result.protectedConversationIds);
         setRequestsPerMinute(result.requestsPerMinute);
+        setMaximumConcurrentDeleteRequests(
+          result.maximumConcurrentDeleteRequests,
+        );
         setHasAcceptedSnapshot(true);
         setInventoryState({ kind: "ready" });
       })
@@ -191,9 +190,9 @@ export function useManagerInventory(dependencies: ManagerDependencies) {
     inventoryState,
     conversations,
     projectConversations,
-    conversationTitles,
     protectedConversationIds,
     requestsPerMinute,
+    maximumConcurrentDeleteRequests,
     refreshing,
     hasAcceptedSnapshot,
     isRefreshPending,
@@ -202,5 +201,6 @@ export function useManagerInventory(dependencies: ManagerDependencies) {
     removeConversation,
     setProtectedConversationIds,
     setRequestsPerMinute,
+    setMaximumConcurrentDeleteRequests,
   } as const;
 }

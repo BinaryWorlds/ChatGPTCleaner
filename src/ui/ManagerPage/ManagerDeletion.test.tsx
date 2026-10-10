@@ -1,8 +1,22 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ManagerDependencies } from "../../composition/types";
-import type { DestructiveRunLock } from "../../application/ports/DestructiveRunLock";
+import type {
+  DestructiveRunLock,
+  LockResult,
+} from "../../application/ports/DestructiveRunLock";
+import type {
+  DeleteAttemptEvents,
+  DeleteAttemptResult,
+} from "../../application/ports/ConversationGateway";
 import type {
   ProtectedConversationIdsResult,
   ProtectedConversationStore,
@@ -107,6 +121,169 @@ class DeferredProtectedConversationStore implements ProtectedConversationStore {
   }
 }
 
+class DeferredSchedulingSettingsStore extends FakeSettingsStore {
+  private completeRateSave: (() => Promise<void>) | null = null;
+  private completeConcurrencySave: (() => Promise<void>) | null = null;
+
+  public override saveRequestsPerMinute(
+    requestsPerMinute: number,
+  ): Promise<void> {
+    return new Promise((resolve) => {
+      this.completeRateSave = async () => {
+        await super.saveRequestsPerMinute(requestsPerMinute);
+        resolve();
+      };
+    });
+  }
+
+  public override saveMaximumConcurrentDeleteRequests(
+    maximumConcurrentDeleteRequests: number,
+  ): Promise<void> {
+    return new Promise((resolve) => {
+      this.completeConcurrencySave = async () => {
+        await super.saveMaximumConcurrentDeleteRequests(
+          maximumConcurrentDeleteRequests,
+        );
+        resolve();
+      };
+    });
+  }
+
+  public hasPendingSaves(): boolean {
+    return (
+      this.completeRateSave !== null && this.completeConcurrencySave !== null
+    );
+  }
+
+  public async completePendingSaves(): Promise<void> {
+    const completeRateSave = this.completeRateSave;
+    const completeConcurrencySave = this.completeConcurrencySave;
+    if (completeRateSave === null || completeConcurrencySave === null) {
+      throw new Error("Scheduling settings saves are not pending");
+    }
+    this.completeRateSave = null;
+    this.completeConcurrencySave = null;
+    await Promise.all([completeRateSave(), completeConcurrencySave()]);
+  }
+}
+
+class SlowReportingConversationGateway extends FakeConversationGateway {
+  public override deleteConversation(
+    conversationId: string,
+    events?: DeleteAttemptEvents,
+  ): Promise<DeleteAttemptResult> {
+    events?.onResponseSlow();
+    return super.deleteConversation(conversationId);
+  }
+}
+
+class DeferredRetryConversationGateway extends FakeConversationGateway {
+  private attemptCount = 0;
+  private completePendingRetry: (() => void) | null = null;
+
+  public override deleteConversation(
+    conversationId: string,
+  ): Promise<DeleteAttemptResult> {
+    this.attemptCount += 1;
+    const result = super.deleteConversation(conversationId);
+    if (this.attemptCount !== 6) return result;
+
+    return new Promise((resolve, reject) => {
+      this.completePendingRetry = () => {
+        result.then(resolve, reject);
+      };
+    });
+  }
+
+  public completeRetry(): void {
+    const completePendingRetry = this.completePendingRetry;
+    if (completePendingRetry === null) throw new Error("No pending retry");
+    this.completePendingRetry = null;
+    completePendingRetry();
+  }
+}
+
+class DeferredDrainConversationGateway extends FakeConversationGateway {
+  public readonly startedConversationIds: string[] = [];
+  private readonly pendingAttempts = new Map<string, () => void>();
+
+  public override deleteConversation(
+    conversationId: string,
+  ): Promise<DeleteAttemptResult> {
+    this.startedConversationIds.push(conversationId);
+    return new Promise((resolve, reject) => {
+      this.pendingAttempts.set(conversationId, () => {
+        this.pendingAttempts.delete(conversationId);
+        super.deleteConversation(conversationId).then(resolve, reject);
+      });
+    });
+  }
+
+  public complete(conversationId: string): void {
+    const completePendingAttempt = this.pendingAttempts.get(conversationId);
+    if (completePendingAttempt === undefined) {
+      throw new Error(`No pending ${conversationId} deletion`);
+    }
+    completePendingAttempt();
+  }
+}
+
+class DeferredResumeProtectedConversationStore implements ProtectedConversationStore {
+  public loadCount = 0;
+  private resolvePendingLoad: (() => void) | null = null;
+
+  public loadProtectedConversationIds(): Promise<ProtectedConversationIdsResult> {
+    this.loadCount += 1;
+    if (this.loadCount !== 3) {
+      return Promise.resolve({
+        kind: "success",
+        protectedConversationIds: new Set(),
+      });
+    }
+    return new Promise((resolve) => {
+      this.resolvePendingLoad = () => {
+        resolve({
+          kind: "success",
+          protectedConversationIds: new Set(),
+        });
+      };
+    });
+  }
+
+  public saveProtectedConversationIds(): Promise<void> {
+    return Promise.resolve();
+  }
+
+  public completeResumePreflight(): void {
+    const resolvePendingLoad = this.resolvePendingLoad;
+    if (resolvePendingLoad === null) throw new Error("No pending resume load");
+    this.resolvePendingLoad = null;
+    resolvePendingLoad();
+  }
+}
+
+class DeferredSecondDestructiveRunLock implements DestructiveRunLock {
+  public acquisitionCount = 0;
+  private readonly secondAcquisition: Promise<void>;
+  private releaseSecond: () => void = () => undefined;
+
+  public constructor() {
+    this.secondAcquisition = new Promise((resolve) => {
+      this.releaseSecond = resolve;
+    });
+  }
+
+  public async runExclusive<T>(work: () => Promise<T>): Promise<LockResult<T>> {
+    this.acquisitionCount += 1;
+    if (this.acquisitionCount === 2) await this.secondAcquisition;
+    return { kind: "acquired", value: await work() };
+  }
+
+  public releaseSecondAcquisition(): void {
+    this.releaseSecond();
+  }
+}
+
 class FailAfterInitialProtectedStore implements ProtectedConversationStore {
   private loadCount = 0;
   private failing = true;
@@ -147,39 +324,44 @@ function fixture(
 
 function renderManager(input?: {
   readonly gatewayFixture?: FakeGatewayFixture;
+  readonly gateway?: FakeConversationGateway;
   readonly protectedIds?: readonly string[];
   readonly protectedConversationStore?: ProtectedConversationStore;
   readonly clock?: FakeClock;
   readonly destructiveRunLock?: DestructiveRunLock;
   readonly sourceTabLifecycle?: SourceTabLifecycle;
+  readonly settingsStore?: FakeSettingsStore;
 }) {
   const clock = input?.clock ?? new FakeClock(FIXED_NOW);
-  const gateway = new FakeConversationGateway(
-    input?.gatewayFixture ??
-      fixture([
-        {
-          id: "alpha",
-          title: "Alpha",
-          createdAt: FIXED_NOW - 20 * DAY_MS,
-          updatedAt: FIXED_NOW - 20 * DAY_MS,
-        },
-        {
-          id: "beta",
-          title: "Beta",
-          createdAt: FIXED_NOW - DAY_MS,
-          updatedAt: FIXED_NOW - DAY_MS,
-        },
-        { id: "unknown", title: "Unknown dates" },
-      ]),
-    clock,
-  );
+  const gateway =
+    input?.gateway ??
+    new FakeConversationGateway(
+      input?.gatewayFixture ??
+        fixture([
+          {
+            id: "alpha",
+            title: "Alpha",
+            createdAt: FIXED_NOW - 20 * DAY_MS,
+            updatedAt: FIXED_NOW - 20 * DAY_MS,
+          },
+          {
+            id: "beta",
+            title: "Beta",
+            createdAt: FIXED_NOW - DAY_MS,
+            updatedAt: FIXED_NOW - DAY_MS,
+          },
+          { id: "unknown", title: "Unknown dates" },
+        ]),
+      clock,
+    );
   const protectedConversationStore =
     input?.protectedConversationStore ??
     new FakeProtectedConversationStore(input?.protectedIds ?? []);
+  const settingsStore = input?.settingsStore ?? new FakeSettingsStore(60);
   const dependencies: ManagerDependencies = {
     gateway,
     protectedConversationStore,
-    settingsStore: new FakeSettingsStore(60),
+    settingsStore,
     clock,
     destructiveRunLock:
       input?.destructiveRunLock ?? new FakeDestructiveRunLock(),
@@ -196,7 +378,12 @@ function renderManager(input?: {
         : { sourceTabLifecycle: input.sourceTabLifecycle })}
     />,
   );
-  return { gateway, protectedConversationStore, openConversation };
+  return {
+    gateway,
+    protectedConversationStore,
+    settingsStore,
+    openConversation,
+  };
 }
 
 async function waitForInventory(): Promise<void> {
@@ -240,7 +427,7 @@ describe("ManagerPage destructive flow", () => {
         /Deletion is running in another ChatGPTCleaner tab/,
       ),
     ).toBeInTheDocument();
-    expect(screen.queryByText("Deletion operation")).not.toBeInTheDocument();
+    expect(screen.queryByText("Conversation deletion")).not.toBeInTheDocument();
     expect(screen.getByRole("table")).toBeInTheDocument();
     expect(screen.queryByText("Safety status")).not.toBeInTheDocument();
   });
@@ -259,8 +446,8 @@ describe("ManagerPage destructive flow", () => {
     expect(
       await screen.findByText("Protected conversation data is unavailable"),
     ).toBeInTheDocument();
-    expect(screen.queryByText("Deletion operation")).not.toBeInTheDocument();
-    expect(screen.queryByText("0 / 1")).not.toBeInTheDocument();
+    expect(screen.queryByText("Conversation deletion")).not.toBeInTheDocument();
+    expect(screen.queryByText("Completed 0 of 1")).not.toBeInTheDocument();
   });
 
   it("clears a pre-execution storage blocker only after Refresh revalidates storage", async () => {
@@ -283,7 +470,7 @@ describe("ManagerPage destructive flow", () => {
     expect(
       screen.queryByText("Protected conversation data is unavailable"),
     ).not.toBeInTheDocument();
-    expect(screen.queryByText("Deletion operation")).not.toBeInTheDocument();
+    expect(screen.queryByText("Conversation deletion")).not.toBeInTheDocument();
     expect(screen.queryByText("Safety status")).not.toBeInTheDocument();
   });
   it("uses a standard confirmation without typed input or inventory reads", async () => {
@@ -326,7 +513,7 @@ describe("ManagerPage destructive flow", () => {
       screen.getByRole("button", { name: "Delete 2 conversations" }),
     );
 
-    expect(await screen.findByText("FINISHED")).toBeInTheDocument();
+    expect(await screen.findByText("Completed")).toBeInTheDocument();
     expect(gateway.deleteAttempts.map(({ id }) => id)).toEqual([
       "beta",
       "unknown",
@@ -352,7 +539,7 @@ describe("ManagerPage destructive flow", () => {
       screen.getByRole("button", { name: "Delete 1 conversation" }),
     );
 
-    expect(await screen.findByText("FINISHED")).toBeInTheDocument();
+    expect(await screen.findByText("Completed")).toBeInTheDocument();
     expect(screen.queryByText("Alpha")).not.toBeInTheDocument();
     expect(screen.getByTestId("standalone-summary")).toHaveTextContent("0");
     expect(screen.getByTestId("selected-count")).toHaveTextContent("0");
@@ -397,11 +584,109 @@ describe("ManagerPage destructive flow", () => {
     expect(gateway.deleteAttempts).toEqual([]);
   });
 
+  it("replaces a previous slow notice while the next confirmed run awaits preflight", async () => {
+    const user = userEvent.setup();
+    const clock = new FakeClock(FIXED_NOW);
+    const gateway = new SlowReportingConversationGateway(
+      fixture([
+        { id: "alpha", title: "Alpha" },
+        { id: "beta", title: "Beta" },
+      ]),
+      clock,
+    );
+    const destructiveRunLock = new DeferredSecondDestructiveRunLock();
+    renderManager({ clock, gateway, destructiveRunLock });
+    await waitForInventory();
+
+    await openConfirmation(user, "Alpha");
+    await user.click(
+      screen.getByRole("button", { name: "Delete 1 conversation" }),
+    );
+    expect(await screen.findByText("Completed")).toBeInTheDocument();
+    expect(
+      screen.getByText("ChatGPT responded slowly during deletion."),
+    ).toBeInTheDocument();
+
+    await openConfirmation(user, "Beta");
+    await user.click(
+      screen.getByRole("button", { name: "Delete 1 conversation" }),
+    );
+
+    expect(
+      await screen.findByText(
+        "Checking protection and acquiring the deletion lock…",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Completed 0 of 0")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("ChatGPT responded slowly during deletion."),
+    ).not.toBeInTheDocument();
+    expect(gateway.deleteAttempts.map(({ id }) => id)).toEqual(["alpha"]);
+    expect(screen.getByLabelText("Deletion rate")).toBeDisabled();
+    expect(screen.getByLabelText("Chats at once")).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Refresh inventory" }),
+    ).toBeDisabled();
+    expect(screen.getByLabelText("Select Beta")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Delete (1)" })).toBeDisabled();
+
+    destructiveRunLock.releaseSecondAcquisition();
+    expect(await screen.findByText("Completed")).toBeInTheDocument();
+    expect(gateway.deleteAttempts.map(({ id }) => id)).toEqual([
+      "alpha",
+      "beta",
+    ]);
+  });
+
+  it("clears a previous slow notice when the next confirmed run becomes empty during protection preflight", async () => {
+    const user = userEvent.setup();
+    const clock = new FakeClock(FIXED_NOW);
+    const gateway = new SlowReportingConversationGateway(
+      fixture([
+        { id: "alpha", title: "Alpha" },
+        { id: "beta", title: "Beta" },
+      ]),
+      clock,
+    );
+    const protectedConversationStore = new FakeProtectedConversationStore();
+    renderManager({ clock, gateway, protectedConversationStore });
+    await waitForInventory();
+
+    await openConfirmation(user, "Alpha");
+    await user.click(
+      screen.getByRole("button", { name: "Delete 1 conversation" }),
+    );
+    expect(await screen.findByText("Completed")).toBeInTheDocument();
+    expect(
+      screen.getByText("ChatGPT responded slowly during deletion."),
+    ).toBeInTheDocument();
+    await protectedConversationStore.saveProtectedConversationIds(
+      new Set(["beta"]),
+    );
+
+    await openConfirmation(user, "Beta");
+    await user.click(
+      screen.getByRole("button", { name: "Delete 1 conversation" }),
+    );
+
+    expect(
+      await screen.findByText(
+        "No confirmed conversations remain eligible for deletion.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("ChatGPT responded slowly during deletion."),
+    ).not.toBeInTheDocument();
+    expect(gateway.deleteAttempts.map(({ id }) => id)).toEqual(["alpha"]);
+  });
+
   it("disables mutations while running and supports Pause, Resume, and Stop", async () => {
     const user = userEvent.setup();
     const controlledClock = new FakeClock(0, false);
+    const settingsStore = new FakeSettingsStore(75, 2);
     renderManager({
       clock: controlledClock,
+      settingsStore,
       gatewayFixture: fixture([
         { id: "alpha", title: "Alpha", updatedAt: 200 },
         { id: "beta", title: "Beta", updatedAt: 100 },
@@ -419,15 +704,27 @@ describe("ManagerPage destructive flow", () => {
     const pauseButton = await screen.findByRole("button", { name: "Pause" });
     const selectionSection = screen.getByRole("region", { name: "Selection" });
     const deletionSection = screen.getByRole("region", {
-      name: "Deletion operation",
+      name: /Conversation deletion/,
     });
     expect(
       within(selectionSection).queryByText("Current deletion run"),
     ).not.toBeInTheDocument();
+    expect(within(deletionSection).getAllByRole("heading")).toHaveLength(1);
     expect(
       within(deletionSection).getByRole("button", { name: "Pause" }),
     ).toBeInTheDocument();
-    expect(screen.getByLabelText("Delete rate")).toBeDisabled();
+    expect(screen.getAllByRole("button", { name: "Stop" })).toHaveLength(1);
+    expect(screen.queryByTestId("current-state-strip")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Deletion rate")).toBeDisabled();
+    expect(screen.getByLabelText("Chats at once")).toBeDisabled();
+    expect(screen.getByLabelText("Deletion rate")).toHaveValue("75");
+    expect(screen.getByLabelText("Chats at once")).toHaveValue("2");
+    await user.type(screen.getByLabelText("Deletion rate"), "90");
+    await user.type(screen.getByLabelText("Chats at once"), "3");
+    expect(settingsStore.savedValues).toEqual([]);
+    expect(settingsStore.savedMaximumConcurrentDeleteRequests).toEqual([]);
+    expect(screen.getByLabelText("Deletion rate")).toHaveValue("75");
+    expect(screen.getByLabelText("Chats at once")).toHaveValue("2");
     expect(
       screen.getByRole("button", { name: "Refresh inventory" }),
     ).toBeDisabled();
@@ -442,6 +739,8 @@ describe("ManagerPage destructive flow", () => {
 
     await user.click(pauseButton);
     const resumeButton = await screen.findByRole("button", { name: "Resume" });
+    expect(screen.getByLabelText("Deletion rate")).toBeDisabled();
+    expect(screen.getByLabelText("Chats at once")).toBeDisabled();
     expect(
       within(betaRow).getByRole("button", { name: "Protect" }),
     ).toBeDisabled();
@@ -449,15 +748,100 @@ describe("ManagerPage destructive flow", () => {
     await user.click(resumeButton);
     await screen.findByRole("button", { name: "Pause" });
     await user.click(
-      within(screen.getByTestId("current-state-strip")).getByRole("button", {
-        name: "Stop",
-      }),
+      within(deletionSection).getByRole("button", { name: "Stop" }),
     );
     await screen.findByText("STOPPED");
+    expect(screen.getByLabelText("Deletion rate")).toBeEnabled();
+    expect(screen.getByLabelText("Chats at once")).toBeEnabled();
     expect(screen.getByLabelText("Select Beta")).toBeEnabled();
     expect(
-      screen.getByRole("region", { name: "Deletion operation" }),
+      screen.getByRole("region", { name: /Conversation deletion/ }),
     ).toBeInTheDocument();
+  });
+
+  it("shows captured run settings when pending preference saves settle during ownership", async () => {
+    const user = userEvent.setup();
+    const clock = new FakeClock(0, false);
+    const settingsStore = new DeferredSchedulingSettingsStore(60, 1);
+    renderManager({
+      clock,
+      settingsStore,
+      gatewayFixture: fixture([
+        { id: "alpha", title: "Alpha", updatedAt: 200 },
+        { id: "beta", title: "Beta", updatedAt: 100 },
+      ]),
+    });
+    await waitForInventory();
+
+    fireEvent.change(screen.getByLabelText("Deletion rate"), {
+      target: { value: "75" },
+    });
+    fireEvent.change(screen.getByLabelText("Chats at once"), {
+      target: { value: "2" },
+    });
+    await waitFor(() => expect(settingsStore.hasPendingSaves()).toBe(true));
+
+    await user.click(
+      screen.getByRole("button", { name: "Select all results" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Delete (2)" }));
+    await user.click(
+      screen.getByRole("button", { name: "Delete 2 conversations" }),
+    );
+    await screen.findByRole("button", { name: "Pause" });
+    expect(screen.getByLabelText("Deletion rate")).toBeDisabled();
+    expect(screen.getByLabelText("Chats at once")).toBeDisabled();
+
+    await act(() => settingsStore.completePendingSaves());
+    expect(screen.getByLabelText("Deletion rate")).toHaveValue("60");
+    expect(screen.getByLabelText("Chats at once")).toHaveValue("1");
+
+    await user.click(screen.getByRole("button", { name: "Stop" }));
+    await screen.findByText("STOPPED");
+    expect(screen.getByLabelText("Deletion rate")).toBeEnabled();
+    expect(screen.getByLabelText("Chats at once")).toBeEnabled();
+    expect(screen.getByLabelText("Deletion rate")).toHaveValue("75");
+    expect(screen.getByLabelText("Chats at once")).toHaveValue("2");
+  });
+
+  it("shows and owns Resume preflight until the protection check resolves", async () => {
+    const user = userEvent.setup();
+    const clock = new FakeClock(0, false);
+    const protectedConversationStore =
+      new DeferredResumeProtectedConversationStore();
+    renderManager({
+      clock,
+      protectedConversationStore,
+      gatewayFixture: fixture([
+        { id: "alpha", title: "Alpha" },
+        { id: "beta", title: "Beta" },
+      ]),
+    });
+    await waitForInventory();
+    await user.click(
+      screen.getByRole("button", { name: "Select all results" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Delete (2)" }));
+    await user.click(
+      screen.getByRole("button", { name: "Delete 2 conversations" }),
+    );
+    await user.click(await screen.findByRole("button", { name: "Pause" }));
+
+    const resumeButton = await screen.findByRole("button", { name: "Resume" });
+    await user.click(resumeButton);
+    expect(await screen.findByText("Preparing to resume")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Resume" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Resume" })).toHaveAttribute(
+      "aria-busy",
+      "true",
+    );
+    expect(screen.getByLabelText("Deletion rate")).toBeDisabled();
+    expect(screen.getByLabelText("Chats at once")).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Resume" }));
+    expect(protectedConversationStore.loadCount).toBe(3);
+
+    protectedConversationStore.completeResumePreflight();
+    await screen.findByRole("button", { name: "Pause" });
   });
 
   it("shows failed outcomes and retries only the confirmed failed ID", async () => {
@@ -478,6 +862,11 @@ describe("ManagerPage destructive flow", () => {
       name: "Retry Failed",
     });
     expect(
+      screen.getAllByRole("button", { name: "Retry Failed" }),
+    ).toHaveLength(1);
+    expect(screen.getByLabelText("Deletion rate")).toBeDisabled();
+    expect(screen.getByLabelText("Chats at once")).toBeDisabled();
+    expect(
       screen.getByRole("button", { name: "Select all results" }),
     ).toBeDisabled();
     expect(screen.getByLabelText("Select Network failure")).toBeDisabled();
@@ -487,11 +876,167 @@ describe("ManagerPage destructive flow", () => {
     expect(gateway.deleteAttempts).toHaveLength(5);
     await user.click(retryButton);
     await waitFor(() => expect(gateway.deleteAttempts).toHaveLength(6));
-    expect(screen.getByText("FINISHED")).toBeInTheDocument();
+    expect(screen.getByText("Completed")).toBeInTheDocument();
     expect(screen.queryByText("Network failure")).not.toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Select all results" }),
     ).toBeEnabled();
+  });
+
+  it("shows pending Retry Failed ownership and the retry execution context", async () => {
+    const user = userEvent.setup();
+    const clock = new FakeClock(FIXED_NOW);
+    const gateway = new DeferredRetryConversationGateway(
+      fixture([{ id: "network", title: "Network failure", updatedAt: 100 }], {
+        network: [500, 500, 500, 500, 500, "success"],
+      }),
+      clock,
+    );
+    const destructiveRunLock = new DeferredSecondDestructiveRunLock();
+    const settingsStore = new FakeSettingsStore(75, 2);
+    renderManager({ clock, gateway, destructiveRunLock, settingsStore });
+    await waitForInventory();
+    await openConfirmation(user, "Network failure");
+    await user.click(
+      screen.getByRole("button", { name: "Delete 1 conversation" }),
+    );
+
+    await user.click(
+      await screen.findByRole("button", { name: "Retry Failed" }),
+    );
+    expect(
+      await screen.findByText("Preparing failed retry"),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Deletion rate")).toBeDisabled();
+    expect(screen.getByLabelText("Chats at once")).toBeDisabled();
+    expect(screen.getByLabelText("Deletion rate")).toHaveValue("75");
+    expect(screen.getByLabelText("Chats at once")).toHaveValue("2");
+    await user.type(screen.getByLabelText("Deletion rate"), "90");
+    await user.type(screen.getByLabelText("Chats at once"), "3");
+    expect(settingsStore.savedValues).toEqual([]);
+    expect(settingsStore.savedMaximumConcurrentDeleteRequests).toEqual([]);
+    await user.click(screen.getByRole("button", { name: /Retry Failed/ }));
+    expect(destructiveRunLock.acquisitionCount).toBe(2);
+    expect(gateway.deleteAttempts).toHaveLength(5);
+
+    destructiveRunLock.releaseSecondAcquisition();
+    expect(
+      await screen.findByText("Retrying failed conversations"),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Deletion rate")).toHaveValue("75");
+    expect(screen.getByLabelText("Chats at once")).toHaveValue("2");
+    expect(screen.getByText("Completed 0 of 1")).toBeInTheDocument();
+    gateway.completeRetry();
+    expect(await screen.findByText("Completed")).toBeInTheDocument();
+    expect(screen.getByLabelText("Deletion rate")).toBeEnabled();
+    expect(screen.getByLabelText("Chats at once")).toBeEnabled();
+  });
+
+  it("keeps settings locked while Stop drains active operations", async () => {
+    const user = userEvent.setup();
+    const clock = new FakeClock(0, false);
+    const gateway = new DeferredDrainConversationGateway(
+      fixture([
+        { id: "alpha", title: "Alpha" },
+        { id: "beta", title: "Beta" },
+      ]),
+      clock,
+    );
+    renderManager({
+      clock,
+      gateway,
+      settingsStore: new FakeSettingsStore(120, 2),
+    });
+    await waitForInventory();
+    await user.click(
+      screen.getByRole("button", { name: "Select all results" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Delete (2)" }));
+    await user.click(
+      screen.getByRole("button", { name: "Delete 2 conversations" }),
+    );
+    await waitFor(() =>
+      expect(gateway.startedConversationIds).toEqual(["alpha"]),
+    );
+    await act(async () => {
+      clock.advanceBy(500);
+      await Promise.resolve();
+    });
+    await waitFor(() =>
+      expect(gateway.startedConversationIds).toEqual(["alpha", "beta"]),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Stop" }));
+    expect(await screen.findByText("STOPPING")).toBeInTheDocument();
+    expect(screen.getByLabelText("Deletion rate")).toBeDisabled();
+    expect(screen.getByLabelText("Chats at once")).toBeDisabled();
+
+    act(() => gateway.complete("alpha"));
+    await waitFor(() =>
+      expect(screen.getByText("In progress").parentElement).toHaveTextContent(
+        "1",
+      ),
+    );
+    expect(screen.getByLabelText("Deletion rate")).toBeDisabled();
+    expect(screen.getByLabelText("Chats at once")).toBeDisabled();
+
+    act(() => gateway.complete("beta"));
+    expect(await screen.findByText("STOPPED")).toBeInTheDocument();
+    expect(screen.getByLabelText("Deletion rate")).toBeEnabled();
+    expect(screen.getByLabelText("Chats at once")).toBeEnabled();
+  });
+
+  it("keeps settings locked while a fatal result drains active operations", async () => {
+    const user = userEvent.setup();
+    const clock = new FakeClock(0, false);
+    const gateway = new DeferredDrainConversationGateway(
+      fixture(
+        [
+          { id: "alpha", title: "Alpha" },
+          { id: "beta", title: "Beta" },
+        ],
+        { alpha: [403] },
+      ),
+      clock,
+    );
+    renderManager({
+      clock,
+      gateway,
+      settingsStore: new FakeSettingsStore(120, 2),
+    });
+    await waitForInventory();
+    await user.click(
+      screen.getByRole("button", { name: "Select all results" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Delete (2)" }));
+    await user.click(
+      screen.getByRole("button", { name: "Delete 2 conversations" }),
+    );
+    await waitFor(() =>
+      expect(gateway.startedConversationIds).toEqual(["alpha"]),
+    );
+    await act(async () => {
+      clock.advanceBy(500);
+      await Promise.resolve();
+    });
+    await waitFor(() =>
+      expect(gateway.startedConversationIds).toEqual(["alpha", "beta"]),
+    );
+
+    act(() => gateway.complete("alpha"));
+    await waitFor(() =>
+      expect(screen.getByText("In progress").parentElement).toHaveTextContent(
+        "1",
+      ),
+    );
+    expect(screen.queryByText("FATAL")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Deletion rate")).toBeDisabled();
+    expect(screen.getByLabelText("Chats at once")).toBeDisabled();
+
+    act(() => gateway.complete("beta"));
+    expect(await screen.findByText("FATAL")).toBeInTheDocument();
+    expect(screen.getByLabelText("Deletion rate")).toBeEnabled();
+    expect(screen.getByLabelText("Chats at once")).toBeEnabled();
   });
 
   it("blocks Retry Failed when canonical deletion availability becomes blocked", async () => {
@@ -553,14 +1098,18 @@ describe("ManagerPage destructive flow", () => {
         /Deletion is running in another ChatGPTCleaner tab/,
       ),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Retry Failed" })).toBeEnabled();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Retry Failed" }),
+      ).toBeEnabled(),
+    );
     expect(gateway.deleteAttempts).toHaveLength(5);
 
     sharedLockState.active = false;
     await user.click(screen.getByRole("button", { name: "Retry Failed" }));
 
     await waitFor(() => expect(gateway.deleteAttempts).toHaveLength(6));
-    expect(screen.getByText("FINISHED")).toBeInTheDocument();
+    expect(screen.getByText("Completed")).toBeInTheDocument();
     expect(
       screen.queryByText(/Deletion is running in another ChatGPTCleaner tab/),
     ).not.toBeInTheDocument();
@@ -582,13 +1131,13 @@ describe("ManagerPage destructive flow", () => {
 
     const currentStateStrip = await screen.findByTestId("current-state-strip");
     expect(currentStateStrip).toHaveTextContent(
-      "Deletion stopped after 0 / 1 · Authorization denied",
+      "ChatGPT rejected the deletion request",
     );
     expect(
       screen.queryByText("Deletion stopped for safety"),
     ).not.toBeInTheDocument();
     expect(
-      screen.getByRole("region", { name: "Deletion operation" }),
+      screen.getByRole("region", { name: /Conversation deletion/ }),
     ).toHaveTextContent("FATAL");
     expect(
       screen.queryByText(/No deletion has started/),
@@ -617,13 +1166,10 @@ describe("ManagerPage destructive flow", () => {
       await screen.findByRole("button", { name: "Delete 2 conversations" }),
     );
 
-    expect(await screen.findByTestId("current-state-strip")).toHaveTextContent(
-      "Authorization denied",
-    );
+    expect(
+      await screen.findByText("Reason: Authorization denied"),
+    ).toBeInTheDocument();
     expect(gateway.deleteAttempts.map(({ id }) => id)).toEqual([
-      "failed",
-      "failed",
-      "failed",
       "failed",
       "failed",
       "fatal",
@@ -633,7 +1179,7 @@ describe("ManagerPage destructive flow", () => {
     ).not.toBeInTheDocument();
 
     await Promise.resolve();
-    expect(gateway.deleteAttempts).toHaveLength(6);
+    expect(gateway.deleteAttempts).toHaveLength(3);
   });
 
   it("keeps a destructive-only blocker and operation history after Refresh", async () => {
@@ -651,9 +1197,9 @@ describe("ManagerPage destructive flow", () => {
     );
 
     expect(await screen.findByTestId("current-state-strip")).toHaveTextContent(
-      "Deletion stopped after 0 / 1 · ChatGPT rejected the deletion request",
+      "ChatGPT rejected the deletion request",
     );
-    expect(screen.getByText("0 / 1")).toBeInTheDocument();
+    expect(screen.getByText("Completed 0 of 1")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Refresh inventory" }));
     await waitFor(() =>
@@ -663,12 +1209,12 @@ describe("ManagerPage destructive flow", () => {
     );
 
     expect(screen.getByTestId("current-state-strip")).toHaveTextContent(
-      "Deletion stopped after 0 / 1 · ChatGPT rejected the deletion request",
+      "ChatGPT rejected the deletion request",
     );
     expect(
       screen.queryByText("Deletion stopped for safety"),
     ).not.toBeInTheDocument();
-    expect(screen.getByText("0 / 1")).toBeInTheDocument();
+    expect(screen.getByText("Completed 0 of 1")).toBeInTheDocument();
     expect(
       screen.queryByText(/No deletion has started/),
     ).not.toBeInTheDocument();

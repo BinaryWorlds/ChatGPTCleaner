@@ -11,7 +11,10 @@ import type {
 import { STANDALONE_CONVERSATION_PAGE_LIMIT } from "./ports/ConversationGateway";
 import type { ProtectedConversationStore } from "./ports/ProtectedConversationStore";
 import type { SettingsStore } from "./ports/SettingsStore";
-import { loadRequestsPerMinute } from "./settings";
+import {
+  loadMaximumConcurrentDeleteRequests,
+  loadRequestsPerMinute,
+} from "./settings";
 import type { SafetyBlockReason } from "./SafetyBlockReason";
 
 export interface SafetyInventory {
@@ -36,6 +39,7 @@ export type InventoryLoadResult =
       readonly inventory: SafetyInventory;
       readonly protectedConversationIds: ReadonlySet<string>;
       readonly requestsPerMinute: number;
+      readonly maximumConcurrentDeleteRequests: number;
     }
   | {
       readonly kind: "blocked";
@@ -448,12 +452,17 @@ export async function loadInventory(input: {
   );
   if (protectedIdsResult.kind === "blocked") return protectedIdsResult;
 
-  const requestsPerMinute = await loadRequestsPerMinute(input.settingsStore);
+  const [requestsPerMinute, maximumConcurrentDeleteRequests] =
+    await Promise.all([
+      loadRequestsPerMinute(input.settingsStore),
+      loadMaximumConcurrentDeleteRequests(input.settingsStore),
+    ]);
 
   return {
     kind: "ready",
     inventory: safetyInventoryResult.inventory,
     protectedConversationIds: protectedIdsResult.protectedConversationIds,
     requestsPerMinute,
+    maximumConcurrentDeleteRequests,
   };
 }

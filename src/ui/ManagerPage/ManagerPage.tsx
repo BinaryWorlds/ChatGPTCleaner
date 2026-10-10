@@ -34,7 +34,7 @@ import ConversationViewToolbar from "./ConversationViewToolbar";
 import DeletionRunSection from "./DeletionRunSection";
 import { useConversationListState } from "./hooks/useConversationListState";
 import { useConversationProtection } from "./hooks/useConversationProtection";
-import { useDeletionRateSetting } from "./hooks/useDeletionRateSetting";
+import { useDeletionSchedulingSettings } from "./hooks/useDeletionRateSetting";
 import { useDeletionWorkflow } from "./hooks/useDeletionWorkflow";
 import { useManagerInventory } from "./hooks/useManagerInventory";
 import { useManagerRefresh } from "./hooks/useManagerRefresh";
@@ -68,9 +68,9 @@ export default function ManagerPage({
     inventoryState,
     conversations,
     projectConversations,
-    conversationTitles,
     protectedConversationIds,
     requestsPerMinute,
+    maximumConcurrentDeleteRequests,
     refreshing,
     hasAcceptedSnapshot,
     isRefreshPending,
@@ -79,6 +79,7 @@ export default function ManagerPage({
     removeConversation,
     setProtectedConversationIds,
     setRequestsPerMinute,
+    setMaximumConcurrentDeleteRequests,
   } = useManagerInventory(dependencies);
   const sourceLost = useSourceTabAvailability({
     sourceTabLifecycle,
@@ -130,12 +131,13 @@ export default function ManagerPage({
   const {
     previewPlan,
     runState,
-    runActive,
+    deletionPreflightKind,
+    retryingFailedRun,
     runOwnsWorkflow,
+    capturedRunSchedulingSettings,
     retryFailedAvailable,
     protectionMutationLockOwner,
     safetyOverride,
-    currentConversationId,
     beginDeletionPreview,
     confirmAndStartDeletion,
     retryFailed,
@@ -154,6 +156,7 @@ export default function ManagerPage({
     protectedConversationIds,
     selectedConversationIds,
     requestsPerMinute,
+    maximumConcurrentDeleteRequests,
     isProtectionMutationPending,
     onConversationRemoved: (removedId) => {
       removeConversation(removedId);
@@ -200,6 +203,10 @@ export default function ManagerPage({
   }, [cancelConfirmation, inventoryState.kind, safetyOverride, sourceLost]);
 
   const selectionLocked = runOwnsWorkflow || refreshing;
+  const displayedSchedulingSettings =
+    runOwnsWorkflow && capturedRunSchedulingSettings !== null
+      ? capturedRunSchedulingSettings
+      : { requestsPerMinute, maximumConcurrentDeleteRequests };
   const safetyState: SafetyStatusState = (() => {
     if (sourceLost) return { kind: "blocked", reason: "source-unavailable" };
     if (inventoryState.kind === "loading") {
@@ -223,12 +230,14 @@ export default function ManagerPage({
     return { kind: "ready" };
   })();
 
-  const handleRateChange = useDeletionRateSetting({
-    dependencies,
-    runActive,
-    setRequestsPerMinute,
-    setNotice,
-  });
+  const { changeDeletionRate, changeDeletionConcurrency } =
+    useDeletionSchedulingSettings({
+      dependencies,
+      runOwnsWorkflow,
+      setRequestsPerMinute,
+      setMaximumConcurrentDeleteRequests,
+      setNotice,
+    });
 
   const handleOpenConversation = (conversationId: string) => {
     openConversation(conversationId);
@@ -249,10 +258,6 @@ export default function ManagerPage({
     setNotice,
   });
 
-  const currentConversationLabel =
-    currentConversationId === null
-      ? t("deletion.none")
-      : `${conversationTitles.get(currentConversationId) ?? t("deletion.untitled")} (${currentConversationId})`;
   const inventoryLoadingText =
     inventoryState.kind !== "loading"
       ? null
@@ -311,8 +316,6 @@ export default function ManagerPage({
         state={safetyState}
         operationState={runState}
         onRetry={hasAcceptedSnapshot ? handleRefresh : retryInitialInventory}
-        onRetryFailed={retryFailed}
-        onStop={stopRun}
       />
 
       {notice !== null && safetyState.kind !== "blocked" && (
@@ -357,10 +360,14 @@ export default function ManagerPage({
           >
             <ConversationViewToolbar
               conversationView={conversationView}
-              requestsPerMinute={requestsPerMinute}
-              rateControlDisabled={runActive}
+              requestsPerMinute={displayedSchedulingSettings.requestsPerMinute}
+              maximumConcurrentDeleteRequests={
+                displayedSchedulingSettings.maximumConcurrentDeleteRequests
+              }
+              rateControlDisabled={runOwnsWorkflow}
               onConversationViewChange={setConversationView}
-              onRateChange={handleRateChange}
+              onRateChange={changeDeletionRate}
+              onConcurrencyChange={changeDeletionConcurrency}
             />
             <div>
               <Typography.Title
@@ -415,12 +422,13 @@ export default function ManagerPage({
             onDelete={beginDeletionPreview}
           />
 
-          {runState !== null && (
+          {(runState !== null || deletionPreflightKind !== null) && (
             <>
               <Divider style={{ marginBlock: token.marginMD }} />
               <DeletionRunSection
                 state={runState}
-                currentConversationLabel={currentConversationLabel}
+                preflightKind={deletionPreflightKind}
+                retryingFailedRun={retryingFailedRun}
                 resumeDisabled={protectionMutationPending}
                 retryFailedDisabled={!retryFailedAvailable}
                 onPause={pauseRun}

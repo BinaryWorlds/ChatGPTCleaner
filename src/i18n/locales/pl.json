@@ -57,12 +57,15 @@
     "standalone": "Rozmowy poza projektami",
     "projects": "Rozmowy w projektach"
   },
-  "rate": {
-    "label": "Tempo usuwania",
-    "ariaHelp": "Informacje o tempie usuwania",
-    "tooltip": "Maksymalna liczba żądań DELETE wysyłanych na minutę podczas usuwania.",
-    "unit": "/ min",
-    "saveFailure": "Nie udało się zapisać tempa usuwania."
+  "scheduling": {
+    "rateLabel": "Tempo usuwania",
+    "rateHelp": "Informacje o tempie usuwania",
+    "rateTooltip": "Ile razy na minutę aplikacja może rozpocząć usuwanie rozmowy. Ponowne próby też się liczą. Domyślnie: 60/min.",
+    "rateUnit": "/min",
+    "concurrencyLabel": "Rozmowy naraz",
+    "concurrencyHelp": "Informacje o rozmowach usuwanych naraz",
+    "concurrencyTooltip": "Ile rozmów może być usuwanych jednocześnie. Domyślnie: 1. Większa liczba nie zawsze oznacza szybsze usuwanie.",
+    "saveFailure": "Nie udało się zapisać ustawień planowania usuwania."
   },
   "filters": {
     "title": "Filtry",
@@ -157,7 +160,7 @@
     "cancel": "Anuluj"
   },
   "deletion": {
-    "operationTitle": "Operacja usuwania",
+    "operationTitle": "Usuwanie rozmów",
     "currentState": {
       "running": "Usuwanie: {{processed}} / {{total}}",
       "pausing": "Wstrzymywanie usuwania przy {{processed}} / {{total}}",
@@ -171,28 +174,36 @@
     "failureAnnouncement": "Usuwanie zostało zatrzymane. {{reason}}",
     "noEligibleSelected": "Żadna z zaznaczonych rozmów nie kwalifikuje się już do usunięcia.",
     "noEligibleConfirmed": "Żadna z potwierdzonych rozmów nie kwalifikuje się już do usunięcia.",
-    "panelTitle": "Bieżąca operacja usuwania",
     "stoppedForSafety": "Usuwanie zatrzymano ze względów bezpieczeństwa",
     "blocked": "Usuwanie zablokowane",
     "reason": "Powód: {{reason}}",
     "failedConversations": "Rozmowy z błędami",
+    "slowResponseNotice": "Serwery ChatGPT odpowiadają wolno.",
+    "slowResponseNoticePast": "Podczas usuwania ChatGPT odpowiadał wolno.",
     "failedCount": "Niepowodzenie: {{count}}",
     "moreFailed": "+{{count}} więcej",
-    "state": "Stan",
-    "processedTotal": "Przetworzone / wszystkie",
+    "completedCount": "Zakończono {{processed}} z {{total}}",
+    "completed": "Zakończono",
+    "completedWithFailures": "Zakończono z błędami",
+    "nothingEligible": "Brak rozmów do usunięcia",
+    "retryingFailed": "Ponowne usuwanie nieudanych rozmów",
     "deleted": "Usunięte",
     "failed": "Nieudane",
-    "skipped": "Pominięte",
-    "remaining": "Pozostałe",
-    "retries": "Ponowienia",
-    "configuredRate": "Ustawione tempo",
-    "perMinute": "{{count}}/minutę",
-    "activeElapsed": "Aktywny czas",
-    "eta": "Pozostały czas",
-    "currentConversation": "Bieżąca rozmowa",
-    "none": "Brak",
-    "untitled": "(Bez tytułu)",
+    "inProgress": "W trakcie",
+    "deletionTime": "Czas usuwania",
+    "estimatedTimeRemaining": "Szacowany pozostały czas",
+    "etaEstimating": "Szacowanie…",
+    "etaAbout": "około {{duration}}",
+    "etaPaused": "Wstrzymane",
     "unknown": "Nieznany",
+    "preflightStatus": {
+      "new-run": "Przygotowywanie usuwania",
+      "resume": "Przygotowywanie wznowienia",
+      "retry-failed": "Przygotowywanie ponowienia"
+    },
+    "preflightFeedback": {
+      "new-run": "Sprawdzanie ochrony i uzyskiwanie blokady usuwania…"
+    },
     "pause": "Wstrzymaj",
     "resume": "Wznów",
     "stop": "Zatrzymaj",

@@ -325,26 +325,39 @@ afterEach(() => {
 });
 
 describe("ManagerPage inventory controls", () => {
-  it("explains and preserves the configurable DELETE request rate", async () => {
-    const settingsStore = new FakeSettingsStore(60);
+  it("explains and persists both deletion scheduling inputs independently", async () => {
+    const settingsStore = new FakeSettingsStore(60, 2);
     renderManager({ settingsStore });
     await waitForInventory();
     expect(
-      screen.queryByRole("region", { name: "Deletion operation" }),
+      screen.queryByRole("region", { name: "Conversation deletion" }),
     ).not.toBeInTheDocument();
 
-    const rateInput = screen.getByLabelText("Delete rate");
+    const rateInput = screen.getByLabelText("Deletion rate");
+    const concurrencyInput = screen.getByLabelText("Chats at once");
     expect(rateInput).toHaveValue("60");
-    expect(screen.getByText("/ min")).toBeInTheDocument();
+    expect(concurrencyInput).toHaveValue("2");
+    expect(screen.getByText("/min")).toBeInTheDocument();
 
-    fireEvent.focus(screen.getByLabelText("About Delete rate"));
+    fireEvent.focus(screen.getByLabelText("About deletion rate"));
     expect(await screen.findByRole("tooltip")).toHaveTextContent(
-      "Maximum DELETE requests sent per minute during a deletion run.",
+      "How many deletion attempts the app can start per minute. Retries count too. Default: 60/min.",
     );
+    fireEvent.focus(screen.getByLabelText("About chats at once"));
+    expect(
+      await screen.findByText(
+        "How many chats can be deleted at the same time. Default: 1. A higher number may not make deletion faster.",
+      ),
+    ).toBeInTheDocument();
 
     fireEvent.change(rateInput, { target: { value: "75" } });
     await waitFor(() => expect(settingsStore.savedValues).toEqual([75]));
     expect(rateInput).toHaveValue("75");
+    fireEvent.change(concurrencyInput, { target: { value: "20" } });
+    await waitFor(() =>
+      expect(settingsStore.savedMaximumConcurrentDeleteRequests).toEqual([20]),
+    );
+    expect(concurrencyInput).toHaveValue("20");
   });
 
   it("labels the loading value as a conversation count", async () => {
@@ -757,7 +770,8 @@ describe("ManagerPage inventory controls", () => {
     expect(
       screen.queryByRole("button", { name: /^(Unprotect|Protect)$/ }),
     ).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Delete rate")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Deletion rate")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Chats at once")).not.toBeInTheDocument();
     expect(screen.getByTestId("selected-count")).toHaveTextContent("1");
 
     const projectRow = screen.getByText("Project planning").closest("tr");

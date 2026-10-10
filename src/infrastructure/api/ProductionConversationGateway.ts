@@ -3,6 +3,7 @@ import { isSafetyCriticalIdentifier } from "../../domain/identifier";
 import type {
   ConversationGateway,
   ConversationPage,
+  DeleteAttemptEvents,
   DeleteAttemptResult,
   ProjectReference,
   ReadResult,
@@ -315,7 +316,8 @@ export class ProductionConversationGateway implements ConversationGateway {
 
   public deleteConversation(
     conversationId: string,
+    events?: DeleteAttemptEvents,
   ): Promise<DeleteAttemptResult> {
-    return this.deleteTransport.deleteConversation(conversationId);
+    return this.deleteTransport.deleteConversation(conversationId, events);
   }
 }

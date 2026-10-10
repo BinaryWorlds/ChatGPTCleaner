@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { loadRequestsPerMinute } from "../../application/settings";
+import {
+  loadMaximumConcurrentDeleteRequests,
+  loadRequestsPerMinute,
+} from "../../application/settings";
 import {
   BrowserProtectedConversationStore,
   BrowserSettingsStore,
@@ -136,6 +139,23 @@ describe("browser-backed stores", () => {
     );
     await expect(loadRequestsPerMinute(store)).resolves.toBe(60);
     expect(storage.values.requestsPerMinute).toBe(60);
+  });
+
+  it("normalizes malformed concurrency to 1 and persists the independent key", async () => {
+    const storage = storageWith({
+      requestsPerMinute: 30,
+      maximumConcurrentDeleteRequests: 21,
+    });
+    const store = new BrowserSettingsStore(
+      storage,
+      new TrustedStorageAccess(storage),
+    );
+
+    await expect(loadMaximumConcurrentDeleteRequests(store)).resolves.toBe(1);
+    expect(storage.values).toMatchObject({
+      requestsPerMinute: 30,
+      maximumConcurrentDeleteRequests: 1,
+    });
   });
 
   it("continues when access restriction is unavailable", async () => {

@@ -15,6 +15,8 @@ import { logger, summarizeUnknownError } from "../observability/logger";
 
 const PROTECTED_IDS_KEY = "protectedConversationIds";
 const REQUESTS_PER_MINUTE_KEY = "requestsPerMinute";
+const MAXIMUM_CONCURRENT_DELETE_REQUESTS_KEY =
+  "maximumConcurrentDeleteRequests";
 const THEME_PREFERENCE_KEY = "themePreference";
 
 const protectedIdsSchema = z.array(
@@ -144,6 +146,40 @@ export class BrowserSettingsStore implements SettingsStore {
     try {
       await this.trustedAccess.ensureRestricted();
       await this.storage.set({ [REQUESTS_PER_MINUTE_KEY]: requestsPerMinute });
+      logger.debug("settingsStore.save.succeeded");
+    } catch (cause) {
+      throw createAppError("StorageFailure", {
+        operation: "settingsStore.save",
+        cause,
+      });
+    }
+  }
+
+  public async loadMaximumConcurrentDeleteRequests(): Promise<unknown> {
+    try {
+      await this.trustedAccess.ensureRestricted();
+      const stored = await this.storage.get(
+        MAXIMUM_CONCURRENT_DELETE_REQUESTS_KEY,
+      );
+      logger.debug("settingsStore.load.succeeded");
+      return stored[MAXIMUM_CONCURRENT_DELETE_REQUESTS_KEY];
+    } catch (cause) {
+      throw createAppError("StorageFailure", {
+        operation: "settingsStore.load",
+        cause,
+      });
+    }
+  }
+
+  public async saveMaximumConcurrentDeleteRequests(
+    maximumConcurrentDeleteRequests: number,
+  ): Promise<void> {
+    try {
+      await this.trustedAccess.ensureRestricted();
+      await this.storage.set({
+        [MAXIMUM_CONCURRENT_DELETE_REQUESTS_KEY]:
+          maximumConcurrentDeleteRequests,
+      });
       logger.debug("settingsStore.save.succeeded");
     } catch (cause) {
       throw createAppError("StorageFailure", {

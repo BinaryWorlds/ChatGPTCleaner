@@ -67,7 +67,7 @@ export type DeleteAttemptResult =
   | { readonly kind: "skipped"; readonly status: 404 | 410 }
   | {
       readonly kind: "retryable";
-      readonly reason: "rate-limit" | "server" | "network";
+      readonly reason: "delete-timeout" | "rate-limit" | "server" | "network";
       readonly retryAfterMs?: number;
       readonly status?: number;
     }
@@ -84,6 +84,10 @@ export type DeleteAttemptResult =
       readonly status?: number;
     };
 
+export interface DeleteAttemptEvents {
+  readonly onResponseSlow: () => void;
+}
+
 export interface ConversationGateway {
   beginSafetyInventoryRead(): Promise<ReadResult<null>>;
   fetchStandaloneConversationPage(
@@ -95,5 +99,8 @@ export interface ConversationGateway {
     cursor: string | null,
     paginationStep?: number,
   ): Promise<ReadResult<ConversationPage>>;
-  deleteConversation(conversationId: string): Promise<DeleteAttemptResult>;
+  deleteConversation(
+    conversationId: string,
+    events?: DeleteAttemptEvents,
+  ): Promise<DeleteAttemptResult>;
 }
