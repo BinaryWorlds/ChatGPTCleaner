@@ -12,6 +12,7 @@ export type ObservabilityFields = Readonly<
 
 export interface ApplicationObservability {
   createOperationId(): string;
+  debug(event: string, fields?: ObservabilityFields): void;
   info(event: string, fields?: ObservabilityFields): void;
   warn(event: string, fields?: ObservabilityFields): void;
   error(

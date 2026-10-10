@@ -175,7 +175,7 @@ class DeferredSaveProtectedConversationStore implements ProtectedConversationSto
 
 class CapturingObservability implements ApplicationObservability {
   public readonly entries: {
-    readonly level: "info" | "warn" | "error";
+    readonly level: "debug" | "info" | "warn" | "error";
     readonly event: string;
     readonly errorCode?: string;
     readonly fields?: ObservabilityFields;
@@ -185,6 +185,14 @@ class CapturingObservability implements ApplicationObservability {
   public createOperationId(): string {
     this.sequence += 1;
     return `operation-${this.sequence}`;
+  }
+
+  public debug(event: string, fields?: ObservabilityFields): void {
+    this.entries.push({
+      level: "debug",
+      event,
+      ...(fields === undefined ? {} : { fields }),
+    });
   }
 
   public info(event: string, fields?: ObservabilityFields): void {
@@ -1247,7 +1255,7 @@ describe("destructive run", () => {
     ).toHaveLength(1);
   });
 
-  it("does not log a recovered retry as terminal ERROR", async () => {
+  it("logs a recovered retry as DEBUG without WARN or ERROR", async () => {
     const clock = new FakeClock();
     const observability = new CapturingObservability();
     const gateway = new FakeConversationGateway(
@@ -1266,11 +1274,14 @@ describe("destructive run", () => {
 
     await run.startDeletion();
     expect(
-      observability.entries.filter(({ level }) => level === "error"),
+      observability.entries.filter(
+        ({ level }) => level === "warn" || level === "error",
+      ),
     ).toEqual([]);
     expect(
       observability.entries.some(
-        ({ event }) => event === "deletion.attempt.retry",
+        ({ level, event }) =>
+          level === "debug" && event === "deletion.attempt.retry",
       ),
     ).toBe(true);
   });

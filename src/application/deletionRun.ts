@@ -410,7 +410,7 @@ export class DeletionRun implements ProtectionMutationLockOwner {
     this.counts.retries += 1;
     const retryDelay = this.retryDelay(result, deletion.attempt);
     deletion.readyAt = observedAt + retryDelay;
-    this.logWarn("deletion.attempt.retry", {
+    this.logDebug("deletion.attempt.retry", {
       ordinal: deletion.ordinal,
       total: this.currentTotal(),
       attempt: deletion.attempt,
@@ -750,6 +750,13 @@ export class DeletionRun implements ProtectionMutationLockOwner {
     fields?: Readonly<Record<string, string | number | boolean | null>>,
   ): void {
     this.input.observability?.info(event, this.logFields(fields));
+  }
+
+  private logDebug(
+    event: string,
+    fields?: Readonly<Record<string, string | number | boolean | null>>,
+  ): void {
+    this.input.observability?.debug(event, this.logFields(fields));
   }
 
   private logWarn(

@@ -72,6 +72,25 @@ describe("privacy-safe logger", () => {
     ]);
   });
 
+  it("suppresses handled deletion retry diagnostics in production while retaining genuine errors", () => {
+    const capture = capturingSink();
+    const productionLogger = createLogger("production", capture.sink);
+    productionLogger.debug("deletion.attempt.retry", {
+      ordinal: 1,
+      total: 2,
+      attempt: 1,
+      reason: "server",
+      delayMs: 1_000,
+    });
+    productionLogger.error("deletion.run.failed", {
+      errorType: "error",
+      errorName: "UnexpectedFailure",
+    });
+    expect(capture.entries).toHaveLength(1);
+    expect(capture.entries[0]?.level).toBe("error");
+    expect(capture.entries[0]?.message).toContain("deletion.run.failed");
+  });
+
   it("retains explicitly safe metadata", () => {
     expect(
       sanitizeLogFields({
