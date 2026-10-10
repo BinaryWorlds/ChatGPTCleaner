@@ -1,292 +1,144 @@
-# AGENTS.md — ChatGPTCleaner Engineering Rules
+# AGENTS.md — ChatGPTCleaner
 
-These rules apply to coding agents and contributors.
+## Scope and workflow
 
-## Product boundary
-
-- This is a Google Chrome Manifest V3 extension, not a hosted web app.
-- Node.js 24 and pnpm only.
-- Chrome/Chromium only for the current product scope.
-- Do not add product features outside `docs/PROJECT_SPEC.md`.
+- Chrome/Chromium Manifest V3 extension; Node.js 24 is the build/toolchain runtime. Use
+  pnpm.
+- `docs/PROJECT_SPEC.md` defines required behavior. Read relevant sections and ADRs;
+  investigate discrepancies instead of weakening requirements to match code.
+- Keep work within the authorized scope. Inspect Git status and relevant staged,
+  unstaged, and untracked files; preserve unrelated changes and staging boundaries.
+- Stage, commit, push, or rewrite history only when authorized.
+- Use targeted searches. Avoid repository dumps, unsolicited reports, and repeated
+  checks without new evidence.
 
 ## Architecture
 
-Keep dependency direction:
-
-```text
-UI -> Application -> Domain
-Infrastructure -> Application ports
-```
-
-### Domain
-
-- Pure business logic.
-- No React, Ant, WXT, Chrome APIs, fetch, storage, timers, locks, or endpoint code.
-
-### Application
-
-- Shallow orchestrators.
-- Coordinates semantically named steps.
-- Does not duplicate business rules.
-
-### Infrastructure
-
-- Owns network, browser APIs, storage, locks, timers, and page-context execution.
-
-### UI
-
-- Displays state and dispatches user intent.
-- Never decides deletion eligibility.
-
-## Safety
-
-- Project chats must never intentionally be deletable.
-- User-protected chats must never be deletable.
-- Raw UI selection never reaches DELETE.
-- Only a validated `DeletionPlan` reaches destructive execution.
-- A new destructive batch requires a complete loaded-inventory snapshot,
-  current local protection state, and explicit destructive-modal confirmation.
-- Resume/Retry may only shrink the already-confirmed ID set.
-- Protection mutations must be serialized. Resume must not begin while a
-  protection write is pending.
-- Starting, resuming, or retrying a destructive run must not reload ChatGPT
-  inventory. Project exclusion is guaranteed according to the last successful
-  initial load or explicit Refresh.
-- Standalone pagination has one canonical progress contract. Application must
-  follow the gateway cursor and must not infer completion from a hard-coded page
-  size when the backend reports a different effective limit.
-- Incomplete Project protection blocks accepting a new inventory snapshot.
-- API incompatibility blocks deletion.
-- Source-tab instability blocks or stops deletion.
-- Only one destructive executor may run.
-- Executor lives in manager page, never MV3 service worker.
-- Manager close/reload/crash means no new DELETE attempts, no background continuation, no auto-resume.
-- Already-dispatched network requests may still complete; do not promise cancellation of remote effects.
-- Tests/demo never access real `chatgpt.com`.
-- Tests/demo never issue a real DELETE.
-- No destructive queue or confirmed-plan persistence.
-
-## React safety
-
-Never initiate destructive work from:
-
-```text
-render
-useEffect
-useLayoutEffect
-component mount/unmount
-state synchronization side effects
-```
-
-A destructive run starts only from an explicit user command that invokes an Application orchestrator.
-
-Harmless read/inventory effects are allowed when appropriate.
-
-## Clean code
-
-Apply:
-
-```text
-SRP
-YAGNI
-pragmatic DRY
-pure core / side effects at edges
-composition over inheritance
-explicit data flow
-semantic names
-guard clauses
-early returns
-flat control flow
-small single-purpose functions
-```
-
-Remove duplicated knowledge, not merely duplicated syntax.
-
-Prefer a little obvious duplication over premature abstraction.
-
-Avoid deeply nested `if/for/try` structures.
-
-Normal application code should rarely exceed two levels of control-flow nesting.
-
-Avoid `else` after a branch that already returns or throws.
-
-Avoid generic dumping-ground directories such as `helpers/`, `utils/`, or
-`common/` without a demonstrated need.
-
-## Naming
-
-Prefer semantic names:
-
-```text
-buildDeletionPlan
-fetchAllProjectConversationIds
-sanitizeSelection
-validateSourceTab
-validateSessionContext
-acquireDestructiveRunLock
-selectedConversationIds
-confirmedConversationIds
-requestsPerMinute
-```
-
-Avoid vague names such as:
-
-```text
-data
-stuff
-helper
-manager
-processData
-doWork
-```
-
-when a better semantic name exists.
-
-## TypeScript
-
-- Strict TypeScript.
-- Avoid `any`.
-- External data begins as `unknown` and is validated.
-- Prefer readonly domain data where practical.
-- Prefer discriminated unions over combinations of boolean state.
-- Use exhaustive handling for discriminated unions where practical.
-- Do not use string matching on arbitrary `Error.message` values for business logic.
-- Do not bypass API/storage validation with `as SomeExternalType`.
-- Avoid non-null assertions in safety-critical code unless the invariant is locally proven and obvious.
-
-## Types, constants, and configuration
-
-- Keep types with the layer or feature that owns their meaning.
-- Do not create global type or constants dumping grounds.
-- One semantic concept has one canonical type and one canonical runtime value definition.
-- Keep component-private props and presentation types colocated. Export them only when another module consumes them.
-- Prefer literal unions, discriminated unions, and `as const` objects. Use a TypeScript enum only when its runtime behavior provides concrete value.
-- External API, browser-storage, and page-context data begins as `unknown` and is runtime-validated.
-- Derive validated external DTO types from their Zod schemas. Do not maintain parallel manual DTO interfaces.
-- Do not add Zod schemas for trusted internal values without a boundary reason.
-- Stable product-tunable settings belong in `src/config.ts` and expose units in names such as `retryBaseDelayMs`.
-- Protocol paths, storage keys, lock names, log events, domain discriminants, and UI labels remain with their semantic owners.
-- Extract meaningful contractual or configurable literals, not ordinary UI text or obvious local arithmetic.
-- Self-contained page-context functions may repeat validation constants when required by script serialization. Treat those copies as explicit security boundaries and cover their alignment with regression tests.
-- Use public React, Ant Design, DOM, WXT, and browser API types. Do not duplicate them locally without a narrow test-seam reason.
-- ChatGPT private API Zod contracts are the source of truth. Do not add third-party ChatGPT API type packages.
-
-## Async hygiene
-
-- Do not swallow errors with empty `catch` blocks.
-- Do not use fire-and-forget Promises in destructive paths.
-- Every destructive async operation must be awaited/handled.
-- Do not use `Array.forEach(async ...)`.
-- Cancellation/AbortSignal handling must not convert a stopped/paused local wait into an accidental next request.
-- Avoid hidden background tasks.
-
-## Security coding
-
-Never introduce:
-
-```text
-eval
-new Function
-dangerouslySetInnerHTML
-string-based timers
-remote executable runtime code
-generic authenticated fetch(url) proxy
-```
-
-Never log:
-
-```text
-tokens
-cookies
-Authorization headers
-conversation contents
-full request headers
-```
-
-Validate exact `https://chatgpt.com` origin.
-
-Encode conversation IDs as one URL path segment.
-
-Treat browser storage and page-context data as untrusted external input.
-
-## Logging and errors
-
-- Use the centralized Infrastructure logger; do not add ad-hoc console calls.
-- Never log conversation or Project IDs, titles, content, authentication data,
-  request/response bodies, headers, or browser-storage payloads.
-- Log counts, bounded state, normalized status, and timings instead of private
-  values.
-- DEBUG increases event verbosity, never data sensitivity.
-- Normalize failures crossing Infrastructure boundaries into typed, safe
-  application errors. Never blindly log an external `Error` or unknown value.
-
-## Dependencies
-
-Do not add without a clear requirement:
-
-```text
-Redux
-Zustand
-Axios
-TanStack Query
-Tailwind
-shadcn
-IndexedDB wrappers
-generic DI frameworks
-```
-
-Do not create speculative:
-
-```text
-BaseRepository
-AbstractManager
-StrategyFactory
-GenericWorkflowEngine
-```
-
-## Testing
-
-- Safety invariants matter more than coverage percentage.
-- Automated tests must fail on real network access.
-- Use fake gateway, fake timers, and mocked browser APIs.
-- No real ChatGPT account in tests.
-- No real DELETE in tests.
-- Every safety bug fix adds a regression test.
-- Time/date tests must not depend on the machine's current timezone/clock implicitly.
-
-## Documentation
-
-`docs/PROJECT_SPEC.md` is the source of truth for product behavior.
-
-Update it when behavior or scope changes.
-
-Create/update an ADR when a major architectural decision changes.
-
-Do not duplicate large specification sections across docs.
-
-## Release contributions
-
-- Use Conventional Commit messages and PR titles; release automation consumes
-  the squash-merge commit history.
-- Do not manually bump the application version in a normal or Dependabot PR.
-- Do not manually add a future release heading to `CHANGELOG.md` in a normal or
-  Dependabot PR. Release Please owns release versions and release entries.
-
-## Completion
-
-Before declaring work complete, run:
-
-```bash
-pnpm check
-```
-
-Do not report completion unless:
-
-```text
-format check passes
-lint passes
-typecheck passes
-tests pass
-build passes
-manifest/security checks pass
-```
+Dependency direction: `UI -> Application -> Domain`; Infrastructure implements
+Application ports. Wire dependencies through the existing composition root.
+
+- Domain contains pure rules/calculations, without React, Ant Design, WXT,
+  browser/network/storage APIs, timers, or locks.
+- Application owns cohesive workflows through injected ports. Split by responsibility,
+  not file length; do not duplicate Domain rules.
+- Infrastructure implements external APIs, clock/timer and lock ports, boundary
+  validation, and centralized logging. Application owns scheduling policy.
+- UI renders state and dispatches intent. Use canonical Application eligibility;
+  preserve disabled controls and defensive command guards.
+
+## Destructive-operation invariants
+
+- Exclude Project and user-protected conversations. Only a validated `DeletionPlan`,
+  never raw selection, reaches DELETE.
+- New runs require complete accepted inventory, current local protection, and explicit
+  modal confirmation. Incomplete Project coverage or API incompatibility blocks
+  acceptance of the candidate and deletion.
+- Resume/Retry may only shrink confirmed IDs. Never reload inventory on
+  Start/Resume/Retry; Project protection follows the last successful load or explicit
+  Refresh.
+- Serialize protection writes; Resume must wait for pending protection writes.
+- Follow gateway cursors, effective limits, and progress checks; requested page size
+  alone does not establish completion.
+- Source instability blocks/stops deletion. Preserve one manager-owned destructive
+  executor and its lock, never service-worker execution.
+- Preserve bounded concurrency, shared start-rate limits, retry deadlines, global
+  cooldowns, same-ID exclusion, and exactly-once accounting.
+- Pause/Stop/Fatal prevent new attempts under the lifecycle contract. Already-started
+  operations, including preparation, may continue while draining; retain required lock
+  ownership. Never promise cancellation of remote effects.
+- Manager close/reload/crash permits no new attempts, background queue continuation, or
+  auto-resume. Never persist queues or confirmed plans.
+- Destructive work starts only from explicit user commands invoking Application, never
+  render, effects, mount/unmount, or state synchronization. Harmless read effects are
+  allowed.
+
+## React and clean code
+
+- Preserve existing `src/ui` conventions. Component implementation files and their
+  folders use matching PascalCase names; hooks/helpers retain descriptive names such
+  as `useDateFilterDraft.ts` and `dateFilterPeriods.ts`.
+- Keep meaningful folders; prefer a file over a redundant single-file folder or
+  forwarding barrel. Restructure only within the task's scope, never as incidental
+  cleanup.
+- Colocate private hooks/helpers with their owner. Use subfolders for meaningful
+  grouping; share helpers/components only for demonstrated reuse.
+- Component files primarily render/compose. Extract cohesive logic when useful, not
+  artificial forwarding hooks or layers.
+- Colocate tests with their owners; view/workflow tests may remain together. Follow
+  existing export conventions.
+- Memoize only for a concrete cost or identity requirement. Define component-independent
+  functions outside render.
+- Apply SRP, KISS, YAGNI, pragmatic DRY, semantic names, guard clauses, and small
+  cohesive functions. Avoid deep nesting and unnecessary `else` after return/throw.
+- Remove duplicated knowledge, not similar syntax. Avoid generic dumping grounds and
+  speculative frameworks. Comments explain non-obvious reasons/invariants, not obvious
+  code.
+
+## Types and configuration
+
+- Strict TypeScript: avoid `any`, unsafe casts, and unproven non-null assertions.
+- External API/storage/page-context data starts as `unknown` and is runtime-validated.
+  Derive DTO types from Zod schemas, without parallel interfaces.
+- Give each semantic concept one canonical type and, when needed, one runtime value
+  definition. Keep them with their owner and import them wherever reused; use public
+  framework/browser types instead of local replicas. Prefer readonly data and
+  discriminated/literal unions with exhaustive handling.
+- Keep private props colocated; export only when consumed elsewhere. Avoid global
+  dumping grounds and schemas for trusted internal values without a boundary reason.
+- Product-tunable settings belong in `src/config.ts`, with explicit units where
+  relevant. Protocol paths, keys, lock/event names, discriminants, and labels stay with
+  their owners.
+- Functions serialized into browser execution contexts must be self-contained; pass
+  required configuration explicitly, without module closures. Necessary duplicated
+  boundary validation needs alignment tests.
+- Use existing private-API schemas; no third-party ChatGPT API types or assumptions
+  about undocumented semantics.
+
+## Async, security, and logging
+
+- Await/handle destructive operations. No unhandled fire-and-forget work, empty catches,
+  or `Array.forEach(async ...)`.
+- Preserve attempt identity, stale-result rejection, cleanup, and cancellation.
+  Cancelling a wait must not accidentally launch another attempt.
+- Normalize external failures into typed safe results/errors; do not match arbitrary
+  `Error.message` for business logic.
+- Validate exact `https://chatgpt.com` origin; encode each ID as one path segment.
+  Storage/messages are untrusted.
+- No `eval`, `new Function`, string timers, `dangerouslySetInnerHTML`, remote executable
+  code, or generic authenticated fetch proxy.
+- Use the centralized logger through appropriate layer boundaries. Never log
+  authentication data, conversation/Project IDs, titles/content, full URLs, headers,
+  bodies, storage payloads, or raw external errors.
+- Log safe counts, bounded states, normalized status, and timings. DEBUG changes
+  verbosity, never sensitivity. Expected deletion-retry scheduling uses debug,
+  suppressed by default in production. Preserve other event policies and genuine
+  warnings/errors.
+- Add dependencies only for demonstrated requirements; preserve the existing stack.
+
+## Tests, documentation, and releases
+
+- Tests/demo never contact real `chatgpt.com` or issue real DELETE. Tests reject real
+  network access; use fake gateways/clocks and mocked browser APIs.
+- Safety fixes need meaningful regressions. Exercise overlap/out-of-order completion
+  where relevant; make clocks/timezones explicit. File-only moves preserve assertions,
+  changing imports as needed.
+- Update affected specifications for behavior changes and ADRs for major architectural
+  decisions. Preserve historical rationale and released changelog entries; avoid
+  duplicated specification prose.
+- Distinguish implementation, local tests, and verified real Chrome/API behavior. Mocks
+  do not establish private-API compatibility.
+- Use Conventional Commits/PR titles. Release automation consumes squash-merge history;
+  Release Please owns version bumps and future release entries.
+
+## Verification and completion
+
+- Implementation, test, runtime-config, or build/tooling changes: use focused checks
+  while working, then run `pnpm check` once after final edits.
+- Documentation-only changes: format/check changed Markdown, verify affected
+  links/claims, and run `git diff --check`; no application suite/build by default.
+- Read-only audits: run only checks needed for findings; preserve implementation/index,
+  without installing dependencies or running the full suite by default.
+- Repeat checks only after relevant edits or unresolved failures. Report failures and
+  unverified limitations; passing local gates does not establish production readiness.
+- Finish concisely with changes, verification, and unresolved issues. Identify
+  pre-existing failures only when supported by evidence.
