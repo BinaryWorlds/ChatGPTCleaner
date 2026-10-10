@@ -18,6 +18,7 @@ React
 strict TypeScript
 Ant Design
 Zod
+i18next / react-i18next
 Vitest
 React Testing Library
 user-event
@@ -26,14 +27,14 @@ Prettier
 GitHub Actions
 ```
 
-Target Google Chrome / Chromium Manifest V3 only.
+Target Google Chrome with a Chromium Manifest V3 build.
 
 ## Alternatives considered
 
 - Raw MV3/Vite setup: more extension boilerplate.
 - MUI DataGrid/AG Grid: more complexity than needed for controlled table selection.
 - TanStack Table/headless UI: requires more custom table/state implementation.
-- Redux/Zustand: unnecessary for MVP state size.
+- Redux/Zustand: unnecessary for the current state model.
 
 ## Consequences
 

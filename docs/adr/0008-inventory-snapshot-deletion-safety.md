@@ -4,8 +4,8 @@
 
 ## Context
 
-Fresh complete Project and standalone inventory revalidation between typed
-confirmation and the first DELETE made destructive start depend on a second
+The earlier workflow revalidated complete Project and standalone inventory
+between typed confirmation and the first DELETE, making start depend on a second
 full crawl. ChatGPT does not expose an atomic “delete only if still outside all
 Projects” operation, so that crawl could reduce but could not eliminate the
 underlying race.
@@ -27,7 +27,11 @@ standalone or Project inventory or can add IDs.
 
 Refresh builds a replacement off to the side. Success atomically replaces the
 snapshot and clears selection and any stale preview. Failure preserves the last
-valid snapshot. Successful DELETE outcomes remove conversations from the local
+valid snapshot for display. Exhausted transient network/429/server failures
+preserve READY when an accepted snapshot exists; source/authentication,
+contract, pagination/ceiling, or protected-storage failures block deletion.
+Retained display data is not authority to bypass those blockers. The canonical
+classification is in [the inventory contract](../PROJECT_SPEC.md#28-inventory-flow). Successful DELETE outcomes remove conversations from the local
 snapshot without triggering an automatic Refresh.
 
 The narrow DELETE transport continues to validate its bound source tab and may

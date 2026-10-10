@@ -8,21 +8,29 @@ Deletion is destructive. A false positive can permanently remove an important co
 
 ## Decision
 
-When deletion safety cannot be proven, deletion is blocked.
+When the required source, inventory, and local-protection conditions are
+not satisfied, destructive execution is blocked. This is a client safety
+boundary, not an atomic guarantee about later server-side membership changes.
 
 Examples:
 
 ```text
-Project protection incomplete
+no complete accepted Project-protection snapshot or a blocking Refresh failure
 required API contract invalid
 source ChatGPT tab invalid
 protected-ID storage invalid
-another destructive run active
 ```
 
 Raw UI selection is never sent to DELETE.
 
-Only a validated `DeletionPlan` may enter destructive execution.
+Only the confirmed monotonic subset of a validated `DeletionPlan` may enter
+destructive execution. UI eligibility alone is insufficient.
+
+An incomplete Refresh candidate is never accepted. Failure classification
+determines whether the previous accepted snapshot remains READY or deletion
+becomes BLOCKED; see [the inventory contract](../PROJECT_SPEC.md#28-inventory-flow)
+and [ADR 0008](0008-inventory-snapshot-deletion-safety.md). Destructive-lock
+contention prevents execution but is an operation notice, not canonical BLOCKED.
 
 ## Alternatives considered
 

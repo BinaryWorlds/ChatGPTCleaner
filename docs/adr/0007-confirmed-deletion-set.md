@@ -44,4 +44,7 @@ The chosen model preserves explicit user approval while keeping Resume/Retry usa
 
 ## Consequences
 
-The confirmed set is monotonic: later operations can only reduce it.
+The confirmed set is monotonic: later operations can only reduce it. Subset
+membership is necessary but not sufficient for retry: current availability and
+nonfatal terminal eligibility still apply, as defined in
+[the retry contract](../PROJECT_SPEC.md#33-progress-table-updates-and-result).

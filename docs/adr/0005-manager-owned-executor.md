@@ -14,9 +14,14 @@ Long-running destructive execution lives in the manager extension page.
 
 The background service worker remains minimal and does not own the deletion queue, timers, progress, or retry state.
 
-Closing/reloading/crashing the manager prevents new destructive requests from starting. There is no background continuation or auto-resume.
+Closing, reloading, or crashing the manager prevents new scheduler operations.
+There is no background continuation or auto-resume.
 
-An already-dispatched network request may still complete remotely.
+An operation already started may finish remotely, including an operation still
+performing source/session preparation before DELETE dispatch. Pause, Stop, and
+Fatal similarly prevent new starts while active operations drain; they do not
+undo remote effects. [The lifecycle contract](../PROJECT_SPEC.md#32-pause--resume--stop)
+defines these transitions.
 
 ## Alternatives considered
 
@@ -24,8 +29,10 @@ An already-dispatched network request may still complete remotely.
 - Persist the queue and reconstruct it after worker/page restart.
 - Build a resumable background-job system.
 
-Rejected as less predictable and unnecessarily complex for MVP.
+Rejected as less predictable and unnecessarily complex for the product scope.
 
 ## Consequences
 
-The destructive run exists only while the manager page exists. This is intentional.
+Run orchestration exists only while the manager page exists. Browser-owned
+locks release on context teardown, but previously started remote effects may
+outlive it. The next manager starts fresh.

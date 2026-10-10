@@ -30,5 +30,9 @@ Rejected because they weaken the primary safety invariant.
 
 ## Consequences
 
-Snapshot loading requires additional read requests and fails closed when
-Project enumeration cannot complete.
+Snapshot loading requires additional reads. An incomplete candidate is never
+accepted; the previous snapshot's availability follows
+[Refresh failure classification](../PROJECT_SPEC.md#28-inventory-flow).
+Protection reflects accepted membership, not an atomic server-side check at
+DELETE time; [ADR 0008](0008-inventory-snapshot-deletion-safety.md) defines this
+freshness boundary.

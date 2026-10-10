@@ -1,11 +1,18 @@
 # ChatGPTCleaner — Product & Engineering Specification
 
-**Status:** Source of truth  
+**Status:** Current product requirements  
 **Product:** Google Chrome Manifest V3 extension  
 **Primary browser:** Google Chrome  
 **Minimum Chrome version:** 120  
-**Build/toolchain runtime:** Node.js 24
+**Build/toolchain runtime:** Node.js 24  
 **Package manager:** pnpm
+
+Requirements use **must** or direct instructions. Endpoint shapes in
+[section 15](#15-undocumented-chatgpt-endpoints) are private-API observations,
+not upstream guarantees. Conceptual examples do not prescribe repository type
+or file names. This specification defines intended behavior; it is not evidence
+that a test or production check has been performed. ADRs record decision
+rationale and may retain historical context.
 
 ---
 
@@ -25,66 +32,35 @@ The product must stay small, auditable, fail-closed, and easy to reason about.
 
 ## 2. Product boundary
 
-This is a **Chrome Manifest V3 extension**, not a hosted web application.
+The production product is a Chrome MV3 extension: an extension action, minimal
+service worker, manager page, and narrow transport to the authenticated source
+tab. It is not a hosted application. Demo mode uses the same UI with fake
+infrastructure.
 
-Production runtime:
+GitHub Releases distribute the production `pnpm build` output as
+`ChatGPTCleaner-vX.Y.Z-chrome.zip`. Install the extracted build via
+`chrome://extensions` → Developer mode → Load unpacked. Unpacked installations
+do not auto-update; users install newer release builds manually. Chrome Web
+Store integration is outside current scope.
 
-```text
-Google Chrome
-    |
-    +-- authenticated chatgpt.com source tab
-    |
-    +-- ChatGPTCleaner extension
-          |
-          +-- extension action
-          +-- minimal background service worker
-          +-- manager extension page/tab
-          +-- narrow authenticated transport to chatgpt.com
-```
-
-GitHub Releases are the public distribution mechanism. Each release provides a
-versioned production ZIP built from `pnpm build` output. Users install it
-through:
-
-```text
-chrome://extensions
--> Developer mode
--> Load unpacked
-```
-
-`pnpm build` must produce a valid Chromium extension build for production
-release packaging.
-
-Chrome Web Store distribution is outside the current product scope. Unpacked
-GitHub installations do not auto-update; users update manually from a newer
-release ZIP.
-
-Release Please owns the application version and release `CHANGELOG.md` entries
-after the initial `v1.0.0` bootstrap. Normal and Dependabot pull requests do not
-reserve application versions or create future release headings. One weekly
-cross-ecosystem Dependabot rollup handles ordinary dependency maintenance, and
-each Release Please pull request requires a manual maintainer merge.
+Release Please owns application versions and release `CHANGELOG.md` entries
+after the initial `v1.0.0` bootstrap. Ordinary and Dependabot PRs must not reserve
+versions or future release headings. Dependency maintenance uses one weekly
+cross-ecosystem rollup; maintainers manually merge Release Please PRs.
 
 The [Release Please workflow](../.github/workflows/release-please.yml) is
-triggered by every push to `master`; its Release Please job runs only after the
-bootstrap tag exists. It requires the repository secret
-`RELEASE_PLEASE_TOKEN`, which authenticates the Release Please action that
-maintains the release pull request and creates the draft GitHub Release. When
-that action reports a created release, the workflow automatically runs the
-quality gate, packages and validates the production ZIP, attests and uploads the
-asset, and publishes the draft release.
+triggered on pushes to `master`; its Release Please job is gated on the bootstrap
+tag. Repository secret `RELEASE_PLEASE_TOKEN` authenticates the action that
+maintains the release PR and creates a draft release. A created release triggers
+quality checks, production ZIP packaging/validation, attestation, asset upload,
+and draft publication. Attestation must cover the exact validated public ZIP.
 
-The initial `v1.0.0` uses the separate, manually dispatched
-[bootstrap workflow](../.github/workflows/release.yml), which refuses to proceed
-if the tag or release already exists. Later releases have no manual-dispatch
-trigger. For a failed release run, use GitHub Actions to rerun the failed job or
-run. If a release was created, rerun the publish path only while it remains a
-draft. Asset upload replaces the same named asset; the draft guard rejects the
-publish path after the release is already public.
-
-Every public release is produced from the production build as
-`ChatGPTCleaner-vX.Y.Z-chrome.zip`. The exact validated ZIP is attested before
-the draft GitHub Release is published.
+The initial release uses the manually dispatched
+[bootstrap workflow](../.github/workflows/release.yml), which refuses an existing
+tag or release. Later releases have no manual-dispatch trigger. Rerun failed
+jobs/runs through GitHub Actions; rerun publication only while the release is a
+draft. Upload replaces the same-named asset; the draft guard rejects publication
+after the release is public.
 
 Any future Chrome Web Store integration is release-only: it consumes the same
 canonical production artifact lineage, requires the store version to equal the
@@ -93,8 +69,6 @@ application release version, uses Chrome Web Store API v2 with
 Normal and dependency pull requests never publish to the store. Store
 credentials must remain isolated in an appropriate GitHub secret/environment.
 No live Chrome Web Store integration is part of the current product.
-
-Demo mode reuses the same manager UI with fake infrastructure.
 
 ---
 
@@ -115,10 +89,14 @@ A false positive is unacceptable:
 Therefore:
 
 ```text
-uncertain => do not delete
-incomplete protection => block deletion
-incompatible API => block deletion
+uncertain eligibility => do not delete
+incomplete candidate inventory => reject the candidate
+source/authentication/contract/protection failure => block deletion
 ```
+
+An unsuccessful replacement load does not automatically invalidate a previously
+accepted snapshot. [Section 28](#28-inventory-flow) defines which Refresh
+failures preserve READY and which block deletion.
 
 ### 3.2 Explicit user control
 
@@ -176,7 +154,7 @@ Do not implement:
 - custom conversation renderer;
 - content export/import/backup;
 - IndexedDB;
-- inventory caching;
+- persistent inventory caching;
 - offline reader;
 - tags/folders;
 - scheduled or automatic cleanup;
@@ -260,43 +238,19 @@ Do not claim an atomic guarantee the client cannot provide.
 
 ## 7. Threat model
 
-### Protected assets
+Protect user conversations, the authenticated session, local protected IDs, and
+the confirmed destructive selection.
 
-- user conversations;
-- authenticated ChatGPT session;
-- user-protected IDs;
-- confirmed destructive selection.
+Threats include private-API drift, malformed data, stale Project membership,
+source-tab changes, selection bugs, credential leakage, permission creep,
+page-context interference, concurrent managers, accidental real test/demo
+network access, and execution unexpectedly surviving manager teardown.
 
-### Main threats
-
-- ChatGPT API drift;
-- malformed responses;
-- stale Project membership;
-- source-tab navigation/reload/close;
-- UI selection bugs;
-- credential leakage;
-- permission creep;
-- page-context interference;
-- concurrent destructive managers;
-- accidental real network in tests/demo;
-- destructive execution unexpectedly surviving manager lifecycle.
-
-### Main mitigations
-
-- runtime validation;
-- exact source-origin validation;
-- explicit Project enumeration;
-- source-tab revalidation before every high-level safety inventory operation;
-- `DeletionPlan` safety boundary;
-- loaded-snapshot deletion preview;
-- explicit atomic snapshot replacement on successful Refresh;
-- monotonic confirmed-ID subset;
-- narrow page transport;
-- minimal permissions;
-- single-run lock;
-- test network guard;
-- no secret persistence/logging;
-- manager-owned executor.
+Mitigate through runtime validation, exact source binding, complete snapshot
+enumeration, confirmed-subset enforcement, a narrow credential-confined
+transport, minimal permissions, the destructive lock, test network guards,
+and manager-owned execution. The following sections define those boundaries;
+none supplies an atomic server-side Project-membership guarantee.
 
 ---
 
@@ -378,7 +332,7 @@ Must not import React, Ant, WXT, Chrome APIs, `fetch`, storage, timers, or ChatG
 
 ### Application
 
-Shallow orchestrators such as:
+Cohesive workflows such as:
 
 ```text
 loadInventory
@@ -389,7 +343,10 @@ stopDeletion
 retryFailedDeletion
 ```
 
-Application coordinates workflow but does not reimplement business rules.
+Application owns asynchronous orchestration and scheduling policy through
+injected ports. It coordinates inventory publication, retries, concurrency,
+rate limits, and lifecycle transitions without duplicating pure Domain rules.
+Do not add forwarding layers merely to keep orchestrators short.
 
 ### Application ports
 
@@ -413,8 +370,8 @@ Owns side effects:
 Chrome scripting
 page-context requests
 browser.storage
-Web Locks
-timers
+Web Lock adapters
+clock/timer adapters
 ChatGPT request/response handling
 ```
 
@@ -422,117 +379,46 @@ ChatGPT request/response handling
 
 React + Ant Design display state and dispatch user intent.
 
-UI never decides deletion eligibility.
+UI consumes canonical Domain/Application eligibility for presentation and
+defensive command guards. It must not independently redefine eligibility or
+make destructive execution depend solely on a disabled control.
 
 ---
 
 ## 10. Chrome runtime model
 
-### Background service worker
+The background service worker handles the extension action, captures/validates
+the source tab, opens or focuses the manager, and performs minimal lifecycle
+coordination. It must not own inventory, queues, progress, or retry timers.
 
-Keep it minimal.
+The manager owns inventory, filters, selection, preview/confirmed IDs, execution,
+rate limits, lifecycle controls, progress, and ETA. Context loss has the behavior
+defined in [section 34](#34-manager-lifecycle).
 
-Responsibilities:
+Bind to exactly one source `tabId` captured at launch. Validate using
+`new URL(tab.url).origin === "https://chatgpt.com"`, never a prefix match. Do not
+silently rebind. Closing, navigating, or reloading the source in a way that
+invalidates access/context blocks deletion and requires relaunch from a usable
+ChatGPT tab.
 
-```text
-handle extension-action click
-validate/capture source ChatGPT tab
-open/focus manager page
-minimal lifecycle coordination if needed
-```
-
-It must not own:
-
-```text
-deletion queue
-executor
-progress
-retry/backoff timers
-inventory
-```
-
-### Manager page
-
-The manager extension page owns the entire long-running workflow:
-
-```text
-inventory
-filters
-selection
-deletion preview
-confirmed IDs
-executor
-rate limiting
-Pause/Resume/Stop
-progress
-ETA
-```
-
-If manager is closed/reloaded/crashes/browser shuts down/extension updates:
-
-```text
-no new destructive operations start
-no background continuation
-no persisted queue
-no auto-resume
-```
-
-Destructive operations already started before manager loss, including
-source/session preparation before DELETE dispatch, may finish remotely.
-
-### Source tab
-
-The manager is bound to exactly one source `tabId` captured when launched from an authenticated `https://chatgpt.com` tab.
-
-Validate with exact origin parsing:
-
-```ts
-new URL(tab.url).origin === "https://chatgpt.com"
-```
-
-Do not use prefix checks.
-
-The manager must not silently rebind itself to another tab.
-
-If the source tab is closed, navigates away, reloads in a way that invalidates the granted access/context, or otherwise becomes unusable:
-
-```text
-Deletion safety = BLOCKED
-```
-
-Show a clear instruction to relaunch ChatGPTCleaner from a valid ChatGPT tab.
-
-`Open` actions for conversations open a separate/new ChatGPT tab and do not repurpose the source tab.
-
-Outside ChatGPT, show:
-
-```text
-Open ChatGPT in a tab and launch ChatGPTCleaner from that tab.
-```
-
-Do not perform API work.
+Conversation Open actions use a new tab, preserving the source. Outside
+ChatGPT, show `Open ChatGPT in a tab and launch ChatGPTCleaner from that tab.`
+and perform no API work.
 
 ---
 
 ## 11. Source-bound inventory and DELETE transport
 
-The safety boundary remains bound to the exact authenticated source tab
-captured at launch and does not add a separate identity-context mechanism.
+Initial load and Refresh validate the captured source and load a complete
+snapshot. Preview, confirmation, Start, Resume, and Retry Failed perform no
+inventory reads. DELETE still validates the exact bound tab and may obtain a
+session credential; these checks do not refresh membership or establish a
+separate account/workspace identity.
 
-Initial inventory and each explicit Refresh validate the bound source tab and
-load a complete standalone and Project snapshot. Preview, confirmation, run
-start, Resume, and Retry Failed do not issue inventory requests. The narrow
-DELETE transport still validates the exact bound source tab and performs any
-authentication/session request required for DELETE; this does not refresh
-inventory membership. If the tab is missing or has left the exact
-`https://chatgpt.com` origin, the DELETE transport stops fail-closed.
-
-After a snapshot is accepted, the manager also revalidates the same bound tab
-when that tab is removed or finishes navigation, and when the manager regains
-focus or visibility. Source loss blocks deletion while the accepted snapshot
-remains available for browsing. This presentation revalidation does not replace
-the destructive transport's just-in-time validation, does not poll, and never
-rebinds to another tab.
+Revalidate the same source when it is removed or finishes navigation and when
+the manager regains focus/visibility. Loss blocks deletion while accepted data
+may remain browsable. This does not replace just-in-time transport validation,
+poll the source, or silently rebind it.
 
 ---
 
@@ -576,100 +462,53 @@ arbitrary authenticated URL proxy
 
 ## 13. Single destructive executor
 
-At most one destructive run may exist across manager contexts.
+At most one destructive executor may own work across manager contexts. Use a
+Web Lock with a stable extension-origin name; never persist a manual lock flag.
 
-Prefer Web Locks using a stable extension-origin lock name.
+Acquire the lock atomically after confirmation and before destructive work.
+Inside it, reload and validate local protected IDs and shrink the confirmed
+set. Lock contention starts no DELETE and is an operation notice, not canonical
+BLOCKED availability. A later eligible command may try acquisition again.
 
-The lock lifecycle is:
+Hold the lock through Running, Pausing, Paused, and Stop/Fatal draining. Normal
+completion, Stop, or Fatal releases it only after all active gateway operations
+settle. Publishing a fatal state does not itself release the lock. Manager
+context teardown releases the browser-owned lock separately; operations already
+started may still complete remotely.
 
-```text
-snapshot preview
--> destructive-modal confirmation
--> atomic lock acquire
--> fresh local protected-ID check
--> running
--> paused (lock still held)
--> running
--> complete / stopped / fatal
--> release
-```
-
-The safety status may display lock availability, but the actual safety guarantee comes from atomic acquisition immediately before destructive execution.
-
-A second manager may browse, but destructive execution is disabled while the lock is held.
-
-Do not persist a manual lock flag in storage.
-
-While another manager owns the destructive lock, block mutation of user-protection state in other manager contexts to avoid confusing cross-context safety changes.
+Other managers may browse but must not mutate user protection while the lock is
+held. Lock acquisition, not a displayed availability check, enforces mutual
+exclusion. See [lifecycle rules](#32-pause--resume--stop) and
+[ADR 0006](adr/0006-single-destructive-run.md).
 
 ---
 
 ## 14. Authenticated ChatGPT transport
 
-Use the existing authenticated browser session.
+Use the existing authenticated session; never request pasted credentials.
+Construct fixed URLs, methods, and headers inside narrow injected operations.
+Expose standalone-page, Project-sidebar, Project-conversation-page, and DELETE
+operations, never `authenticatedFetch(url, options)`.
 
-Never ask the user to paste credentials.
+Fixed reads use included browser credentials and `Accept: application/json`.
+Obtain the required Bearer credential from `/api/auth/session` inside the page
+operation. Cache it only in private ISOLATED-world memory across pagination;
+never return, log, or persist it. Backend 401/403 clears the cache and permits
+one session refresh before failing closed.
 
-Fixed `/backend-api/*` reads execute in the authenticated source-tab context
-with included browser credentials and an `Accept: application/json` header.
-The current backend contract requires a Bearer credential. The injected read
-function obtains it from `/api/auth/session`; in the private `ISOLATED` world it
-is cached only in page-context memory and reused across pagination requests.
-The token never crosses the page-execution boundary and is never logged or
-persisted. A backend 401 or 403 clears the memory cache and permits one session
-refresh before failing closed. The extension does not infer an account/workspace
-identity.
+Standalone reads use ISOLATED. Reuse each operation's first successful execution
+world within a high-level inventory load. Project operations may compare MAIN
+once on the documented initial authentication/transport fallback condition;
+later failure must not cause repeated world probing.
 
-This remains a narrow operation transport, not a generic authenticated fetch
-bridge. Request URLs, methods, and allowed headers are constructed internally.
+MAIN code must be minimal and stateless, recheck the exact origin, construct
+only the three fixed GET operation URLs, and return untrusted data for external
+validation. It contains no extension secrets. DELETE stays in ISOLATED with no
+MAIN fallback; [ADR 0004](adr/0004-page-context-api-access.md) records the rationale.
 
-Standalone reads use `ISOLATED`. Within one high-level inventory operation,
-reuse the execution world that first completed each narrow operation
-successfully. A later failure stops fail-closed rather than probing worlds on
-every page. Project operations may make the documented one-time MAIN comparison
-when their first ISOLATED result meets the fallback condition.
-
-For `MAIN` execution:
-
-- injected code stays minimal/stateless;
-- it contains no extension secrets;
-- returned data is untrusted;
-- all returned data is validated.
-- the exact page origin is rechecked;
-- URLs and GET methods are constructed inside the injected function;
-- the read transport exposes only standalone, Project-sidebar, and
-  Project-conversation read operations.
-
-Do not expose:
-
-```ts
-authenticatedFetch(url, options)
-```
-
-to application/UI code.
-
-Expose only fixed ChatGPT operations such as:
-
-```text
-fetch standalone conversation page
-fetch Project sidebar
-fetch Project conversation page
-delete conversation
-```
-
-Target origin is fixed to:
-
-```text
-https://chatgpt.com
-```
-
-Before inserting a conversation ID into a DELETE path:
-
-- ensure it is a non-empty bounded identifier;
-- encode it with `encodeURIComponent`;
-- treat it as exactly one path segment.
-
-Do not require UUID format unless the observed current contract requires it.
+The target origin is fixed to `https://chatgpt.com`. A DELETE ID must be nonempty
+and bounded, encoded with `encodeURIComponent`, and used as exactly one path
+segment. Do not assume UUID format without current contract evidence.
 
 ---
 
@@ -724,15 +563,18 @@ cursor or effective limit, Application stops fixed-offset speculation and
 follows the gateway cursor sequentially. Application treats the gateway's null
 next cursor as completion and does not independently infer completion from a
 hard-coded page size. Speculative results beyond a terminal page are discarded
-and cannot contribute inventory records. A required-page failure blocks the
-whole inventory. Because a window must settle before the next is scheduled, a
+and cannot contribute inventory records. A required-page failure rejects the
+whole candidate inventory; availability follows the Refresh failure rules in
+[section 28](#28-inventory-flow). Because a window must settle before the next is scheduled, a
 request waiting for 429/5xx/network retry prevents aggressive scheduling of
 another window. Project discovery remains sequential. Different Projects may
 be enumerated with at most the same three-read limit, while cursor-dependent
 pages inside each Project remain sequential. Destructive operations use the
 bounded scheduler described below.
 
-Hitting the safety ceiling means inventory is incomplete and deletion is blocked.
+Hitting the safety ceiling rejects the candidate inventory and blocks deletion;
+previously accepted data may remain visible as defined in
+[section 28](#28-inventory-flow).
 
 ### Project discovery
 
@@ -742,7 +584,8 @@ Observed family:
 GET /backend-api/gizmos/snorlax/sidebar
 ```
 
-Used only for protection.
+Used to enumerate Project membership for deletion exclusion and the separate
+read-only Project conversations view. It does not enable Project management.
 
 Current sanitized capture structure:
 
@@ -773,9 +616,11 @@ membership conversation ID path: items[].id
 display fields: title, create_time, update_time
 ```
 
-`projectConversationPageSize` is a code-only requested page size, not a
-verified ChatGPT maximum. Project conversation pagination follows each opaque
-response cursor until terminal `null`; a page containing fewer items than the
+`AppConfig.inventory.projectConversationPageSize` in `src/config.ts` is a
+code-only requested page size, not a verified ChatGPT maximum. The requested
+default of 50 does not establish that the server honors that size. Project
+conversation pagination follows each opaque response cursor until terminal
+`null`; a page containing fewer items than the
 requested size is not terminal when it supplies a next cursor. A response that
 repeats the cursor used by the actual request is non-progress and blocks the
 candidate snapshot.
@@ -788,11 +633,13 @@ projectConversationIds
 
 Project protection is complete only if all required Projects/pages succeed, validate, remain within safety ceilings, and pagination progresses correctly.
 
-Any incomplete Project protection means:
-
-```text
-Deletion safety = BLOCKED
-```
+Incomplete enumeration never becomes an accepted snapshot. Without a complete
+accepted initial snapshot, deletion cannot become READY. On Refresh, retain the
+previous accepted snapshot for display: exhausted transient network/429/server
+failures preserve its READY availability, while source, authentication,
+contract, pagination, ceiling, or protected-storage failures block deletion.
+The authoritative failure classification is in
+[section 28](#28-inventory-flow).
 
 Do not trust the standalone endpoint alone to exclude Project conversations.
 
@@ -814,7 +661,11 @@ No automated sacrificial DELETE probe.
 
 Real DELETE is never used in automated tests/demo.
 
-Before implementing uncertain real schemas, inspect current browser Network behavior. Do not guess.
+Before implementing uncertain real schemas, inspect current browser Network
+behavior using a controlled, privacy-safe manual check. Do not guess. Query
+names such as `is_starred=false` and `owned_only=true` alone do not establish
+which user-visible categories the server includes. Verify those semantics
+before claiming complete coverage beyond the observed endpoint results.
 
 ---
 
@@ -910,15 +761,17 @@ schema incompat     => compatibility blocked
 unexpected 4xx      => fail operation
 ```
 
-Suggested defaults:
+Default read retry policy:
 
 ```text
-max attempts: 4
+max total attempts: 4
 fallback base backoff: 1s
 fallback max backoff: 30s
 ```
 
-Honor `Retry-After`.
+The limit includes the initial attempt: four attempts allow three retries.
+Fallback delays grow exponentially from the base, capped at the fallback
+maximum. A valid `Retry-After` replaces the fallback delay.
 
 No random jitter.
 
@@ -935,109 +788,47 @@ HTTP-date
 
 ## 19. Domain model and safety boundary
 
-Suggested conceptual model:
-
-```text
-Conversation
-ConversationFilters
-DeletionPlan
-ConfirmedDeletionPlan
-DeletionRunState
-DeletionProgress
-```
-
-Use a single discriminated run state rather than several independent booleans.
+Conceptual roles are Conversation, Filters, DeletionPlan, ConfirmedPlan,
+RunState, and Progress. Reuse canonical repository types; these examples do not
+require renaming or duplicate definitions. Use a discriminated lifecycle state
+rather than competing independent booleans.
 
 ### DeletionPlan
 
-Raw UI selection never reaches the executor.
-
-Flow:
-
-```text
-selected IDs
--> buildDeletionPlan(...)
--> destructive-modal confirmation
--> confirmed IDs
--> acquire destructive lock
--> executor
-```
-
-`buildDeletionPlan()` is pure and excludes:
-
-- Project IDs;
-- user-protected IDs;
-- IDs missing from the loaded standalone snapshot.
-
-At confirmation, the executable subset is checked against the current loaded
-snapshot and current local protected IDs. No ChatGPT inventory request occurs
-after confirmation.
-
-Normal application code should only obtain executable plans through the builder.
+A pure plan builder excludes Project members, user-protected IDs, and IDs absent
+from the accepted standalone snapshot, even when UI selection is corrupt. Raw
+selection never reaches an executor. Obtain executable plans through this
+boundary and confirm the eligible subset against current snapshot/local
+protection. [Section 29](#29-new-destructive-batch) defines the handoff.
 
 ### Confirmed-ID monotonicity
 
-Initial confirmation establishes a set of `confirmedConversationIds`.
+Confirmation establishes an in-memory maximum ID set. Start, Resume, and Retry
+Failed may only shrink it using current local protection; they perform no
+inventory reads. Successful IDs are not replayed.
 
-Resume and Retry Failed may only operate on a subset of that set.
-
-Resume and Retry Failed use only remaining IDs from the confirmed set. Current
-local protection may remove IDs, but neither operation reloads ChatGPT inventory.
-
-Example:
-
-```text
-confirmed: A B C D
-remaining subset: A C D
-=> allowed
-
-confirmed: A B C D
-attempted subset: A B C D E
-=> E rejected
-```
-
-Adding new IDs requires a new destructive batch and new destructive-modal confirmation.
-
-Confirmed IDs exist in memory only.
+For confirmed `A B C D`, remaining `A C D` is allowed; adding `E` is rejected.
+New IDs require a new batch and confirmation. Never persist the confirmed set.
 
 ---
 
 ## 20. Mutation rules during destructive run
 
-To keep the state model simple and safe:
+Use the canonical workflow-ownership predicate for both controls and command
+handlers. Throughout confirmed preflight, Running, Pausing, Paused, Stopping,
+fatal drain, and an eligible terminal Retry Failed handoff, disable selection,
+Protect/Unprotect, Refresh, and scheduling edits. The captured-setting rules
+are defined in [section 30](#30-deletion-scheduling).
 
-### Running / stopping
+Filtering, sorting, paging, and passive browsing may remain available when they
+do not mutate deletion or protection state. They must not add IDs to a run.
 
-Disable:
+Protection writes are serialized. Pending or programmatic writes are guarded
+in Application, rather than relying only on disabled UI controls. Resume waits
+for a pending protection write to complete successfully, then reloads local
+protection inside the lock and may only shrink the remaining confirmed set.
 
-```text
-selection mutations
-Protect
-Unprotect
-Deletion rate editing
-Chats at once editing
-```
-
-Filtering, sorting, paging, and passive browsing may remain available if they do not mutate deletion/protection state.
-
-### Paused
-
-Keep selection fixed to the confirmed run.
-
-Disable selection, Protect, and Unprotect controls while the paused run can
-still resume or stop. The Application-level protection mutation coordination
-remains fail-closed for already-pending or programmatic operations.
-
-Resume reloads only local protected IDs, so newly protected IDs are removed
-from the remaining plan without refreshing ChatGPT inventory.
-
-Protection mutations are serialized. While a protection write is pending,
-additional Protect/Unprotect commands and Resume remain disabled. Resume may
-become available only after the protection write completes successfully.
-
-Do not allow paused-state actions to add IDs to the confirmed set.
-
-If another manager owns the destructive lock, other manager contexts must not mutate protection state.
+Other managers must not mutate protection while the destructive lock is held.
 
 ---
 
@@ -1286,7 +1077,7 @@ Blocked examples:
 ```text
 source tab unavailable/changed
 inventory contract changed
-Project protection incomplete
+Project enumeration has no accepted snapshot or a blocking failure
 protected-ID storage invalid
 ```
 
@@ -1330,13 +1121,14 @@ sorting, and page size. Failure preserves the previous accepted snapshot and
 last-valid protected-ID set for display. Protected-storage failure blocks
 deletion and the preserved set is not destructive authority. Refresh shows a
 loading indicator, cannot create a deletion plan from partial results, and is
-disabled while a destructive run is active.
+disabled throughout deletion-workflow ownership, including confirmed preflight,
+Paused, draining, and an eligible terminal retry handoff.
 Refresh and user-protection writes are mutually exclusive in one manager, with
 both UI controls and command handlers enforcing the exclusion.
 Transient network, rate-limit, and server failures leave the accepted snapshot
 ready and show one refresh warning. Source loss, authentication failure,
-API/schema incompatibility, unexpected request rejection, and pagination
-incompatibility block deletion even though the accepted snapshot remains
+API/schema incompatibility, unexpected request rejection, pagination
+incompatibility, and safety-ceiling exhaustion block deletion even though the accepted snapshot remains
 visible. Start, Resume, and Retry Failed re-read and validate protected IDs
 again while holding the destructive lock; this just-in-time validation remains
 authoritative for destructive execution and may only shrink the confirmed set.
@@ -1345,32 +1137,19 @@ authoritative for destructive execution and may only shrink the confirmed set.
 
 ## 29. New destructive batch
 
-When the user chooses `Delete (N)`:
+Reject a new batch while another workflow owns execution. Build the plan from
+the accepted snapshot and current local protection, then show a destructive
+modal with the eligible count, irreversible-action warning, and protected-skip
+count when applicable. Use explicit Cancel/Delete actions; no typed token.
 
-```text
-verify no run is already active
--> build a DeletionPlan from the loaded standalone/Project snapshot and current local protection
--> show preview summary
--> require destructive-modal confirmation
--> atomically acquire destructive lock
--> start execution
-```
+Confirmation may only reduce the previewed set. Acquire the lock, reload and
+validate local protection, and shrink again before execution. Lock failure or
+an empty final subset issues no DELETE. No eligible IDs means no Delete action.
 
-The confirmation shows the eligible delete count, warns that the action cannot
-be undone, and states how many selected protected conversations will be skipped
-when applicable. It uses explicit Cancel and destructive Delete buttons; no
-typed token is required.
-
-Confirmation applies current local protected IDs again and may only reduce the
-previewed set. An empty final subset issues no DELETE. Run start then performs
-zero standalone or Project inventory reads. Project exclusion reflects the last
-successfully loaded initial or explicitly refreshed snapshot.
-
-The confirmed eligible IDs become the in-memory confirmed ID set.
-
-No eligible IDs => no DELETE action.
-
-If lock acquisition fails after confirmation, no destructive request starts.
+The confirmed set remains in memory. This handoff performs no standalone or
+Project inventory reads; Project exclusion uses the accepted snapshot. Pending
+preflight retains workflow ownership as defined in
+[section 33](#33-progress-table-updates-and-result).
 
 ---
 
@@ -1412,16 +1191,34 @@ Semantics:
 
 > Limit the start rate of DELETE attempts. Retries count.
 
-Actual-start spacing:
+Scheduler start spacing:
 
 ```text
 minimum interval = 60,000 / requestsPerMinute
 ```
 
+The measured start is invocation of the gateway DELETE operation, which includes
+source/session preparation. The later page-context `fetch` dispatch and server
+receipt are not this clock, so the limiter does not guarantee identical
+server-observed spacing. The first eligible operation has no initial limiter
+delay. Time already spent awaiting work counts toward the interval; do not add
+another full interval after a slow response. Concurrency is a ceiling, not a
+requirement to fill all slots immediately. A rate below the concurrency value
+is valid: the settings control different things.
+
 Initial attempts and retries share one start limiter. The scheduler does not
 accumulate credits or catch up with a burst. A normalized HTTP 429 Retry-After
 creates a global cooldown for all new DELETE starts. Retry fallback backoff is
-per conversation and does not block other eligible work.
+per conversation and does not block other eligible work. Manual Retry Failed
+must preserve any outstanding start-spacing deadline and global 429 cooldown;
+resetting visible result/time counters must not bypass either limit. When
+cooldowns overlap, a later shorter one must not shorten an active longer one.
+
+Only one operation for the same conversation ID may be active at a time.
+Correlate results to their reserved attempt and apply terminal accounting
+exactly once, regardless of completion order. Preserve confirmed-plan order in
+the failed-ID result list. See
+[ADR 0009](adr/0009-bounded-parallel-deletion.md).
 
 Disable both inputs for the full deletion-workflow ownership state, including
 confirmed-run preflight, pending Start/Resume/Retry, Running, Pausing, Paused,
@@ -1452,15 +1249,19 @@ redirect/auth anomaly        => fatal stop
 unexpected response contract => fatal stop
 ```
 
-Suggested fallback policy:
+Default DELETE fallback policy:
 
 ```text
-max attempts/item: 5
+max total attempts/item: 5
 base backoff: 1s
 fallback max backoff: 60s
 ```
 
-Honor server `Retry-After` according to the centralized parser.
+The limit includes the initial attempt: five attempts allow four retries.
+Fallback delays grow exponentially from the base, capped at the fallback
+maximum. For HTTP 429, honor validated `Retry-After` for both item readiness and
+the global cooldown. Values over five minutes fail closed rather than creating
+an indefinite wait.
 
 No random jitter.
 
@@ -1480,8 +1281,12 @@ If a dispatched DELETE remains awaiting its response for 3 seconds, show one
 non-blocking informational notice. Measure from the actual DELETE `fetch`
 dispatch, excluding source/session preparation, scheduler waits, and retry
 backoff. Latch the notice in memory for the logical run through
-Pause/Resume/Stop/Fatal/completion and Retry Failed; reset it only for a newly
-confirmed run. Do not persist or log this signal.
+Pause/Resume/Stop/Fatal/completion and Retry Failed. A new confirmation clears
+the prior notice immediately, including delayed or empty preflight paths; only
+signals associated with that new run may set it again. Validate the runtime
+signal, correlate it to an active dispatched attempt, and ignore stale or
+unrelated signals. Clean up timers and listeners when their operation ends.
+Do not persist or log this signal.
 
 ---
 
@@ -1514,6 +1319,10 @@ Never replay already successful IDs.
 
 ### Stop
 
+Stop cannot resume the unprocessed queue. Eligible failed IDs may still use
+Retry Failed under the separate guards in
+[section 33](#33-progress-table-updates-and-result).
+
 When Stop takes effect, start no new attempts. Allow all already-started gateway
 operations, including source/session preparation and dispatched DELETE
 requests, to settle.
@@ -1526,6 +1335,13 @@ reaches stopped/final state.
 Unprocessed IDs may remain selected for a future new batch.
 
 A future new batch requires a new destructive-modal confirmation.
+
+### Fatal drain
+
+A fatal outcome prevents new scheduler starts immediately. Already-started
+gateway operations still settle and publish their outcomes exactly once; the
+active count continues to decrease to zero. Retain the destructive lock until
+that drain completes. Fatal/BLOCKED states cannot use Retry Failed.
 
 ---
 
@@ -1552,10 +1368,9 @@ processed accounting remain distinct. In progress is the active
 gateway-operation count and therefore includes source/session preparation
 before a DELETE dispatch.
 
-The captured attempt-start rate and maximum concurrency remain internal to the
-logical run and are not repeated in the deletion section. The scheduled-retry
-counter still counts retryable outcomes accepted for a future attempt; a Pause
-or Stop can prevent a scheduled retry from dispatching.
+Show captured scheduling settings in the locked inputs, not a duplicate details
+disclosure. An internal scheduled-retry counter represents accepted future
+attempts; Pause/Stop can prevent them from dispatching.
 
 Maintain:
 
@@ -1568,9 +1383,13 @@ ETA:
 
 - before 3 processed items, the UI displays `Estimating…`; the unchanged domain
   estimate is based on the configured rate;
-- afterwards, use measured active throughput and prefix the displayed duration
-  with `about`;
-- exclude paused time;
+- afterwards, calculate `ETA (ms) = ceil((total - processed) * activeElapsedMs / processed)`
+  and prefix the displayed duration with `about`;
+- `activeElapsedMs` is active-run wall time, excluding preflight and stable
+  pause but including pacing, backoff, preparation, response waits, and drain;
+- concurrency affects measured completed throughput; there is no explicit
+  concurrency multiplier. Active items remain wholly in `remaining` and receive
+  no partial-completion credit. ETA is an estimate, not a completion promise;
 - paused state displays paused text;
 - Pausing and Stopping hide ETA;
 - stable terminal states hide ETA and In progress.
@@ -1590,8 +1409,10 @@ down ETA, start work, or produce per-second announcements.
 
 New-run preflight shows preparation feedback without publishing a synthetic run
 result. Resume and Retry Failed show a pending presentation and reject repeated
-UI submission until their protection/lock preflight resolves. These are UI
-presentation states, not Application lifecycle states. Retry Failed preserves
+UI submission until their protection/lock preflight resolves. These are presentation/ownership states, not additional
+`DeletionRun` lifecycle states. Pending confirmed preflight must still own the
+workflow until it resolves, so clearing an old notice/result cannot unlock
+settings, selection, Refresh, or destructive commands. Retry Failed preserves
 the logical-run identity and slow-response latch but resets its result/time
 accounting; while it executes, label it `Retrying failed conversations`.
 
@@ -1600,36 +1421,31 @@ responding slowly.` In stable Paused or terminal states, use the retrospective
 copy `ChatGPT responded slowly during deletion.` The signal remains latched
 according to the DELETE policy above.
 
+### Retry Failed eligibility
+
+Application allows Retry Failed only for a nonfatal `finished` or `stopped` run
+with failed confirmed IDs. These terminal states are published only after
+active work drains. Application does not independently evaluate the Manager's
+canonical READY/BLOCKED availability.
+
+The Manager command additionally requires current READY inventory/source
+availability, no blocking safety override, and no pending command preflight.
+Both UI surfaces mirror the combined eligibility. Disabled controls do not
+replace Application or Manager execution guards.
+
+Reacquire the destructive lock and reload valid local protection; retry only
+the eligible failed subset. Lock contention must not convert an otherwise
+eligible terminal run into canonical BLOCKED or prevent a later acquisition
+attempt. Preserve the logical run's captured settings, slow-response latch,
+start deadline, and global cooldown. Reset displayed result/time accounting
+only when retry execution begins.
+
 ### Inventory/selection after outcomes
 
-After a successful deletion result:
-
-```text
-remove conversation from current inventory
-remove from selection
-```
-
-After skipped/already-gone:
-
-```text
-remove from current inventory if still present
-remove from selection
-```
-
-These updates mutate the in-memory snapshot incrementally. They do not trigger
-an automatic inventory reload.
-
-After failed non-fatal result:
-
-```text
-keep conversation selected
-keep visible when possible
-```
-
-`Retry failed` may operate only on failed IDs already in the confirmed set,
-applies current local protection, and performs no ChatGPT inventory reload.
-
-No persistent run history.
+Deleted and skipped/already-gone outcomes remove the ID from the in-memory
+inventory and selection without automatic Refresh. Nonfatal failed IDs remain
+selected and visible where possible. Retry eligibility follows the contract
+above. Do not persist run history.
 
 ---
 
@@ -1651,7 +1467,8 @@ source/session preparation before DELETE dispatch, may finish remotely.
 Next launch starts fresh.
 
 Only protected IDs, the rate and maximum-concurrency preferences, and the theme
-preference persist.
+preference persist. Language selection is session-only, as defined in
+[section 23](#23-main-ui).
 
 ---
 
@@ -1723,7 +1540,8 @@ Manual production read smoke checks verify:
   operation;
 - standalone and Project reads use the existing browser session naturally;
 - 401 and 403 from an actual narrow read fail closed;
-- structured `response.detail` diagnostics are visible without credentials;
+- read failures surface sanitized structural diagnostics without response
+  scalar values, raw bodies, or credentials;
 - Project and Project-conversation pagination complete and deduplicate IDs.
 
 Required coverage categories:
@@ -1731,6 +1549,14 @@ Required coverage categories:
 ### Pagination
 
 Cover normal multi-page completion, duplicates, changing totals/cursors, non-progress, loop prevention, and safety-ceiling exhaustion.
+
+### Snapshot publication and Refresh
+
+Cover atomic replacement, no partial candidate exposure, success clearing
+selection/preview, failure retaining display data, transient failure preserving
+READY only with an accepted snapshot, and blocking source/auth/schema/pagination/
+ceiling/storage failures. Verify Refresh/protection-write exclusion in controls
+and command handlers.
 
 ### Project protection
 
@@ -1742,7 +1568,9 @@ Cover critical-field failure vs graceful display-metadata degradation.
 
 ### Storage validation
 
-Cover malformed protected-ID data => blocked and malformed rate setting => normalized default.
+Cover malformed protected-ID data => blocked; missing, malformed, or out-of-range
+rate/concurrency preferences => their normalized defaults; and theme fallback.
+Ensure a pending preference save cannot alter the captured active-run values.
 
 ### Read retries
 
@@ -1750,7 +1578,8 @@ Cover `429`, `5xx`, transient network errors, authentication failure, `Retry-Aft
 
 ### Filters/sorting
 
-Cover title/date filtering, local-day cutoff semantics, 7/30/90 presets, null-date semantics, Reset filters, sorting, and UI pagination.
+Cover title/date filtering, local-day cutoffs, 7/30/90-day and 6-month/1-year
+presets, month-end/leap-year clamping, null dates, Reset, sorting, and UI pagination.
 
 ### Selection/protection
 
@@ -1768,15 +1597,39 @@ Cover destructive-modal confirmation for new batches and confirmed-ID monotonic 
 
 Cover exact origin validation, deceptive lookalike hosts, source-tab change, invalid IDs, and path-segment encoding.
 
-### Rate limiter and DELETE policy
+### Parallel scheduler and DELETE policy
 
-Use fake timers and cover configured spacing, retries, fatal/non-fatal status behavior, and response anomalies.
+Use deterministic fake time and controllable gateway completions. Cover:
+
+- concurrency caps, shared start spacing for initial attempts and retries, no
+  initial delay or catch-up burst, and no extra wait after a slow completion;
+- out-of-order completion, same-ID exclusion, exactly-once terminal accounting,
+  and stable failed-ID ordering;
+- per-item retry readiness, overlapping global 429 cooldowns, and preservation
+  of active cooldown/start deadlines through Retry Failed;
+- fatal/nonfatal response classification, response anomalies, and exact
+  HTTP 500 `detail: "Request timeout"` recognition with the code-only retry flag
+  enabled and disabled; other retry paths and manual retry remain unaffected;
+- Application retry rejection for fatal/nonterminal states or no failed IDs;
+- direct Manager retry rejection under unavailable inventory/source or a
+  blocking safety override, without a disabled button masking the guard;
+- successful eligible retry after lock contention.
+
+### Slow-response notice
+
+Cover the three-second actual-fetch threshold, fast responses, excluded
+preparation/backoff time, concurrent signal correlation, stale-signal rejection,
+timer/listener cleanup, logical-run latching through Resume/Retry, and immediate
+reset on new confirmation, including delayed and empty preflight.
 
 ### Pause/Resume/Stop
 
-Cover in-flight completion, cancellation of local waits, local protection,
-subset enforcement, zero inventory reloads, lock lifecycle, and prevention of
-successful-ID replay.
+Cover multiple active operations settling out of order after Pause, Stop, and
+Fatal; no new starts during drain; decreasing active counts and lock retention
+until all active operations settle. Cover Pause → Resume of remaining queued or
+retryable work, Stop without queue resume, cancellation of local waits, current
+local protection, subset enforcement, zero inventory reloads, and no replay of
+successful IDs.
 
 ### Single-run lock
 
@@ -1802,7 +1655,12 @@ no unnecessary web_accessible_resources
 
 ### UI
 
-Use RTL + user-event for user-visible flows.
+Use RTL + user-event for user-visible flows. Include confirmed-preflight
+ownership, pending Start/Resume/Retry, lifecycle setting locks and captured
+values, terminal result accounting, 99% clamping, elapsed ticker cleanup, and
+keyboard/accessible-name behavior. Inspect rendered responsiveness and
+assistive-technology behavior separately; source assertions do not establish
+visual or screen-reader quality.
 
 Optional Playwright is limited to a few extension/demo smoke tests and never uses a real ChatGPT account.
 
@@ -1810,82 +1668,27 @@ Optional Playwright is limited to a few extension/demo smoke tests and never use
 
 ## 37. UI states
 
-### Wrong source tab
+- **Wrong source / UNBOUND:** one instruction to launch from ChatGPT; no API work,
+  safety dashboard, or empty table.
+- **Loading:** show connection, conversation loading, and Project-protection
+  progress without suggesting that a first valid page makes deletion READY.
+- **READY:** filters/presets/Reset, scheduling settings, selection toolbar,
+  counts, standalone table, and Delete count. READY has no visible safety panel.
+- **BLOCKED:** one accessible highest-priority cause with its consequence and
+  at most one recovery action, as defined in [section 27](#27-safety-status).
+- **Confirmation:** the eligible count, applicable protected-skip summary, and
+  explicit destructive action.
+- **Running:** progress, metrics, ETA, Pause/Stop; disable protected mutations.
+- **Paused:** Resume/Stop; selection/protection/settings stay locked.
+- **Terminal:** current-run result and failed items, using `Completed with
+  failures` when applicable. Release controls only when no execute/resume/stop/
+  retry handoff owns the workflow and active operations have settled.
 
-```text
-Open ChatGPT in a tab and launch ChatGPTCleaner from that tab.
-```
-
-### Loading
-
-```text
-Connecting to ChatGPT...
-Loading conversations...
-Building Project protection...
-```
-
-### Unbound
-
-Show one empty state instructing the user to launch ChatGPTCleaner from a
-ChatGPT tab. Do not show the safety dashboard or an empty table.
-
-### Ready
-
-```text
-Filters + presets + Reset
-Deletion rate /min
-Chats at once
-Selection toolbar
-Counts
-Table
-Delete (N)
-```
-
-Once a run exists or confirmed preflight is pending, show a separate
-`Conversation deletion` section between
-Selection and the table. Keep progress, run alerts, statistics, and
-Pause/Resume/Stop/Retry controls in that section rather than Selection.
-Show one heading with the current status and one visible run-control set. The
-top safety surface continues to show canonical blockers and preserve operation
-transition announcements, but does not duplicate routine run status or run
-controls.
-
-### Safety status
-
-Show only the derived availability outcome. READY has no visible status surface
-and is announced politely only when the application meaningfully enters that
-state. BLOCKED uses one accessible Alert for the highest-priority known root
-cause and does not show technical downstream consequences as separate failures.
-
-### Confirmation
-
-Show the eligible delete count, protected-skip summary when applicable, and an
-explicit destructive confirmation action.
-
-### Running
-
-Show progress, stats, ETA, Pause, Stop.
-
-Selection/protection/rate mutations are disabled.
-
-### Paused
-
-Show Resume and Stop.
-
-Selection and protection controls stay disabled while the run can resume or
-stop.
-
-### Finished
-
-Show current-run result and failed items.
-
-Use `Completed with failures` when any items failed.
-
-If failed IDs can still be retried as part of the current run, Selection stays
-disabled. Once the run has no execute/resume/stop/retry path, Selection becomes
-available while the terminal result remains visible.
-
-No dashboard.
+Place one `Conversation deletion` section between Selection and the table once
+a run or confirmed preflight exists. It owns run status, alerts, metrics, and
+one control set. The upper safety surface retains blockers and accessible
+transition announcements without duplicating routine run status/controls.
+Do not add a persistent run-history dashboard.
 
 ---
 
@@ -1939,58 +1742,29 @@ Other files have separate roles:
 
 Do not duplicate large sections across these files.
 
+LICENSE and EULA govern legal terms. This specification defines product
+requirements and does not grant additional usage rights. ADR Context sections
+may describe superseded workflows; current decisions must remain consistent
+with the current specification. A changed architectural decision requires an
+explicit superseding ADR rather than silently erasing the old rationale.
+
 ---
 
-## 41. Final mental model
+## 41. Core execution rule
 
-```text
-Google Chrome
-    |
-    +-- authenticated chatgpt.com source tab
-    |
-    +-- ChatGPTCleaner MV3
-          |
-          +-- minimal service worker
-          |
-          +-- manager page
-                |
-                v
-            Application
-                |
-                v
-             Domain
-                ^
-                |
-          Application ports
-                ^
-                |
-          Infrastructure
-```
+A conversation reaches DELETE only through an explicit user-confirmed subset
+eligible in the last accepted complete inventory snapshot and not locally
+protected at the locked execution check. Later operations may remove IDs but
+never add them.
 
-Destructive path:
+Canonical contracts:
 
-```text
-UI selection
--> DeletionPlan preview from loaded inventory
--> destructive-modal confirmation
--> confirmed ID set
--> atomic single-run lock
--> bounded rate-limited executor
--> narrow ChatGPT DELETE operation
-```
+- [Plan and confirmed-ID boundary](#19-domain-model-and-safety-boundary).
+- [Snapshot acceptance and Refresh failures](#28-inventory-flow).
+- [Lock ownership](#13-single-destructive-executor).
+- [Scheduling](#30-deletion-scheduling) and [response policy](#31-delete-policy).
+- [Pause/Resume/Stop](#32-pause--resume--stop) and
+  [retry eligibility/results](#33-progress-table-updates-and-result).
+- [Manager teardown](#34-manager-lifecycle).
 
-Resume / Retry:
-
-```text
-remaining confirmed IDs
--> current local protection
--> confirmed subset only, with no inventory reload
--> continue
-```
-
-Core rule:
-
-> A conversation can reach DELETE only from an explicit user-confirmed subset
-> that was eligible in the last successfully loaded complete inventory snapshot
-> and is not currently locally protected. Later operations may remove IDs from
-> the confirmed set but may never add new ones.
+---

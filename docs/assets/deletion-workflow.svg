@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="594" viewBox="0 0 1080 594" role="img" aria-labelledby="title description">
+  <title id="title">ChatGPTCleaner deletion workflow</title>
+  <desc id="description">Three stages: load and validate all conversation and Project pages and saved user protection; build and confirm a deletion plan using selection, the accepted snapshot, and user-protected IDs; acquire the exclusive lock, recheck protection, shrink the confirmed set, and delete with rate, concurrency, and retry limits. User protection is chosen in the app and saved locally. Solid arrows show process order; dashed arrows show data inputs. Rejected snapshots never feed the deletion plan.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 1 1 L 9 5 L 1 9" fill="none" stroke="#57606a" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <style>
+      text { font-family: 'DejaVu Sans', Arial, sans-serif; fill: #24292f; }
+      .stage { fill: #f8fafc; stroke: #d0d7de; stroke-width: 1.25; }
+      .node { fill: #ffffff; stroke: #8c959f; stroke-width: 1.25; }
+      .heading { font-size: 20px; font-weight: 600; text-anchor: middle; }
+      .label { font-size: 18px; text-anchor: middle; }
+      .branch { font-size: 15px; fill: #57606a; }
+      .link { fill: none; stroke: #57606a; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow); }
+      .confirm { fill: #eef6ff; stroke: #0969da; stroke-width: 1.7; }
+      .data-store { fill: #eef4fa; stroke: #64748b; stroke-width: 1.25; }
+      .data { fill: none; stroke: #57606a; stroke-width: 1.7; stroke-dasharray: 5 5; marker-end: url(#arrow); }
+      .crossing { fill: none; stroke: #ffffff; stroke-width: 7; }
+      .note { font-size: 15px; fill: #57606a; }
+    </style>
+  </defs>
+  <rect width="1080" height="594" fill="#ffffff"/>
+  <rect class="stage" x="16" y="16" width="320" height="506" rx="12"/>
+  <rect class="stage" x="380" y="16" width="320" height="506" rx="12"/>
+  <rect class="stage" x="744" y="16" width="320" height="506" rx="12"/>
+  <text class="heading" x="176" y="54">1. Load + validate</text>
+  <text class="heading" x="540" y="54">2. Plan + confirm</text>
+  <text class="heading" x="904" y="54">3. Execute in manager</text>
+
+  <path class="link" d="M176 142 V162"/>
+  <path class="link" d="M176 276 V302"/>
+  <path class="link" d="M40 220 H28 V433 H38"/>
+  <path class="link" d="M404 113 H392 V288 H430 V302"/>
+  <path class="link" d="M540 362 V402"/>
+  <path class="link" d="M676 433 H722 V113 H766"/>
+  <path class="link" d="M904 142 V182"/>
+  <path class="link" d="M904 256 V302"/>
+  <path class="link" d="M904 376 V402"/>
+
+  <path class="crossing" d="M404 222 H350 V220 H314"/>
+  <path class="crossing" d="M676 222 H766"/>
+  <path class="data" d="M404 222 H350 V220 H314"/>
+  <path class="data" d="M676 222 H766"/>
+  <path class="data" d="M312 333 H402"/>
+  <path class="data" d="M540 248 V302"/>
+
+  <rect class="node" x="40" y="84" width="272" height="58" rx="9"/>
+  <text class="label" x="176" y="108"><tspan x="176">Load history +</tspan><tspan x="176" dy="24">every Project</tspan></text>
+  <polygon class="node" points="176,164 312,220 176,276 40,220"/>
+  <text class="label" x="176" y="201"><tspan x="176">All pages +</tspan><tspan x="176" dy="23">saved protection</tspan><tspan x="176" dy="23">valid?</tspan></text>
+  <text class="branch" x="188" y="295">Yes</text>
+  <text class="branch" x="48" y="281">No</text>
+  <rect class="node" x="40" y="304" width="272" height="58" rx="9"/>
+  <text class="label" x="176" y="328"><tspan x="176">Accept validated</tspan><tspan x="176" dy="24">snapshot</tspan></text>
+  <rect class="node" x="40" y="404" width="272" height="58" rx="9" stroke-dasharray="5 4"/>
+  <text class="label" x="176" y="428"><tspan x="176">Reject candidate</tspan><tspan x="176" dy="24">snapshot</tspan></text>
+
+  <rect class="node" x="404" y="84" width="272" height="58" rx="9"/>
+  <text class="label" x="540" y="119">User filters + selects</text>
+  <path class="data-store" d="M404 194 C404 182 676 182 676 194 V240 C676 252 404 252 404 240 Z"/>
+  <path d="M404 194 C404 206 676 206 676 194" fill="none" stroke="#64748b" stroke-width="1.25"/>
+  <text class="label" x="540" y="220">User-protected IDs</text>
+  <text x="540" y="239" text-anchor="middle" font-size="15" fill="#57606a">Saved locally</text>
+  <rect class="node" x="404" y="304" width="272" height="58" rx="9"/>
+  <text class="label" x="540" y="328">Build deletion plan</text>
+  <text class="note" x="540" y="352" text-anchor="middle">Exclude Project + protected chats</text>
+  <rect class="confirm" x="404" y="404" width="272" height="58" rx="9"/>
+  <text class="label" x="540" y="439" font-weight="600">Confirm deletion</text>
+
+  <rect class="node" x="768" y="84" width="272" height="58" rx="9"/>
+  <text class="label" x="904" y="108"><tspan x="904">Acquire exclusive</tspan><tspan x="904" dy="24">Web Lock</tspan></text>
+  <rect class="node" x="768" y="184" width="272" height="72" rx="9"/>
+  <text class="label" x="904" y="214"><tspan x="904">Recheck user protection</tspan><tspan x="904" dy="24">Remove protected IDs</tspan></text>
+  <rect class="node" x="768" y="304" width="272" height="72" rx="9"/>
+  <text class="label" x="904" y="334">Send DELETE requests</text>
+  <text class="note" x="904" y="358" text-anchor="middle">Rate + concurrency + retries</text>
+  <rect class="node" x="768" y="404" width="272" height="58" rx="9"/>
+  <text class="label" x="904" y="428"><tspan x="904">Update progress</tspan><tspan x="904" dy="24">and conversation list</tspan></text>
+  <text class="note" x="904" y="485" text-anchor="middle">Lock held during pause + draining.</text>
+  <text class="note" x="904" y="506" text-anchor="middle">Released when execution ends.</text>
+  <path class="link" d="M40 563 H83"/>
+  <text class="note" x="96" y="568">Process</text>
+  <path class="data" d="M223 563 H266"/>
+  <text class="note" x="279" y="568">Data input</text>
+  <text class="note" x="446" y="568">User protection is chosen in the app and saved locally.</text>
+</svg>
