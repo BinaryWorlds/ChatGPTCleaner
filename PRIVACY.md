@@ -40,7 +40,8 @@ ChatGPTCleaner persists the following values in Chrome's extension-local
 storage (`browser.storage.local`):
 
 - protected conversation identifiers;
-- the deletion requests-per-minute preference; and
+- the deletion-rate preference;
+- the maximum deletion concurrency preference; and
 - the theme preference (`auto`, `light`, or `dark`).
 
 The extension restricts this storage to trusted extension contexts. It does not

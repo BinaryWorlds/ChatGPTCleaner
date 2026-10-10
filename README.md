@@ -2,7 +2,7 @@
 
 ChatGPTCleaner is an unofficial Chrome Manifest V3 extension for reviewing and bulk-deleting selected standalone ChatGPT conversations while deliberately excluding Project conversations and locally protected chats from deletion.
 
-I created it because manually managing a ChatGPT history of more than 1,500 conversations had become impractical. The manager is designed to make large histories practical to work with through fast filtering, sorting, pagination, selection, and bulk actions.
+I created it because manually managing a ChatGPT history of more than 1,500 conversations had become impractical. The manager is designed to make large histories practical to work with through filtering, sorting, pagination, selection, and bulk actions.
 
 ![ChatGPTCleaner manager](docs/assets/chatgptcleaner-manager.png)
 
@@ -11,7 +11,7 @@ I created it because manually managing a ChatGPT history of more than 1,500 conv
 - Loads standalone conversations into a paginated table with filtering, sorting, and explicit selection.
 - Discovers Projects, enumerates their conversations, and presents them in a separate read-only view. Project conversations are excluded from deletion.
 - Stores locally protected standalone conversation IDs. Protection does not prevent selection; Delete reduces the selected set to its eligible, unprotected subset.
-- Deletes confirmed conversations with configurable attempt-start rate and bounded concurrency, retry handling, progress, and Pause, Resume, and Stop controls.
+- Deletes confirmed conversations with configurable **Deletion rate** and **Chats at once** settings, retry handling, progress, and Pause, Resume, and Stop controls.
 
 ## Safety model
 
@@ -21,7 +21,7 @@ I created it because manually managing a ChatGPT history of more than 1,500 conv
 - After confirmation, there are no standalone or Project inventory reads. The manager acquires an exclusive Web Lock, reloads and validates local protected IDs while holding that lock, and removes newly protected conversations from the confirmed target. The target can shrink but cannot expand; Resume and Retry remain subsets of the same confirmed set.
 - DELETE attempts use one bounded scheduler. The configured start rate applies to initial attempts and retries, concurrency defaults to one, and only retryable failures use bounded retry handling.
 
-Closing or reloading the manager prevents new DELETE attempts from starting, although a request already sent to ChatGPT may still complete.
+After Pause or Stop takes effect, or after the manager closes or reloads, no new deletion operation starts. Operations already started, including source/session preparation before a DELETE dispatch, may finish remotely; there is no background continuation or automatic resume.
 
 ## Installation
 
@@ -119,10 +119,9 @@ Requirements: Node.js 24, pnpm, and Chrome 120 or newer.
 pnpm install
 pnpm dev
 pnpm check
-pnpm build
 ```
 
-`pnpm dev:demo` and `pnpm build:demo` use fake infrastructure and do not access ChatGPT. `pnpm build:debug` creates a debug build with source maps. The production `pnpm build` does not emit source maps.
+`pnpm check` includes the production build. `pnpm dev:demo` and `pnpm build:demo` use fake infrastructure and do not access ChatGPT. `pnpm build:debug` creates a debug build with source maps. The production `pnpm build` does not emit source maps.
 
 ## Changelog
 

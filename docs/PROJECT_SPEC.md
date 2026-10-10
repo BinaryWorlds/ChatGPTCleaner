@@ -4,7 +4,7 @@
 **Product:** Google Chrome Manifest V3 extension  
 **Primary browser:** Google Chrome  
 **Minimum Chrome version:** 120  
-**Runtime:** Node.js 24  
+**Build/toolchain runtime:** Node.js 24
 **Package manager:** pnpm
 
 ---
@@ -64,6 +64,23 @@ after the initial `v1.0.0` bootstrap. Normal and Dependabot pull requests do not
 reserve application versions or create future release headings. One weekly
 cross-ecosystem Dependabot rollup handles ordinary dependency maintenance, and
 each Release Please pull request requires a manual maintainer merge.
+
+The [Release Please workflow](../.github/workflows/release-please.yml) is
+triggered by every push to `master`; its Release Please job runs only after the
+bootstrap tag exists. It requires the repository secret
+`RELEASE_PLEASE_TOKEN`, which authenticates the Release Please action that
+maintains the release pull request and creates the draft GitHub Release. When
+that action reports a created release, the workflow automatically runs the
+quality gate, packages and validates the production ZIP, attests and uploads the
+asset, and publishes the draft release.
+
+The initial `v1.0.0` uses the separate, manually dispatched
+[bootstrap workflow](../.github/workflows/release.yml), which refuses to proceed
+if the tag or release already exists. Later releases have no manual-dispatch
+trigger. For a failed release run, use GitHub Actions to rerun the failed job or
+run. If a release was created, rerun the publish path only while it remains a
+draft. Asset upload replaces the same named asset; the draft guard rejects the
+publish path after the release is already public.
 
 Every public release is produced from the production build as
 `ChatGPTCleaner-vX.Y.Z-chrome.zip`. The exact validated ZIP is attested before
@@ -207,8 +224,8 @@ These rules must remain true even if UI state is wrong.
 17. Authentication secrets are never persisted or logged.
 18. At most one destructive executor may be active for the extension at a time.
 19. Resume and Retry Failed may only operate on a subset of IDs already confirmed by the user; they may never add new IDs.
-20. Closing/reloading/crashing the manager page prevents any new destructive request from starting. There is no background continuation or automatic resume.
-21. An already-dispatched DELETE may still complete after Pause, Stop, close, reload, or crash; the extension must not claim otherwise.
+20. Closing/reloading/crashing the manager page prevents any new destructive operation from starting. There is no background continuation or automatic resume.
+21. Destructive operations already started, including source/session preparation before DELETE dispatch, may finish after Pause, Stop, close, reload, or crash; the extension must not claim otherwise.
 22. The production extension loads no remote executable runtime code.
 23. The authenticated transport never exposes a generic arbitrary-URL fetch proxy.
 24. Destructive operations never start from React render/effect lifecycle; they start only from explicit user commands routed through Application orchestration.
@@ -454,13 +471,14 @@ ETA
 If manager is closed/reloaded/crashes/browser shuts down/extension updates:
 
 ```text
-no new DELETE attempts start
+no new destructive operations start
 no background continuation
 no persisted queue
 no auto-resume
 ```
 
-A DELETE already dispatched before manager loss may still complete.
+Destructive operations already started before manager loss, including
+source/session preparation before DELETE dispatch, may finish remotely.
 
 ### Source tab
 
@@ -996,7 +1014,8 @@ Disable:
 selection mutations
 Protect
 Unprotect
-requests-per-minute editing
+Deletion rate editing
+Chats at once editing
 ```
 
 Filtering, sorting, paging, and passive browsing may remain available if they do not mutate deletion/protection state.
@@ -1326,7 +1345,7 @@ authoritative for destructive execution and may only shrink the confirmed set.
 
 ## 29. New destructive batch
 
-When the user chooses `Delete selected`:
+When the user chooses `Delete (N)`:
 
 ```text
 verify no run is already active
@@ -1470,11 +1489,11 @@ confirmed run. Do not persist or log this signal.
 
 ### Pause
 
-If a DELETE is already in flight, allow it to finish.
+When Pause takes effect, start no new attempts. Allow all already-started
+gateway operations, including source/session preparation and dispatched DELETE
+requests, to settle.
 
 If waiting locally for rate-limit/backoff, cancel that wait immediately.
-
-Start no new attempt.
 
 The destructive lock remains held while paused.
 
@@ -1495,13 +1514,14 @@ Never replay already successful IDs.
 
 ### Stop
 
-If DELETE is in flight, allow it to finish.
+When Stop takes effect, start no new attempts. Allow all already-started gateway
+operations, including source/session preparation and dispatched DELETE
+requests, to settle.
 
 Cancel local wait immediately.
 
-Start no new attempts.
-
-Release the destructive lock after the in-flight operation settles and the run reaches stopped/final state.
+Release the destructive lock after all active operations settle and the run
+reaches stopped/final state.
 
 Unprocessed IDs may remain selected for a future new batch.
 
@@ -1618,14 +1638,15 @@ No persistent run history.
 If manager page disappears:
 
 ```text
-no new destructive request starts
+no new destructive operation starts
 local timers die
 single-run lock releases with context teardown
 no queue persistence
 no auto-resume
 ```
 
-An already-dispatched network request may still complete remotely.
+Destructive operations already started before manager loss, including
+source/session preparation before DELETE dispatch, may finish remotely.
 
 Next launch starts fresh.
 
@@ -1812,11 +1833,12 @@ ChatGPT tab. Do not show the safety dashboard or an empty table.
 
 ```text
 Filters + presets + Reset
-Requests/minute
+Deletion rate /min
+Chats at once
 Selection toolbar
 Counts
 Table
-Delete selected (N)
+Delete (N)
 ```
 
 Once a run exists or confirmed preflight is pending, show a separate
@@ -1894,18 +1916,8 @@ installation and operation, contributor constraints, security reporting, and
 the reasons for major architectural decisions without duplicating large
 sections between documents.
 
-The repository includes:
-
-```text
-README.md
-CHANGELOG.md
-SECURITY.md
-AGENTS.md
-ChatGPTCleaner Source License 1.0 (`LICENSE`)
-EULA.md
-docs/PROJECT_SPEC.md
-docs/adr/*
-```
+The maintained public-document set and each document's authority are defined in
+the documentation split below.
 
 ---
 
@@ -1915,19 +1927,15 @@ This document defines **WHAT the product must do and its architectural boundarie
 
 Other files have separate roles:
 
-```text
-AGENTS.md
-= HOW agents and contributors work in the repository
-
-docs/adr/*
-= WHY major architectural decisions were chosen
-
-README.md
-= HOW users understand, install, and use the project
-
-SECURITY.md
-= HOW security issues are reported
-```
+- [AGENTS.md](../AGENTS.md): repository engineering and agent instructions.
+- [ADRs](adr/): rationale and status of major architectural decisions.
+- [README.md](../README.md): user overview, installation, usage, and development entry point.
+- [PRIVACY.md](../PRIVACY.md): detailed data-handling and persistence disclosure.
+- [CONTRIBUTING.md](../CONTRIBUTING.md): contribution and feedback policy.
+- [SECURITY.md](../SECURITY.md): private vulnerability-reporting guidance.
+- [LICENSE](../LICENSE) and [EULA.md](../EULA.md): terms for project material and Official Builds.
+- [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md): bundled third-party license notices.
+- [CHANGELOG.md](../CHANGELOG.md): historical released changes; Release Please owns future entries.
 
 Do not duplicate large sections across these files.
 
