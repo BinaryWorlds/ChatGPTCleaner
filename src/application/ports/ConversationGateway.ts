@@ -12,6 +12,7 @@ export const ChatGptOperation = {
 } as const;
 
 export const STANDALONE_CONVERSATION_PAGE_LIMIT = 100;
+export const PROJECT_CONVERSATION_INITIAL_CURSOR = "0";
 
 export interface ProjectReference {
   readonly id: string;

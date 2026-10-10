@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { ConversationPage, ReadResult } from "./ports/ConversationGateway";
+import {
+  PROJECT_CONVERSATION_INITIAL_CURSOR,
+  type ConversationPage,
+  type ReadResult,
+} from "./ports/ConversationGateway";
 import { AppConfig } from "../config";
 import { FakeClock } from "../infrastructure/fake/FakeClock";
 import { FakeConversationGateway } from "../infrastructure/fake/FakeConversationGateway";
@@ -87,6 +91,7 @@ class DeferredProjectGateway extends FakeConversationGateway {
   public activeProjectReads = 0;
   public maxActiveProjectReads = 0;
   public readonly projectReadOrder: string[] = [];
+  public readonly requestedProjectCursors: string[] = [];
   private readonly resolvers = new Map<
     string,
     (result: ReadResult<ConversationPage>) => void
@@ -116,6 +121,9 @@ class DeferredProjectGateway extends FakeConversationGateway {
       this.activeProjectReads,
     );
     this.projectReadOrder.push(key);
+    this.requestedProjectCursors.push(
+      cursor ?? PROJECT_CONVERSATION_INITIAL_CURSOR,
+    );
     return new Promise((resolve) => {
       this.resolvers.set(key, (result) => {
         this.activeProjectReads -= 1;
@@ -289,6 +297,55 @@ describe("inventory and deletion planning", () => {
 
     await expect(loading).resolves.toMatchObject({ kind: "ready" });
     expect(gateway.maxActiveProjectReads).toBe(3);
+  });
+
+  it("blocks an initial Project cursor that repeats the actual wire cursor without requesting it again", async () => {
+    const gateway = new DeferredProjectGateway(["project"]);
+    const loading = loadSafetyInventory(gateway);
+    await settleAsyncWork();
+
+    expect(gateway.projectReadOrder).toEqual(["project:first"]);
+    gateway.resolveProjectPage(
+      "project:first",
+      projectPage("project-conversation", "0"),
+    );
+
+    await expect(loading).resolves.toEqual({
+      kind: "blocked",
+      reason: "pagination",
+    });
+    expect(gateway.projectReadOrder).toEqual(["project:first"]);
+    expect(gateway.requestedProjectCursors).toEqual(["0"]);
+  });
+
+  it("continues Project pagination after a smaller page with an opaque next cursor", async () => {
+    const gateway = new DeferredProjectGateway(["project"]);
+    const loading = loadSafetyInventory(gateway);
+    await settleAsyncWork();
+
+    gateway.resolveProjectPage(
+      "project:first",
+      projectPage("project-conversation-1", "opaque-next"),
+    );
+    await settleAsyncWork();
+    expect(gateway.projectReadOrder).toEqual([
+      "project:first",
+      "project:opaque-next",
+    ]);
+    gateway.resolveProjectPage(
+      "project:opaque-next",
+      projectPage("project-conversation-2"),
+    );
+
+    await expect(loading).resolves.toMatchObject({
+      kind: "ready",
+      inventory: {
+        projectConversations: [
+          { id: "project-conversation-1" },
+          { id: "project-conversation-2" },
+        ],
+      },
+    });
   });
 
   it("fails the whole Project enumeration without scheduling new Projects", async () => {

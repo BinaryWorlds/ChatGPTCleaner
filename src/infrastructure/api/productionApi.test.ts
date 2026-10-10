@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { loadSafetyInventory } from "../../application/inventory";
+import { AppConfig } from "../../config";
 import { FakeClock } from "../fake/FakeClock";
 import {
   IsolatedFirstPageContextReadExecutor,
@@ -50,6 +51,15 @@ describe("production read validation", () => {
     expect(normalizeDisplayTitle(null)).toBe("(Untitled)");
   });
 
+  it.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])(
+    "rejects invalid configured Project conversation page size %s",
+    (projectConversationPageSize) => {
+      expect(() =>
+        createChromePageContextReadExecutor(projectConversationPageSize),
+      ).toThrow(RangeError);
+    },
+  );
+
   function gatewayWith(
     execute: (tabId: number, operation: PageReadOperation) => Promise<unknown>,
     sourceAvailable = true,
@@ -86,7 +96,9 @@ describe("production read validation", () => {
         execute(tabId, {
           kind: "project-conversations",
           projectId,
-          cursor: cursor ?? "",
+          cursor: cursor ?? "0",
+          projectConversationPageSize:
+            AppConfig.inventory.projectConversationPageSize,
           paginationStep,
         }),
     };
@@ -405,7 +417,9 @@ describe("production read validation", () => {
     expect(requests[0]).toEqual({
       kind: "project-conversations",
       projectId: "project/one",
-      cursor: "",
+      cursor: "0",
+      projectConversationPageSize:
+        AppConfig.inventory.projectConversationPageSize,
       paginationStep: 1,
     });
   });
@@ -687,7 +701,7 @@ describe("production read validation", () => {
       "owned_only=true&conversations_per_gizmo=0",
     );
     expect(new URL(backendUrls[4] ?? "").searchParams.toString()).toBe(
-      "cursor=0&limit=5&owned_only=true",
+      "cursor=0&limit=50&owned_only=true",
     );
     expect(
       backendRequestHeaders.every(
@@ -711,6 +725,16 @@ describe("production read validation", () => {
     await expect(executeScript.mock.results[4]?.value).resolves.toMatchObject([
       { result: { kind: "response", status: 200 } },
     ]);
+
+    const alternatePageSizeExecutor = createChromePageContextReadExecutor(17);
+    await alternatePageSizeExecutor.fetchProjectConversationsPage(
+      42,
+      "project/two",
+      null,
+    );
+    expect(new URL(requestedUrls.at(-1) ?? "").searchParams.get("limit")).toBe(
+      "17",
+    );
 
     const injectedFunction: unknown = executeScript.mock.calls[0]?.[0].func;
     if (typeof injectedFunction !== "function") {
@@ -773,6 +797,8 @@ describe("production read validation", () => {
           kind: "project-conversations",
           projectId: maximumProjectId,
           cursor: "",
+          projectConversationPageSize:
+            AppConfig.inventory.projectConversationPageSize,
           paginationStep: 1,
         },
         "ISOLATED",
@@ -785,6 +811,8 @@ describe("production read validation", () => {
           kind: "project-conversations",
           projectId: `${maximumProjectId}p`,
           cursor: "",
+          projectConversationPageSize:
+            AppConfig.inventory.projectConversationPageSize,
           paginationStep: 1,
         },
         "ISOLATED",
@@ -802,6 +830,8 @@ describe("production read validation", () => {
           kind: "project-conversations",
           projectId: "project-one",
           cursor: maximumProjectCursor,
+          projectConversationPageSize:
+            AppConfig.inventory.projectConversationPageSize,
           paginationStep: 1,
         },
         "ISOLATED",
@@ -814,6 +844,8 @@ describe("production read validation", () => {
           kind: "project-conversations",
           projectId: "project-one",
           cursor: `${maximumProjectCursor}c`,
+          projectConversationPageSize:
+            AppConfig.inventory.projectConversationPageSize,
           paginationStep: 1,
         },
         "ISOLATED",

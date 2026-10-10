@@ -22,6 +22,7 @@ export type PageReadOperation =
       readonly kind: "project-conversations";
       readonly projectId: string;
       readonly cursor: string;
+      readonly projectConversationPageSize: number;
       readonly paginationStep: number;
     };
 

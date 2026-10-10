@@ -747,11 +747,20 @@ Current sanitized capture structure:
 
 ```text
 query names: cursor, limit, owned_only
-verified initial query: cursor=0, limit=5, owned_only=true
+previously observed initial query: cursor=0, limit=5, owned_only=true
+application-requested initial query: cursor=0, limit=projectConversationPageSize, owned_only=true
+default requested projectConversationPageSize: 50
 response: { items, cursor }
 membership conversation ID path: items[].id
 display fields: title, create_time, update_time
 ```
+
+`projectConversationPageSize` is a code-only requested page size, not a
+verified ChatGPT maximum. Project conversation pagination follows each opaque
+response cursor until terminal `null`; a page containing fewer items than the
+requested size is not terminal when it supplies a next cursor. A response that
+repeats the cursor used by the actual request is non-progress and blocks the
+candidate snapshot.
 
 Build a complete set:
 

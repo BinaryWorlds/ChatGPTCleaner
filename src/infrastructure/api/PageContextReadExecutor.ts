@@ -1,7 +1,9 @@
 import {
   ChatGptOperation,
+  PROJECT_CONVERSATION_INITIAL_CURSOR,
   STANDALONE_CONVERSATION_PAGE_LIMIT,
 } from "../../application/ports/ConversationGateway";
+import { AppConfig } from "../../config";
 import { ApiRequestLifecycleEvent } from "../../application/ports/Observability";
 import {
   executionResultSchema,
@@ -21,7 +23,20 @@ export class IsolatedFirstPageContextReadExecutor implements PageContextReadExec
     PageExecutionWorld
   >();
 
-  public constructor(private readonly runner: PageScriptRunner) {}
+  public constructor(
+    private readonly runner: PageScriptRunner,
+    private readonly projectConversationPageSize: number = AppConfig.inventory
+      .projectConversationPageSize,
+  ) {
+    if (
+      !Number.isSafeInteger(projectConversationPageSize) ||
+      projectConversationPageSize <= 0
+    ) {
+      throw new RangeError(
+        "Project conversation page size must be a positive integer",
+      );
+    }
+  }
 
   public beginInventoryRun(): void {
     this.successfulWorlds.clear();
@@ -61,7 +76,8 @@ export class IsolatedFirstPageContextReadExecutor implements PageContextReadExec
     return this.execute(tabId, {
       kind: "project-conversations",
       projectId,
-      cursor: cursor ?? "",
+      cursor: cursor ?? PROJECT_CONVERSATION_INITIAL_CURSOR,
+      projectConversationPageSize: this.projectConversationPageSize,
       paginationStep,
     });
   }
@@ -122,7 +138,6 @@ function createChromePageScriptRunner(): PageScriptRunner {
             const standalonePageLimit = 100;
             const projectDiscoveryOwnedOnly = true;
             const projectDiscoveryConversationsPerGizmo = 0;
-            const projectConversationPageLimit = 5;
             const maximumIdentifierLength = 512;
             const maximumCursorLength = 2_048;
             const projectPathname = "/backend-api/gizmos/snorlax/sidebar";
@@ -345,23 +360,27 @@ function createChromePageScriptRunner(): PageScriptRunner {
                   : { cursor: narrowOperation.cursor }),
               };
             } else if (
+              receivedArgRecord !== null &&
               narrowOperation.kind === "project-conversations" &&
               typeof narrowOperation.projectId === "string" &&
               narrowOperation.projectId.trim().length > 0 &&
               narrowOperation.projectId.length <= maximumIdentifierLength &&
               typeof narrowOperation.cursor === "string" &&
               narrowOperation.cursor.length <= maximumCursorLength &&
+              typeof receivedArgRecord.projectConversationPageSize ===
+                "number" &&
+              Number.isSafeInteger(
+                receivedArgRecord.projectConversationPageSize,
+              ) &&
+              receivedArgRecord.projectConversationPageSize > 0 &&
               typeof narrowOperation.paginationStep === "number" &&
               Number.isSafeInteger(narrowOperation.paginationStep) &&
               narrowOperation.paginationStep > 0
             ) {
               pathname = `/backend-api/gizmos/${encodeURIComponent(narrowOperation.projectId)}/conversations`;
               query = {
-                cursor:
-                  narrowOperation.cursor.length === 0
-                    ? "0"
-                    : narrowOperation.cursor,
-                limit: String(projectConversationPageLimit),
+                cursor: narrowOperation.cursor,
+                limit: String(receivedArgRecord.projectConversationPageSize),
                 owned_only: "true",
               };
             } else {
@@ -586,8 +605,12 @@ function createChromePageScriptRunner(): PageScriptRunner {
   };
 }
 
-export function createChromePageContextReadExecutor(): PageContextReadExecutor {
+export function createChromePageContextReadExecutor(
+  projectConversationPageSize: number = AppConfig.inventory
+    .projectConversationPageSize,
+): PageContextReadExecutor {
   return new IsolatedFirstPageContextReadExecutor(
     createChromePageScriptRunner(),
+    projectConversationPageSize,
   );
 }

@@ -8,7 +8,10 @@ import type {
   ReadFailureReason,
   ReadResult,
 } from "./ports/ConversationGateway";
-import { STANDALONE_CONVERSATION_PAGE_LIMIT } from "./ports/ConversationGateway";
+import {
+  PROJECT_CONVERSATION_INITIAL_CURSOR,
+  STANDALONE_CONVERSATION_PAGE_LIMIT,
+} from "./ports/ConversationGateway";
 import type { ProtectedConversationStore } from "./ports/ProtectedConversationStore";
 import type { SettingsStore } from "./ports/SettingsStore";
 import {
@@ -289,7 +292,9 @@ async function loadProjectConversationIds(
         conversationsByProject[projectIndex] = projectConversations;
         return;
       }
-      if (nextCursor === cursor || visitedCursors.has(nextCursor)) {
+      const requestedCursor: string =
+        cursor ?? PROJECT_CONVERSATION_INITIAL_CURSOR;
+      if (nextCursor === requestedCursor || visitedCursors.has(nextCursor)) {
         failure = { kind: "failure", reason: "pagination" };
         return;
       }

@@ -2,6 +2,7 @@ export const AppConfig = {
   inventory: {
     maxPages: 1_000,
     maxRecords: 100_000,
+    projectConversationPageSize: 50,
     standaloneReadConcurrency: 3,
   },
   readRetry: {
