@@ -1,6 +1,6 @@
-import type { Conversation } from "../domain/conversation";
-import { AppConfig } from "../config";
-import { excludeProjectConversations } from "../domain/selection";
+import type { Conversation } from "domain/conversation";
+import { AppConfig } from "config";
+import { excludeProjectConversations } from "domain/selection";
 import type {
   ConversationGateway,
   ConversationPage,

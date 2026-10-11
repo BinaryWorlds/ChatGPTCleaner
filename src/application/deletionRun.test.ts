@@ -3,9 +3,9 @@ import {
   buildDeletionPlan,
   confirmDeletionPlan,
   type ConfirmedDeletionPlan,
-} from "../domain/deletionPlan";
-import { AppConfig } from "../config";
-import type { Conversation } from "../domain/conversation";
+} from "domain/deletionPlan";
+import { AppConfig } from "config";
+import type { Conversation } from "domain/conversation";
 import type {
   DestructiveRunLock,
   LockResult,
@@ -15,11 +15,11 @@ import type {
   DeleteAttemptResult,
 } from "./ports/ConversationGateway";
 import { createAppError } from "./AppError";
-import { FakeClock } from "../infrastructure/fake/FakeClock";
-import { FakeConversationGateway } from "../infrastructure/fake/FakeConversationGateway";
-import { FakeDestructiveRunLock } from "../infrastructure/fake/FakeDestructiveRunLock";
-import { FakeProtectedConversationStore } from "../infrastructure/fake/FakeStores";
-import { type FakeGatewayFixture } from "../infrastructure/fake/fixtures";
+import { FakeClock } from "infrastructure/fake/FakeClock";
+import { FakeConversationGateway } from "infrastructure/fake/FakeConversationGateway";
+import { FakeDestructiveRunLock } from "infrastructure/fake/FakeDestructiveRunLock";
+import { FakeProtectedConversationStore } from "infrastructure/fake/FakeStores";
+import { type FakeGatewayFixture } from "infrastructure/fake/fixtures";
 import {
   canRetryFailedDeletion,
   DeletionRun,

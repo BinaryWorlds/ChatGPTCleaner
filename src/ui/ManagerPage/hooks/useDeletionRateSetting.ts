@@ -3,8 +3,8 @@ import { useTranslation } from "react-i18next";
 import {
   SerializedMaximumConcurrentDeleteRequestsWriter,
   SerializedRequestsPerMinuteWriter,
-} from "../../../application/settings";
-import type { ManagerDependencies } from "../../../composition/types";
+} from "application/settings";
+import type { ManagerDependencies } from "composition/types";
 
 interface UseDeletionSchedulingSettingsOptions {
   readonly dependencies: ManagerDependencies;

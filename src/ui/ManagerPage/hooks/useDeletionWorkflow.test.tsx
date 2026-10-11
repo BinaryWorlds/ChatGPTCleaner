@@ -1,14 +1,14 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { DeletionRun } from "../../../application/deletionRun";
-import { confirmDeletionPlan } from "../../../domain/deletionPlan";
-import { FakeClock } from "../../../infrastructure/fake/FakeClock";
-import { FakeConversationGateway } from "../../../infrastructure/fake/FakeConversationGateway";
-import { FakeDestructiveRunLock } from "../../../infrastructure/fake/FakeDestructiveRunLock";
+import { DeletionRun } from "application/deletionRun";
+import { confirmDeletionPlan } from "domain/deletionPlan";
+import { FakeClock } from "infrastructure/fake/FakeClock";
+import { FakeConversationGateway } from "infrastructure/fake/FakeConversationGateway";
+import { FakeDestructiveRunLock } from "infrastructure/fake/FakeDestructiveRunLock";
 import {
   FakeProtectedConversationStore,
   FakeSettingsStore,
-} from "../../../infrastructure/fake/FakeStores";
+} from "infrastructure/fake/FakeStores";
 import { useDeletionWorkflow } from "./useDeletionWorkflow";
 
 describe("useDeletionWorkflow retry command", () => {

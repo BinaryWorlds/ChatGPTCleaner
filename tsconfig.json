@@ -4,9 +4,6 @@
     "noEmit": true,
     "jsx": "react-jsx",
     "noUncheckedIndexedAccess": true,
-    "exactOptionalPropertyTypes": true,
-    "paths": {
-      "@manager-composition": ["./src/composition/production.ts"]
-    }
+    "exactOptionalPropertyTypes": true
   }
 }

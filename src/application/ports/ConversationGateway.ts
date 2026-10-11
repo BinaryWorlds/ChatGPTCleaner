@@ -1,8 +1,8 @@
-import type { Conversation } from "../../domain/conversation";
-import type { AppError } from "../AppError";
-import type { ReadFailureReason } from "../SafetyBlockReason";
+import type { Conversation } from "domain/conversation";
+import type { AppError } from "application/AppError";
+import type { ReadFailureReason } from "application/SafetyBlockReason";
 
-export type { ReadFailureReason } from "../SafetyBlockReason";
+export type { ReadFailureReason } from "application/SafetyBlockReason";
 
 export const ChatGptOperation = {
   StandaloneConversationsList: "standaloneConversations.list",

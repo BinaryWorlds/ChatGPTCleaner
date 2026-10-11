@@ -1,4 +1,4 @@
-import type { ThemePreference } from "../themePreference";
+import type { ThemePreference } from "application/themePreference";
 
 export interface ThemePreferenceStore {
   loadThemePreference(): Promise<unknown>;

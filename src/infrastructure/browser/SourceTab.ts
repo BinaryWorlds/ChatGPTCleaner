@@ -3,8 +3,8 @@ import type {
   SourceTabLifecycle,
   SourceTabValidationResult,
   SourceTabValidator,
-} from "../../application/ports/SourceTabLifecycle";
-import { CHATGPT_ORIGIN } from "../api/chatGptApiContract";
+} from "application/ports/SourceTabLifecycle";
+import { CHATGPT_ORIGIN } from "infrastructure/api/chatGptApiContract";
 
 const tabSchema = z.object({
   id: z.number().int().positive(),

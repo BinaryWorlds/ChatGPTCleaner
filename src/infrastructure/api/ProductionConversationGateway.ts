@@ -1,5 +1,5 @@
-import { AppConfig } from "../../config";
-import { isSafetyCriticalIdentifier } from "../../domain/identifier";
+import { AppConfig } from "config";
+import { isSafetyCriticalIdentifier } from "domain/identifier";
 import type {
   ConversationGateway,
   ConversationPage,
@@ -7,13 +7,13 @@ import type {
   DeleteAttemptResult,
   ProjectReference,
   ReadResult,
-} from "../../application/ports/ConversationGateway";
+} from "application/ports/ConversationGateway";
 import {
   ChatGptOperation,
   STANDALONE_CONVERSATION_PAGE_LIMIT,
-} from "../../application/ports/ConversationGateway";
-import { logSchemaValidationFailure } from "../observability/readLogging";
-import { logger } from "../observability/logger";
+} from "application/ports/ConversationGateway";
+import { logSchemaValidationFailure } from "infrastructure/observability/readLogging";
+import { logger } from "infrastructure/observability/logger";
 import type { PageContextReadTransport } from "./SourceBoundPageContextReadTransport";
 import type { PageContextDeleteTransport } from "./PageContextDeleteTransport";
 import {

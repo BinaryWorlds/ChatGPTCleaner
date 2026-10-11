@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AppConfig } from "../../../config";
+import { AppConfig } from "config";
 import {
   loadInventory,
   loadRefreshInventoryCandidate,
   type InventoryLoadProgress,
-} from "../../../application/inventory";
-import type { SafetyBlockReason } from "../../../application/SafetyBlockReason";
-import type { ManagerDependencies } from "../../../composition/types";
-import type { Conversation } from "../../../domain/conversation";
-import type { InventoryStage } from "../../managerInventoryState";
+} from "application/inventory";
+import type { SafetyBlockReason } from "application/SafetyBlockReason";
+import type { ManagerDependencies } from "composition/types";
+import type { Conversation } from "domain/conversation";
+import type { InventoryStage } from "ui/managerInventoryState";
 
 type InventoryState =
   | {

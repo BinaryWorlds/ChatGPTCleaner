@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { FakeDestructiveRunLock } from "../infrastructure/fake/FakeDestructiveRunLock";
+import { FakeDestructiveRunLock } from "infrastructure/fake/FakeDestructiveRunLock";
 import type {
   ProtectedConversationIdsResult,
   ProtectedConversationStore,

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { loadSafetyInventory } from "../../application/inventory";
-import { AppConfig } from "../../config";
-import { FakeClock } from "../fake/FakeClock";
+import { loadSafetyInventory } from "application/inventory";
+import { AppConfig } from "config";
+import { FakeClock } from "infrastructure/fake/FakeClock";
 import {
   IsolatedFirstPageContextReadExecutor,
   createChromePageContextReadExecutor,
@@ -13,7 +13,7 @@ import {
 } from "./PageContextReadContracts";
 import { PageContextReadTransport } from "./SourceBoundPageContextReadTransport";
 import { ProductionConversationGateway } from "./ProductionConversationGateway";
-import { MAX_SAFETY_CRITICAL_IDENTIFIER_LENGTH } from "../../domain/identifier";
+import { MAX_SAFETY_CRITICAL_IDENTIFIER_LENGTH } from "domain/identifier";
 import {
   MAX_PAGINATION_CURSOR_LENGTH,
   normalizeDisplayTitle,

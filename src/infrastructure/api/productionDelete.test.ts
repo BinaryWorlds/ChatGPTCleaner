@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { FakeClock } from "../fake/FakeClock";
-import { MAX_SAFETY_CRITICAL_IDENTIFIER_LENGTH } from "../../domain/identifier";
+import { FakeClock } from "infrastructure/fake/FakeClock";
+import { MAX_SAFETY_CRITICAL_IDENTIFIER_LENGTH } from "domain/identifier";
 import {
   PageContextDeleteTransport,
   classifyDeleteResponse,

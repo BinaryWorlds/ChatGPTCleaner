@@ -1,4 +1,4 @@
-import { CHATGPT_ORIGIN } from "../api/chatGptApiContract";
+import { CHATGPT_ORIGIN } from "infrastructure/api/chatGptApiContract";
 
 interface ActionSourceTab {
   readonly id?: number | undefined;

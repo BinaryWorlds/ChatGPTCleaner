@@ -1,12 +1,12 @@
-import { ProductionConversationGateway } from "../infrastructure/api/ProductionConversationGateway";
-import { createChromePageContextReadExecutor } from "../infrastructure/api/PageContextReadExecutor";
-import type { PageContextReadExecutor } from "../infrastructure/api/PageContextReadContracts";
-import { PageContextReadTransport } from "../infrastructure/api/SourceBoundPageContextReadTransport";
+import { ProductionConversationGateway } from "infrastructure/api/ProductionConversationGateway";
+import { createChromePageContextReadExecutor } from "infrastructure/api/PageContextReadExecutor";
+import type { PageContextReadExecutor } from "infrastructure/api/PageContextReadContracts";
+import { PageContextReadTransport } from "infrastructure/api/SourceBoundPageContextReadTransport";
 import {
   createChromePageContextDeleteExecutor,
   PageContextDeleteTransport,
   type PageContextDeleteExecutor,
-} from "../infrastructure/api/PageContextDeleteTransport";
+} from "infrastructure/api/PageContextDeleteTransport";
 import {
   BoundSourceTabLifecycle,
   createChromeSourceTabBrowser,
@@ -15,14 +15,14 @@ import {
   SourceTabBinding,
   type SourceTabBrowser,
   type SourceTabEvents,
-} from "../infrastructure/browser/SourceTab";
-import { buildChatGptConversationUrl } from "../infrastructure/browser/openConversation";
-import { copyConversationId } from "../infrastructure/browser/copyConversationId";
+} from "infrastructure/browser/SourceTab";
+import { buildChatGptConversationUrl } from "infrastructure/browser/openConversation";
+import { copyConversationId } from "infrastructure/browser/copyConversationId";
 import {
   currentWebLockManager,
   WebLocksDestructiveRunLock,
   type WebLockManager,
-} from "../infrastructure/locking/WebLocksDestructiveRunLock";
+} from "infrastructure/locking/WebLocksDestructiveRunLock";
 import {
   BrowserProtectedConversationStore,
   BrowserSettingsStore,
@@ -30,13 +30,13 @@ import {
   createChromeLocalStorage,
   TrustedStorageAccess,
   type BrowserLocalStorage,
-} from "../infrastructure/storage/BrowserStores";
-import { SystemClock } from "../infrastructure/time/SystemClock";
+} from "infrastructure/storage/BrowserStores";
+import { SystemClock } from "infrastructure/time/SystemClock";
 import {
   logger,
   summarizeUnknownError,
-} from "../infrastructure/observability/logger";
-import { createApplicationObservability } from "../infrastructure/observability/applicationObservability";
+} from "infrastructure/observability/logger";
+import { createApplicationObservability } from "infrastructure/observability/applicationObservability";
 import type { ManagerComposition, ManagerDependencies } from "./types";
 
 interface ProductionRuntime {

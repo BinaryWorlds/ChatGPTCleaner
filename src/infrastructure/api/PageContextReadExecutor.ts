@@ -2,9 +2,9 @@ import {
   ChatGptOperation,
   PROJECT_CONVERSATION_INITIAL_CURSOR,
   STANDALONE_CONVERSATION_PAGE_LIMIT,
-} from "../../application/ports/ConversationGateway";
-import { AppConfig } from "../../config";
-import { ApiRequestLifecycleEvent } from "../../application/ports/Observability";
+} from "application/ports/ConversationGateway";
+import { AppConfig } from "config";
+import { ApiRequestLifecycleEvent } from "application/ports/Observability";
 import {
   executionResultSchema,
   hasSuccessfulResponse,
@@ -15,7 +15,7 @@ import {
   type PageReadOperation,
   type PageScriptRunner,
 } from "./PageContextReadContracts";
-import { logger } from "../observability/logger";
+import { logger } from "infrastructure/observability/logger";
 
 export class IsolatedFirstPageContextReadExecutor implements PageContextReadExecutor {
   private readonly successfulWorlds = new Map<

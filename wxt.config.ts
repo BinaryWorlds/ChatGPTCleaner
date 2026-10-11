@@ -3,22 +3,40 @@ import { defineConfig } from "wxt";
 
 export default defineConfig({
   modules: ["@wxt-dev/module-react"],
+  alias: {
+    "@manager-composition": "src/composition/production.ts",
+    application: "src/application",
+    composition: "src/composition",
+    config: "src/config.ts",
+    domain: "src/domain",
+    i18n: "src/i18n",
+    infrastructure: "src/infrastructure",
+    ui: "src/ui",
+  },
   vite: ({ mode }) => ({
     build: {
       sourcemap: mode === "debug" || mode === "demo",
     },
-    resolve: {
-      alias: {
-        "@manager-composition": fileURLToPath(
-          new URL(
-            mode === "demo"
-              ? "./src/composition/demo.ts"
-              : "./src/composition/production.ts",
-            import.meta.url,
-          ),
-        ),
+    plugins: [
+      {
+        name: "chatgpt-cleaner:manager-composition-alias",
+        enforce: "post",
+        config: () => ({
+          resolve: {
+            alias: {
+              "@manager-composition": fileURLToPath(
+                new URL(
+                  mode === "demo"
+                    ? "./src/composition/demo.ts"
+                    : "./src/composition/production.ts",
+                  import.meta.url,
+                ),
+              ),
+            },
+          },
+        }),
       },
-    },
+    ],
   }),
   manifest: {
     name: "ChatGPTCleaner",

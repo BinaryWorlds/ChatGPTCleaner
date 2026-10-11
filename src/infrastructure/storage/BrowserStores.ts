@@ -2,16 +2,19 @@ import { z } from "zod";
 import {
   isSafetyCriticalIdentifier,
   MAX_SAFETY_CRITICAL_IDENTIFIER_LENGTH,
-} from "../../domain/identifier";
+} from "domain/identifier";
 import type {
   ProtectedConversationIdsResult,
   ProtectedConversationStore,
-} from "../../application/ports/ProtectedConversationStore";
-import type { SettingsStore } from "../../application/ports/SettingsStore";
-import type { ThemePreferenceStore } from "../../application/ports/ThemePreferenceStore";
-import type { ThemePreference } from "../../application/themePreference";
-import { appErrorCode, createAppError } from "../../application/AppError";
-import { logger, summarizeUnknownError } from "../observability/logger";
+} from "application/ports/ProtectedConversationStore";
+import type { SettingsStore } from "application/ports/SettingsStore";
+import type { ThemePreferenceStore } from "application/ports/ThemePreferenceStore";
+import type { ThemePreference } from "application/themePreference";
+import { appErrorCode, createAppError } from "application/AppError";
+import {
+  logger,
+  summarizeUnknownError,
+} from "infrastructure/observability/logger";
 
 const PROTECTED_IDS_KEY = "protectedConversationIds";
 const REQUESTS_PER_MINUTE_KEY = "requestsPerMinute";

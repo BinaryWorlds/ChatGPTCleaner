@@ -3,8 +3,8 @@ import {
   normalizeThemePreference,
   type ResolvedThemeMode,
   type ThemePreference,
-} from "../../../application/themePreference";
-import type { ThemePreferenceStore } from "../../../application/ports/ThemePreferenceStore";
+} from "application/themePreference";
+import type { ThemePreferenceStore } from "application/ports/ThemePreferenceStore";
 
 interface ThemePreferenceState {
   readonly themePreference: ThemePreference;

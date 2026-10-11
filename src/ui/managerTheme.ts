@@ -1,5 +1,5 @@
 import { theme, type ThemeConfig } from "antd";
-import type { ResolvedThemeMode } from "../application/themePreference";
+import type { ResolvedThemeMode } from "application/themePreference";
 
 const lightPalette = {
   colorPrimary: "#286fd6",

@@ -4,10 +4,10 @@ import {
   mutateProtectedConversationIds,
   type ProtectionMutation,
   type ProtectionMutationLockOwner,
-} from "../../../application/protection";
-import type { SafetyBlockReason } from "../../../application/SafetyBlockReason";
-import type { ManagerDependencies } from "../../../composition/types";
-import type { ConversationView } from "../ConversationTable/conversationTableContract";
+} from "application/protection";
+import type { SafetyBlockReason } from "application/SafetyBlockReason";
+import type { ManagerDependencies } from "composition/types";
+import type { ConversationView } from "ui/ManagerPage/components/ConversationTable/conversationTableContract";
 
 interface UseConversationProtectionOptions {
   readonly dependencies: ManagerDependencies;

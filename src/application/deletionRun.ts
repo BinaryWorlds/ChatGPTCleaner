@@ -1,9 +1,9 @@
-import { AppConfig } from "../config";
-import type { ConfirmedDeletionPlan } from "../domain/deletionPlan";
+import { AppConfig } from "config";
+import type { ConfirmedDeletionPlan } from "domain/deletionPlan";
 import {
   calculateDeletionProgress,
   type DeletionProgress,
-} from "../domain/progress";
+} from "domain/progress";
 import { appErrorCode, createAppError, type AppErrorCode } from "./AppError";
 import type { Clock } from "./ports/Clock";
 import type {

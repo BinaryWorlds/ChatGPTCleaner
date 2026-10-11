@@ -1,9 +1,9 @@
 import { Flex, Typography } from "antd";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import type { ThemePreference } from "../../application/themePreference";
-import LanguageSelector from "./LanguageSelector";
-import ThemePreferenceSelector from "./ThemePreferenceSelector";
+import type { ThemePreference } from "application/themePreference";
+import LanguageSelector from "./components/LanguageSelector";
+import ThemePreferenceSelector from "./components/ThemePreferenceSelector";
 
 interface ManagerHeaderProps {
   readonly themePreference: ThemePreference;

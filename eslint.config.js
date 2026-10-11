@@ -35,6 +35,88 @@ export default tseslint.config(
     },
   },
   {
+    files: ["src/domain/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: [
+                "application",
+                "application/*",
+                "composition",
+                "composition/*",
+                "infrastructure",
+                "infrastructure/*",
+                "ui",
+                "ui/*",
+              ],
+              message: "Domain cannot depend on outer layers.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["src/application/**/*.{ts,tsx}"],
+    ignores: ["src/application/**/*.test.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: [
+                "composition",
+                "composition/*",
+                "infrastructure",
+                "infrastructure/*",
+                "ui",
+                "ui/*",
+              ],
+              message: "Application cannot depend on outer layers.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["src/infrastructure/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["composition", "composition/*", "ui", "ui/*"],
+              message: "Infrastructure cannot depend on UI or composition.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["src/ui/**/*.{ts,tsx}"],
+    ignores: ["src/ui/**/*.test.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["infrastructure", "infrastructure/*"],
+              message: "UI cannot depend on Infrastructure.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     files: ["**/*.test.{ts,tsx}", "src/test/**"],
     languageOptions: {
       globals: globals.node,

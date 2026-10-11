@@ -1,9 +1,9 @@
 import { useTranslation } from "react-i18next";
-import type { DeletionRunState } from "../../application/deletionRun";
+import type { DeletionRunState } from "application/deletionRun";
 import { useSafetyAnnouncements } from "./useSafetyAnnouncements";
 import type { SafetyStatusState } from "./safetyStatusContract";
-import SafetyBlockAlert from "./SafetyBlockAlert";
-import UnboundSafetyState from "./UnboundSafetyState";
+import SafetyBlockAlert from "./components/SafetyBlockAlert";
+import UnboundSafetyState from "./components/UnboundSafetyState";
 
 interface SafetyStatusProps {
   readonly state: SafetyStatusState;

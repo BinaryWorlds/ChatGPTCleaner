@@ -1,4 +1,4 @@
-import type { Clock, SleepResult } from "../../application/ports/Clock";
+import type { Clock, SleepResult } from "application/ports/Clock";
 
 interface PendingSleep {
   readonly endsAt: number;

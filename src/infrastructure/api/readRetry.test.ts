@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { FakeClock } from "../fake/FakeClock";
-import { createLogger, type LogSink } from "../observability/logger";
+import { FakeClock } from "infrastructure/fake/FakeClock";
+import {
+  createLogger,
+  type LogSink,
+} from "infrastructure/observability/logger";
 import {
   appErrorForReadFailure,
   executeReadWithRetry,

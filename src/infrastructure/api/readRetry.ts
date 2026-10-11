@@ -1,17 +1,17 @@
-import type { Clock } from "../../application/ports/Clock";
-import { ApiRequestLifecycleEvent } from "../../application/ports/Observability";
-import { AppConfig } from "../../config";
+import type { Clock } from "application/ports/Clock";
+import { ApiRequestLifecycleEvent } from "application/ports/Observability";
+import { AppConfig } from "config";
 import type {
   ReadFailureDiagnostic,
   ReadFailureReason,
   ReadResult,
-} from "../../application/ports/ConversationGateway";
+} from "application/ports/ConversationGateway";
 import {
   appErrorFromHttpStatus,
   createAppError,
   type AppError,
-} from "../../application/AppError";
-import { logger, type Logger } from "../observability/logger";
+} from "application/AppError";
+import { logger, type Logger } from "infrastructure/observability/logger";
 
 export type ReadAttemptResult<T = unknown> =
   | {

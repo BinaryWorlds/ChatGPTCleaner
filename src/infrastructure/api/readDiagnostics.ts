@@ -4,7 +4,7 @@ import type {
   ReadDiagnosticCategory,
   ReadFailureDiagnostic,
   ReadOperationName,
-} from "../../application/ports/ConversationGateway";
+} from "application/ports/ConversationGateway";
 import { ChatGptApiPath } from "./chatGptApiContract";
 
 const endpointFamilies: Readonly<Record<ReadOperationName, string>> = {

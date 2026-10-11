@@ -3,8 +3,8 @@ import "dayjs/locale/en";
 import "dayjs/locale/pl";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { detectBrowserLanguage } from "../../../i18n/detectLanguage";
-import appI18n, { activeAppLanguage } from "../../../i18n/i18n";
+import { detectBrowserLanguage } from "i18n/detectLanguage";
+import appI18n, { activeAppLanguage } from "i18n/i18n";
 
 export function useAppLanguage() {
   const { i18n } = useTranslation();

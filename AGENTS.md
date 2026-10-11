@@ -66,6 +66,16 @@ Application ports. Wire dependencies through the existing composition root.
   artificial forwarding hooks or layers.
 - Colocate tests with their owners; view/workflow tests may remain together. Follow
   existing export conventions.
+- Use configured bare aliases for imports that cross folders; keep `./` imports for
+  local siblings.
+- Hooks and helpers folders with multiple implementations expose explicit named
+  exports through `index.ts`; siblings inside those folders import each other directly.
+- Standalone views and independently organized UI sections may live directly under
+  `src/ui/`; being rendered by `App` does not require nesting them inside `App` or
+  globalizing their hooks. Folder structure follows responsibilities, not the JSX tree.
+- Keep private children near their owner. A `components/` folder wrapping only one
+  child module may be omitted; this permits local simplification, not automatic
+  flattening of other meaningful folders. Do not add component aggregators.
 - Memoize only for a concrete cost or identity requirement. Define component-independent
   functions outside render.
 - Apply SRP, KISS, YAGNI, pragmatic DRY, semantic names, guard clauses, and small

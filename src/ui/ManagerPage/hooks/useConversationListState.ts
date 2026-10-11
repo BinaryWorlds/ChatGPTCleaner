@@ -7,13 +7,13 @@ import {
   type ConversationFilters,
   type ConversationSortField,
   type SortDirection,
-} from "../../../domain/conversation";
+} from "domain/conversation";
 import {
   CONVERSATION_TABLE_PAGINATION,
   clampTablePage,
   type ConversationView,
   type ProtectionFilter,
-} from "../ConversationTable/conversationTableContract";
+} from "ui/ManagerPage/components/ConversationTable/conversationTableContract";
 import { useConversationSelection } from "./useConversationSelection";
 
 interface UseConversationListStateOptions {

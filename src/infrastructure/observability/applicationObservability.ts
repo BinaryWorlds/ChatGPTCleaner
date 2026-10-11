@@ -1,4 +1,4 @@
-import type { ApplicationObservability } from "../../application/ports/Observability";
+import type { ApplicationObservability } from "application/ports/Observability";
 import { createOperationId, logger } from "./logger";
 
 export function createApplicationObservability(): ApplicationObservability {

@@ -1,7 +1,7 @@
 import {
   ChatGptOperation,
   type ReadOperationName,
-} from "../../application/ports/ConversationGateway";
+} from "application/ports/ConversationGateway";
 import { logger, type Logger } from "./logger";
 
 const MAX_SCHEMA_DIAGNOSTIC_ITEMS = 20;

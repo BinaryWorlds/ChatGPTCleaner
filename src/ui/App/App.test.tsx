@@ -7,9 +7,9 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createManagerComposition as createDemoComposition } from "../../composition/demo";
-import { createManagerComposition as createProductionComposition } from "../../composition/production";
-import { FakeThemePreferenceStore } from "../../infrastructure/fake/FakeStores";
+import { createManagerComposition as createDemoComposition } from "composition/demo";
+import { createManagerComposition as createProductionComposition } from "composition/production";
+import { FakeThemePreferenceStore } from "infrastructure/fake/FakeStores";
 import App from "./App";
 
 describe("App", () => {

@@ -1,7 +1,7 @@
 import type {
   DestructiveRunLock,
   LockResult,
-} from "../../application/ports/DestructiveRunLock";
+} from "application/ports/DestructiveRunLock";
 
 interface FakeLockState {
   active: boolean;

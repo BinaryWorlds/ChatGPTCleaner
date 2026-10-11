@@ -1,4 +1,4 @@
-import type { AppErrorCode } from "../AppError";
+import type { AppErrorCode } from "application/AppError";
 
 export const ApiRequestLifecycleEvent = {
   Failed: "api.request.failed",

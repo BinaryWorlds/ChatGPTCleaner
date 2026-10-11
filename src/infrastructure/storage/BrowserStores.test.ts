@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   loadMaximumConcurrentDeleteRequests,
   loadRequestsPerMinute,
-} from "../../application/settings";
+} from "application/settings";
 import {
   BrowserProtectedConversationStore,
   BrowserSettingsStore,

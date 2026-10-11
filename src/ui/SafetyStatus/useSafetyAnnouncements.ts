@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { TFunction } from "i18next";
-import type { SafetyBlockReason } from "../../application/SafetyBlockReason";
-import type { DeletionRunState } from "../../application/deletionRun";
+import type { SafetyBlockReason } from "application/SafetyBlockReason";
+import type { DeletionRunState } from "application/deletionRun";
 import { safetyBlockReasonLabel } from "./safetyStatusPresentation";
 import type { SafetyStatusState } from "./safetyStatusContract";
 

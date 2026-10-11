@@ -8,8 +8,8 @@ import {
   type LogSink,
 } from "./logger";
 import { logSchemaValidationFailure } from "./readLogging";
-import { executeReadWithRetry } from "../api/readRetry";
-import { FakeClock } from "../fake/FakeClock";
+import { executeReadWithRetry } from "infrastructure/api/readRetry";
+import { FakeClock } from "infrastructure/fake/FakeClock";
 
 function capturingSink() {
   const entries: { level: string; message: string; fields?: SafeLogFields }[] =

@@ -2,7 +2,7 @@ import { z } from "zod";
 import {
   isSafetyCriticalIdentifier,
   MAX_SAFETY_CRITICAL_IDENTIFIER_LENGTH,
-} from "../../domain/identifier";
+} from "domain/identifier";
 
 export const MAX_PAGINATION_CURSOR_LENGTH = 2_048;
 

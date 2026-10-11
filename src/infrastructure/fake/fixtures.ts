@@ -1,8 +1,8 @@
-import type { Conversation } from "../../domain/conversation";
+import type { Conversation } from "domain/conversation";
 import type {
   ConversationPage,
   ReadResult,
-} from "../../application/ports/ConversationGateway";
+} from "application/ports/ConversationGateway";
 
 export interface FakeConversationFixture extends Omit<
   Conversation,

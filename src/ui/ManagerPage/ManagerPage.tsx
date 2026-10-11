@@ -16,30 +16,32 @@ import {
 } from "antd";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { ThemePreference } from "../../application/themePreference";
-import type { SourceTabLifecycle } from "../../application/ports/SourceTabLifecycle";
+import type { ThemePreference } from "application/themePreference";
+import type { SourceTabLifecycle } from "application/ports/SourceTabLifecycle";
 import type {
   ManagerComposition,
   ManagerDependencies,
-} from "../../composition/types";
-import ConversationFiltersBar from "./ConversationFiltersBar";
-import DeletionConfirmationModal from "../DeletionConfirmationModal";
-import ManagerHeader from "../ManagerHeader";
-import SafetyStatus, { type SafetyStatusState } from "../SafetyStatus";
-import BulkUnprotectConfirmationModal from "./BulkUnprotectConfirmationModal";
-import ConversationSelectionToolbar from "./ConversationSelectionToolbar";
-import ConversationSummary from "./ConversationSummary";
-import ConversationTable from "./ConversationTable";
-import ConversationViewToolbar from "./ConversationViewToolbar";
-import DeletionRunSection from "./DeletionRunSection";
-import { useConversationListState } from "./hooks/useConversationListState";
-import { useConversationProtection } from "./hooks/useConversationProtection";
-import { useDeletionSchedulingSettings } from "./hooks/useDeletionRateSetting";
-import { useDeletionWorkflow } from "./hooks/useDeletionWorkflow";
-import { useManagerInventory } from "./hooks/useManagerInventory";
-import { useManagerRefresh } from "./hooks/useManagerRefresh";
-import { useSourceTabAvailability } from "./hooks/useSourceTabAvailability";
-import InventoryLoadingState from "./InventoryLoadingState";
+} from "composition/types";
+import ManagerHeader from "ui/ManagerHeader";
+import SafetyStatus, { type SafetyStatusState } from "ui/SafetyStatus";
+import BulkUnprotectConfirmationModal from "./components/BulkUnprotectConfirmationModal";
+import ConversationFiltersBar from "./components/ConversationFiltersBar";
+import ConversationSummary from "./components/ConversationSummary";
+import ConversationSelectionToolbar from "./components/ConversationSelectionToolbar";
+import ConversationTable from "./components/ConversationTable";
+import ConversationViewToolbar from "./components/ConversationViewToolbar";
+import DeletionConfirmationModal from "./components/DeletionConfirmationModal";
+import DeletionRunSection from "./components/DeletionRunSection";
+import InventoryLoadingState from "./components/InventoryLoadingState";
+import {
+  useConversationListState,
+  useConversationProtection,
+  useDeletionSchedulingSettings,
+  useDeletionWorkflow,
+  useManagerInventory,
+  useManagerRefresh,
+  useSourceTabAvailability,
+} from "./hooks";
 
 interface ManagerPageProps {
   readonly mode: ManagerComposition["mode"];

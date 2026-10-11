@@ -1,5 +1,5 @@
-import type { SafetyBlockReason } from "../../application/SafetyBlockReason";
-import type { InventoryStage } from "../managerInventoryState";
+import type { SafetyBlockReason } from "application/SafetyBlockReason";
+import type { InventoryStage } from "ui/managerInventoryState";
 
 export type SafetyStatusState =
   | { readonly kind: "unbound" }

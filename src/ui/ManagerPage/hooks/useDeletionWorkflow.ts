@@ -6,19 +6,19 @@ import {
   deletionRunOwnsWorkflow,
   isDeletionRunActive,
   type DeletionRunState,
-} from "../../../application/deletionRun";
-import type { ManagerDependencies } from "../../../composition/types";
-import type { Conversation } from "../../../domain/conversation";
+} from "application/deletionRun";
+import type { ManagerDependencies } from "composition/types";
+import type { Conversation } from "domain/conversation";
 import {
   buildDeletionPlan,
   shrinkConfirmedDeletionPlan,
   type ConfirmedDeletionPlan,
   type DeletionPlan,
-} from "../../../domain/deletionPlan";
+} from "domain/deletionPlan";
 import {
   isSafetyOverrideRevalidatedByCompleteRefresh,
   type SafetyBlockReason,
-} from "../../../application/SafetyBlockReason";
+} from "application/SafetyBlockReason";
 
 interface UseDeletionWorkflowOptions {
   readonly dependencies: ManagerDependencies | null;

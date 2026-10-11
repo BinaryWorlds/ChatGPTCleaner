@@ -1,5 +1,5 @@
-import { parseSafetyCriticalIdentifier } from "../api/readValidation";
-import { CHATGPT_ORIGIN } from "../api/chatGptApiContract";
+import { parseSafetyCriticalIdentifier } from "infrastructure/api/readValidation";
+import { CHATGPT_ORIGIN } from "infrastructure/api/chatGptApiContract";
 
 export function buildChatGptConversationUrl(
   conversationId: string,

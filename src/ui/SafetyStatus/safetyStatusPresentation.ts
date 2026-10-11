@@ -1,5 +1,5 @@
-import type { SafetyBlockReason } from "../../application/SafetyBlockReason";
-import i18n from "../../i18n/i18n";
+import type { SafetyBlockReason } from "application/SafetyBlockReason";
+import i18n from "i18n/i18n";
 
 const blockedReasonKeys: Readonly<Record<SafetyBlockReason, string>> = {
   authentication: "safety.reasons.authentication",

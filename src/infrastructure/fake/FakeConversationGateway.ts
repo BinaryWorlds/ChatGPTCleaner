@@ -2,17 +2,17 @@ import { z } from "zod";
 import {
   isSafetyCriticalIdentifier,
   MAX_SAFETY_CRITICAL_IDENTIFIER_LENGTH,
-} from "../../domain/identifier";
-import { createAppError } from "../../application/AppError";
-import type { Clock } from "../../application/ports/Clock";
+} from "domain/identifier";
+import { createAppError } from "application/AppError";
+import type { Clock } from "application/ports/Clock";
 import type {
   ConversationGateway,
   ConversationPage,
   DeleteAttemptResult,
   ProjectReference,
   ReadResult,
-} from "../../application/ports/ConversationGateway";
-import { ChatGptOperation } from "../../application/ports/ConversationGateway";
+} from "application/ports/ConversationGateway";
+import { ChatGptOperation } from "application/ports/ConversationGateway";
 import type { FakeDeleteOutcome, FakeGatewayFixture } from "./fixtures";
 
 const rawConversationSchema = z.object({

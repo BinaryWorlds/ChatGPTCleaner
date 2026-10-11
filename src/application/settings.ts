@@ -1,5 +1,5 @@
 import type { SettingsStore } from "./ports/SettingsStore";
-import { AppConfig } from "../config";
+import { AppConfig } from "config";
 
 export function isValidRequestsPerMinute(value: unknown): value is number {
   return (

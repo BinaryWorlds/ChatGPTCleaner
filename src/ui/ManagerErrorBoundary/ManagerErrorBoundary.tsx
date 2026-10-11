@@ -1,7 +1,7 @@
 import { Alert } from "antd";
 import { Component, type ErrorInfo, type ReactNode } from "react";
-import { appErrorCode } from "../../application/AppError";
-import i18n from "../../i18n/i18n";
+import { appErrorCode } from "application/AppError";
+import i18n from "i18n/i18n";
 
 interface ManagerErrorBoundaryProps {
   readonly children: ReactNode;

@@ -1,10 +1,10 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { safetyBlockReasons } from "../../application/SafetyBlockReason";
+import { safetyBlockReasons } from "application/SafetyBlockReason";
 import type {
   DeletionRunProgress,
   DeletionRunState,
-} from "../../application/deletionRun";
+} from "application/deletionRun";
 import { describe, expect, it, vi } from "vitest";
 import SafetyStatus from "./SafetyStatus";
 import { safetyBlockReasonLabel } from "./safetyStatusPresentation";

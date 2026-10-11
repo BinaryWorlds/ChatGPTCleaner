@@ -1,9 +1,9 @@
-import { buildManagerLaunchUrl } from "../src/infrastructure/browser/managerLaunch";
+import { buildManagerLaunchUrl } from "infrastructure/browser/managerLaunch";
 import {
   logger,
   summarizeUnknownError,
-} from "../src/infrastructure/observability/logger";
-import { installGlobalErrorHandlers } from "../src/infrastructure/observability/globalErrors";
+} from "infrastructure/observability/logger";
+import { installGlobalErrorHandlers } from "infrastructure/observability/globalErrors";
 
 function reportManagerOpenFailure(error: unknown): void {
   logger.error("application.operation.failed", summarizeUnknownError(error), {

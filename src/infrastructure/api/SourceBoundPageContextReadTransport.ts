@@ -1,12 +1,12 @@
-import type { Clock } from "../../application/ports/Clock";
-import { appErrorCode } from "../../application/AppError";
-import { STANDALONE_CONVERSATION_PAGE_LIMIT } from "../../application/ports/ConversationGateway";
+import type { Clock } from "application/ports/Clock";
+import { appErrorCode } from "application/AppError";
+import { STANDALONE_CONVERSATION_PAGE_LIMIT } from "application/ports/ConversationGateway";
 import {
   ChatGptOperation,
   type ReadResult,
-} from "../../application/ports/ConversationGateway";
-import { ApiRequestLifecycleEvent } from "../../application/ports/Observability";
-import type { SourceTabValidator } from "../../application/ports/SourceTabLifecycle";
+} from "application/ports/ConversationGateway";
+import { ApiRequestLifecycleEvent } from "application/ports/Observability";
+import type { SourceTabValidator } from "application/ports/SourceTabLifecycle";
 import { executeReadWithRetry } from "./readRetry";
 import {
   normalizeExecutionResult,
@@ -15,7 +15,7 @@ import {
   type PageReadOperation,
   type ReadTransportPayload,
 } from "./PageContextReadContracts";
-import { createOperationId, logger } from "../observability/logger";
+import { createOperationId, logger } from "infrastructure/observability/logger";
 
 export class PageContextReadTransport {
   private boundSourceTabId: number | null = null;

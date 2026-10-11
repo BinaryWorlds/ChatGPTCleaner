@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { SourceTabLifecycle } from "../../../application/ports/SourceTabLifecycle";
+import type { SourceTabLifecycle } from "application/ports/SourceTabLifecycle";
 
 interface UseSourceTabAvailabilityOptions {
   readonly sourceTabLifecycle: SourceTabLifecycle | undefined;

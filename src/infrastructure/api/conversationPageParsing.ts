@@ -1,9 +1,9 @@
 import { z } from "zod";
-import type { Conversation } from "../../domain/conversation";
+import type { Conversation } from "domain/conversation";
 import {
   isSafetyCriticalIdentifier,
   MAX_SAFETY_CRITICAL_IDENTIFIER_LENGTH,
-} from "../../domain/identifier";
+} from "domain/identifier";
 import {
   normalizeDisplayTitle,
   paginationCursorSchema,

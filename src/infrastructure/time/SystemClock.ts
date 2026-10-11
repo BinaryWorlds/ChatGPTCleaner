@@ -1,4 +1,4 @@
-import type { Clock, SleepResult } from "../../application/ports/Clock";
+import type { Clock, SleepResult } from "application/ports/Clock";
 
 export class SystemClock implements Clock {
   public now(): number {

@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
-import { isSafetyOverrideRevalidatedByCompleteRefresh } from "../../../application/SafetyBlockReason";
-import type { SafetyBlockReason } from "../../../application/SafetyBlockReason";
+import { isSafetyOverrideRevalidatedByCompleteRefresh } from "application/SafetyBlockReason";
+import type { SafetyBlockReason } from "application/SafetyBlockReason";
 import type { RefreshInventoryResult } from "./useManagerInventory";
 
 interface UseManagerRefreshOptions {

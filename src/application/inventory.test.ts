@@ -4,19 +4,19 @@ import {
   type ConversationPage,
   type ReadResult,
 } from "./ports/ConversationGateway";
-import { AppConfig } from "../config";
-import { FakeClock } from "../infrastructure/fake/FakeClock";
-import { FakeConversationGateway } from "../infrastructure/fake/FakeConversationGateway";
+import { AppConfig } from "config";
+import { FakeClock } from "infrastructure/fake/FakeClock";
+import { FakeConversationGateway } from "infrastructure/fake/FakeConversationGateway";
 import {
   FakeProtectedConversationStore,
   FakeSettingsStore,
-} from "../infrastructure/fake/FakeStores";
+} from "infrastructure/fake/FakeStores";
 import {
   DEMO_FIXTURE,
   STANDALONE_COMPATIBILITY_FAILURE_FIXTURE,
   type FakeConversationPageResult,
   type FakeGatewayFixture,
-} from "../infrastructure/fake/fixtures";
+} from "infrastructure/fake/fixtures";
 import { loadInventory, loadSafetyInventory } from "./inventory";
 
 async function settleAsyncWork(): Promise<void> {

@@ -1,8 +1,8 @@
 import type {
   DestructiveRunLock,
   LockResult,
-} from "../../application/ports/DestructiveRunLock";
-import { logger } from "../observability/logger";
+} from "application/ports/DestructiveRunLock";
+import { logger } from "infrastructure/observability/logger";
 
 const DESTRUCTIVE_RUN_LOCK_NAME = "chatgpt-cleaner:destructive-run:v1";
 

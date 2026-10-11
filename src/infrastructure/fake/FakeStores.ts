@@ -1,11 +1,11 @@
 import type {
   ProtectedConversationIdsResult,
   ProtectedConversationStore,
-} from "../../application/ports/ProtectedConversationStore";
-import { AppConfig } from "../../config";
-import type { SettingsStore } from "../../application/ports/SettingsStore";
-import type { ThemePreferenceStore } from "../../application/ports/ThemePreferenceStore";
-import type { ThemePreference } from "../../application/themePreference";
+} from "application/ports/ProtectedConversationStore";
+import { AppConfig } from "config";
+import type { SettingsStore } from "application/ports/SettingsStore";
+import type { ThemePreferenceStore } from "application/ports/ThemePreferenceStore";
+import type { ThemePreference } from "application/themePreference";
 
 export class FakeProtectedConversationStore implements ProtectedConversationStore {
   public loadCount = 0;

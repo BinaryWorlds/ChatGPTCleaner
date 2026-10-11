@@ -1,14 +1,14 @@
 import { z } from "zod";
-import { AppConfig } from "../../config";
-import { isSafetyCriticalIdentifier } from "../../domain/identifier";
-import { createAppError } from "../../application/AppError";
-import type { Clock } from "../../application/ports/Clock";
+import { AppConfig } from "config";
+import { isSafetyCriticalIdentifier } from "domain/identifier";
+import { createAppError } from "application/AppError";
+import type { Clock } from "application/ports/Clock";
 import {
   ChatGptOperation,
   type DeleteAttemptEvents,
   type DeleteAttemptResult,
-} from "../../application/ports/ConversationGateway";
-import type { SourceTabValidator } from "../../application/ports/SourceTabLifecycle";
+} from "application/ports/ConversationGateway";
+import type { SourceTabValidator } from "application/ports/SourceTabLifecycle";
 import { parseRetryAfter } from "./readRetry";
 
 export interface DeleteConversationOperation {

@@ -2,13 +2,12 @@ import { ConfigProvider, Layout, Space } from "antd";
 import enUS from "antd/locale/en_US";
 import plPL from "antd/locale/pl_PL";
 import { useMemo } from "react";
-import type { ManagerComposition } from "../../composition/types";
-import ManagerHeader from "../ManagerHeader";
-import ManagerPage from "../ManagerPage";
-import { createManagerTheme } from "../managerTheme";
-import SafetyStatus from "../SafetyStatus";
-import { useAppLanguage } from "./hooks/useAppLanguage";
-import { useThemePreference } from "./hooks/useThemePreference";
+import type { ManagerComposition } from "composition/types";
+import { createManagerTheme } from "ui/managerTheme";
+import ManagerHeader from "ui/ManagerHeader";
+import ManagerPage from "ui/ManagerPage";
+import SafetyStatus from "ui/SafetyStatus";
+import { useAppLanguage, useThemePreference } from "./hooks";
 
 const { Content } = Layout;
 
