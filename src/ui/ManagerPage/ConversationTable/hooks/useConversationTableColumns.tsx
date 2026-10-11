@@ -43,7 +43,7 @@ export function useConversationTableColumns(
       {
         title: t("table.protectionStatus"),
         key: "protection",
-        width: 100,
+        width: 120,
         align: "center",
         ...(view === "standalone"
           ? {
