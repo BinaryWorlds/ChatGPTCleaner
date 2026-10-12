@@ -41,22 +41,32 @@ jobs:
     env:
       BASE_BRANCH: ${{ fromJSON(needs.release_please.outputs.pr).baseBranchName }}
       DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
       HEAD_BRANCH: ${{ fromJSON(needs.release_please.outputs.pr).headBranchName }}
-      HEAD_SHA: ${{ fromJSON(needs.release_please.outputs.pr).sha }}
+      PR_NUMBER: ${{ fromJSON(needs.release_please.outputs.pr).number }}
     steps:
       - name: Validate release pull request
+        id: release_pr
         shell: bash
         run: |
           set -euo pipefail
-          test -n "$HEAD_SHA"
           test "$BASE_BRANCH" = "$DEFAULT_BRANCH"
           test -n "$HEAD_BRANCH"
           test "$HEAD_BRANCH" != "$BASE_BRANCH"
+          test -n "$PR_NUMBER"
+
+          pull_request="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")"
+          test "$(jq -r '.head.repo.full_name' <<< "$pull_request")" = "$GITHUB_REPOSITORY"
+          test "$(jq -r '.head.ref' <<< "$pull_request")" = "$HEAD_BRANCH"
+          test "$(jq -r '.base.ref' <<< "$pull_request")" = "$BASE_BRANCH"
+          head_sha="$(jq -er '.head.sha' <<< "$pull_request")"
+          test -n "$head_sha"
+          echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
       - name: Check out release pull request
         uses: actions/checkout@v7
         with:
           repository: ${{ github.repository }}
-          ref: ${{ env.HEAD_SHA }}
+          ref: ${{ steps.release_pr.outputs.head_sha }}
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
       - name: Set up pnpm for changelog formatting
         uses: pnpm/action-setup@v6
