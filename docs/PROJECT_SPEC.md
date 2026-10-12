@@ -43,24 +43,32 @@ GitHub Releases distribute the production `pnpm build` output as
 do not auto-update; users install newer release builds manually. Chrome Web
 Store integration is outside current scope.
 
-Release Please owns application versions and release `CHANGELOG.md` entries
-after the initial `v1.0.0` bootstrap. Ordinary and Dependabot PRs must not reserve
-versions or future release headings. Dependency maintenance uses one weekly
-cross-ecosystem rollup; maintainers manually merge Release Please PRs.
+Release Please owns application versions and release `CHANGELOG.md` entries.
+Ordinary and Dependabot PRs must not reserve versions or future release headings.
+Dependency maintenance uses one weekly cross-ecosystem rollup; maintainers
+manually merge Release Please PRs.
 
 The [Release Please workflow](../.github/workflows/release-please.yml) is
-triggered on pushes to `master`; its Release Please job is gated on the bootstrap
-tag. Repository secret `RELEASE_PLEASE_TOKEN` authenticates the action that
-maintains the release PR and creates a draft release. A created release triggers
-quality checks, production ZIP packaging/validation, attestation, asset upload,
-and draft publication. Attestation must cover the exact validated public ZIP.
+triggered on pushes to `master` and by manual dispatch. Repository secret
+`RELEASE_PLEASE_TOKEN` authenticates the action that maintains the release PR and
+creates a draft release. If no releasable changes exist, publication is skipped.
+A created release triggers release-SHA, tag-target, package-version, repository,
+and draft validations before quality checks, production ZIP
+packaging/validation, attestation, asset upload, and draft publication.
+Attestation must cover the exact validated public ZIP.
 
-The initial release uses the manually dispatched
-[bootstrap workflow](../.github/workflows/release.yml), which refuses an existing
-tag or release. Later releases have no manual-dispatch trigger. Rerun failed
-jobs/runs through GitHub Actions; rerun publication only while the release is a
-draft. Upload replaces the same-named asset; the draft guard rejects publication
-after the release is public.
+While `v1.0.0` is unpublished, the Release Please manifest baseline is `0.0.0`
+and `skip-changelog` is temporarily enabled because the dated `1.0.0` entry is
+already prepared. The one-time implementation commit requests the first release
+with a `Release-As: 1.0.0` trailer; no permanent fixed-version override is used.
+Immediately after successful `v1.0.0` publication, remove `skip-changelog` in a
+follow-up pull request so later releases generate changelog entries normally.
+
+If publication fails, use **Re-run failed jobs** on the original workflow run.
+Do not start a new dispatch or re-run all jobs: keeping the successful Release
+Please job preserves its `release_created` outputs for the publication job. The
+draft release remains available, upload replaces the same-named asset, and the
+draft guards reject publication after the release is already public.
 
 Any future Chrome Web Store integration is release-only: it consumes the same
 canonical production artifact lineage, requires the store version to equal the
