@@ -4,12 +4,11 @@ All notable changes to ChatGPTCleaner are documented here.
 
 ## [1.0.1](https://github.com/BinaryWorlds/ChatGPTCleaner/compare/v1.0.0...v1.0.1) (2026-10-12)
 
-
 ### Fixed
 
-* **ci:** resolve release PR head SHA from GitHub API ([#8](https://github.com/BinaryWorlds/ChatGPTCleaner/issues/8)) ([ad56ccb](https://github.com/BinaryWorlds/ChatGPTCleaner/commit/ad56ccb04a44528997ccb52a12d9bdc5eeba2b6e))
-* update app tagline and restore release changelog ([#4](https://github.com/BinaryWorlds/ChatGPTCleaner/issues/4)) ([6acd606](https://github.com/BinaryWorlds/ChatGPTCleaner/commit/6acd60693a5cfa1cd2245ed50161bb7c8f6baa14))
-* update app tagline and restore release changelog ([#6](https://github.com/BinaryWorlds/ChatGPTCleaner/issues/6)) ([f9e40ca](https://github.com/BinaryWorlds/ChatGPTCleaner/commit/f9e40ca21c6e64c227a55cd38a0a8342858c412d))
+- **ci:** resolve release PR head SHA from GitHub API ([#8](https://github.com/BinaryWorlds/ChatGPTCleaner/issues/8)) ([ad56ccb](https://github.com/BinaryWorlds/ChatGPTCleaner/commit/ad56ccb04a44528997ccb52a12d9bdc5eeba2b6e))
+- update app tagline and restore release changelog ([#4](https://github.com/BinaryWorlds/ChatGPTCleaner/issues/4)) ([6acd606](https://github.com/BinaryWorlds/ChatGPTCleaner/commit/6acd60693a5cfa1cd2245ed50161bb7c8f6baa14))
+- update app tagline and restore release changelog ([#6](https://github.com/BinaryWorlds/ChatGPTCleaner/issues/6)) ([f9e40ca](https://github.com/BinaryWorlds/ChatGPTCleaner/commit/f9e40ca21c6e64c227a55cd38a0a8342858c412d))
 
 ## [1.0.0] - 2026-10-12
 
