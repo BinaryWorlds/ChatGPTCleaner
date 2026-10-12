@@ -1,7 +1,7 @@
 {
   "app": {
     "title": "ChatGPTCleaner",
-    "subtitle": "Szybko usuwaj stare rozmowy i dbaj o prywatność.",
+    "subtitle": "Zadbaj o prywatność. Ty decydujesz, które rozmowy zachować.",
     "openChatGpt": "Otwórz ChatGPT w karcie i uruchom ChatGPTCleaner z tej karty.",
     "displayError": "ChatGPTCleaner nie może wyświetlić menedżera. Nie rozpoczęto żadnej nowej operacji usuwania.",
     "errorCode": "Kod błędu: {{code}}"

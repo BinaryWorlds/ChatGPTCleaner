@@ -1,7 +1,6 @@
 # ChatGPTCleaner
 
-An unofficial Chrome extension for reviewing and bulk-deleting selected ChatGPT
-conversations.
+Protect your privacy. You decide which conversations to keep.
 
 ![ChatGPTCleaner manager with demo conversations, filters, and bulk actions](docs/assets/manager-screenshot.png)
 

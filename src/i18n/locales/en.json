@@ -1,7 +1,7 @@
 {
   "app": {
     "title": "ChatGPTCleaner",
-    "subtitle": "Quickly delete old conversations and protect your privacy.",
+    "subtitle": "Protect your privacy. You decide which conversations to keep.",
     "openChatGpt": "Open ChatGPT in a tab and launch ChatGPTCleaner from that tab.",
     "displayError": "ChatGPTCleaner could not display the manager. No new destructive operation was started.",
     "errorCode": "Error code: {{code}}"
