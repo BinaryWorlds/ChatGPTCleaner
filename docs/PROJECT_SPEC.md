@@ -57,12 +57,11 @@ and draft validations before quality checks, production ZIP
 packaging/validation, attestation, asset upload, and draft publication.
 Attestation must cover the exact validated public ZIP.
 
-While `v1.0.0` is unpublished, the Release Please manifest baseline is `0.0.0`
-and `skip-changelog` is temporarily enabled because the dated `1.0.0` entry is
-already prepared. The one-time implementation commit requests the first release
-with a `Release-As: 1.0.0` trailer; no permanent fixed-version override is used.
-Immediately after successful `v1.0.0` publication, remove `skip-changelog` in a
-follow-up pull request so later releases generate changelog entries normally.
+The initial `v1.0.0` release used a `0.0.0` manifest baseline and temporarily
+skipped changelog generation because its dated entry was already prepared. Its
+one-time implementation commit requested the release with a `Release-As: 1.0.0`
+trailer; no permanent fixed-version override was used. After `v1.0.0`
+publication, normal automatic changelog generation applies to later releases.
 
 If publication fails, use **Re-run failed jobs** on the original workflow run.
 Do not start a new dispatch or re-run all jobs: keeping the successful Release
