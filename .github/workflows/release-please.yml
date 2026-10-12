@@ -22,6 +22,7 @@ jobs:
       tag_name: ${{ steps.release.outputs.tag_name }}
       version: ${{ steps.release.outputs.version }}
       sha: ${{ steps.release.outputs.sha }}
+      pr: ${{ steps.release.outputs.pr }}
     steps:
       - id: release
         uses: googleapis/release-please-action@v5
@@ -29,6 +30,59 @@ jobs:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+  format_release_changelog:
+    name: Format release changelog
+    needs: release_please
+    if: needs.release_please.outputs.pr != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      BASE_BRANCH: ${{ fromJSON(needs.release_please.outputs.pr).baseBranchName }}
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      HEAD_BRANCH: ${{ fromJSON(needs.release_please.outputs.pr).headBranchName }}
+      HEAD_SHA: ${{ fromJSON(needs.release_please.outputs.pr).sha }}
+    steps:
+      - name: Validate release pull request
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$HEAD_SHA"
+          test "$BASE_BRANCH" = "$DEFAULT_BRANCH"
+          test -n "$HEAD_BRANCH"
+          test "$HEAD_BRANCH" != "$BASE_BRANCH"
+      - name: Check out release pull request
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ env.HEAD_SHA }}
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+      - name: Set up pnpm for changelog formatting
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10.17.1
+      - name: Set up Node.js for changelog formatting
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Format release changelog
+        shell: bash
+        run: |
+          set -euo pipefail
+          prettier_version="$(node -p "require('./package.json').devDependencies.prettier")"
+          pnpm dlx "prettier@$prettier_version" --write CHANGELOG.md
+
+          if git diff --quiet -- CHANGELOG.md; then
+            echo "CHANGELOG.md already matches the pinned Prettier version."
+            exit 0
+          fi
+
+          git add -- CHANGELOG.md
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore: format generated changelog"
+          git push origin "HEAD:refs/heads/$HEAD_BRANCH"
 
   publish:
     name: Build, attest, and publish release

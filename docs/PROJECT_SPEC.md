@@ -51,11 +51,15 @@ manually merge Release Please PRs.
 The [Release Please workflow](../.github/workflows/release-please.yml) is
 triggered on pushes to `master` and by manual dispatch. Repository secret
 `RELEASE_PLEASE_TOKEN` authenticates the action that maintains the release PR and
-creates a draft release. If no releasable changes exist, publication is skipped.
-A created release triggers release-SHA, tag-target, package-version, repository,
-and draft validations before quality checks, production ZIP
-packaging/validation, attestation, asset upload, and draft publication.
-Attestation must cover the exact validated public ZIP.
+creates a draft release. After the action creates or updates a release PR, the
+workflow verifies its reported branch and commit, formats only its generated
+`CHANGELOG.md` with the repository's pinned Prettier, and commits any formatting
+change to that branch before CI validates the new revision. If no release PR or
+formatting change exists, this is a no-op. If no releasable changes exist,
+publication is skipped. A created release triggers release-SHA, tag-target,
+package-version, repository, and draft validations before quality checks,
+production ZIP packaging/validation, attestation, asset upload, and draft
+publication. Attestation must cover the exact validated public ZIP.
 
 The initial `v1.0.0` release used a `0.0.0` manifest baseline and temporarily
 skipped changelog generation because its dated entry was already prepared. Its
