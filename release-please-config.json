@@ -5,6 +5,7 @@
       "release-type": "node",
       "package-name": "ChatGPTCleaner",
       "changelog-path": "CHANGELOG.md",
+      "skip-changelog": true,
       "include-component-in-tag": false,
       "draft": true,
       "force-tag-creation": true,

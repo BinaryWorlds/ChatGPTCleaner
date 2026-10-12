@@ -4,38 +4,14 @@ on:
   push:
     branches:
       - master
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  bootstrap_status:
-    name: Check v1.0.0 bootstrap
-    runs-on: ubuntu-latest
-    outputs:
-      ready: ${{ steps.tag.outputs.ready }}
-    steps:
-      - id: tag
-        name: Check bootstrap tag
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          status="$(curl --silent --show-error --output response.json --write-out '%{http_code}' \
-            --header 'Accept: application/vnd.github+json' \
-            --header "Authorization: Bearer $GH_TOKEN" \
-            --header 'X-GitHub-Api-Version: 2022-11-28' \
-            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/tags/v1.0.0")"
-          case "$status" in
-            200) echo "ready=true" >> "$GITHUB_OUTPUT" ;;
-            404) echo "ready=false" >> "$GITHUB_OUTPUT" ;;
-            *) cat response.json; exit 1 ;;
-          esac
-
   release_please:
     name: Update release pull request
-    needs: bootstrap_status
-    if: needs.bootstrap_status.outputs.ready == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -67,11 +43,13 @@ jobs:
     env:
       TAG: ${{ needs.release_please.outputs.tag_name }}
       VERSION: ${{ needs.release_please.outputs.version }}
+      RELEASE_SHA: ${{ needs.release_please.outputs.sha }}
       ASSET: ChatGPTCleaner-${{ needs.release_please.outputs.tag_name }}-chrome.zip
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.release_please.outputs.sha }}
+          fetch-depth: 0
       - uses: pnpm/action-setup@v6
         with:
           version: 10.17.1
@@ -79,6 +57,18 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+      - name: Validate release metadata
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$TAG" = "v$VERSION"
+          test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
+          test "$(git rev-parse "$TAG^{commit}")" = "$RELEASE_SHA"
+          test "$(node -p "require('./package.json').version")" = "$VERSION"
+          test "$(gh api "repos/$GITHUB_REPOSITORY" --jq .visibility)" = "public"
+          test "$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = "true"
       - run: pnpm install --frozen-lockfile
       - name: Run quality gate
         run: pnpm check

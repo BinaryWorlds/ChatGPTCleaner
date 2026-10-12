@@ -2,7 +2,7 @@
 
 All notable changes to ChatGPTCleaner are documented here.
 
-## [1.0.0] - 2026-09-28
+## [1.0.0] - 2026-10-12
 
 ### Added
 
