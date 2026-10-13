@@ -17,7 +17,7 @@ describe("application configuration", () => {
       },
       deletion: {
         requestsPerMinute: { default: 60, min: 1, max: 120 },
-        maximumConcurrentDeleteRequests: { default: 1, min: 1, max: 20 },
+        maximumConcurrentDeleteRequests: { default: 10, min: 1, max: 20 },
         maxAttemptsPerConversation: 5,
         retryDeleteTimeouts: true,
         retryBaseDelayMs: 1_000,

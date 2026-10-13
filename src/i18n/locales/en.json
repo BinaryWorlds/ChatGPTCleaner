@@ -60,11 +60,11 @@
   "scheduling": {
     "rateLabel": "Deletion rate",
     "rateHelp": "About deletion rate",
-    "rateTooltip": "How many deletion attempts the app can start per minute. Retries count too. Default: 60/min.",
+    "rateTooltip": "Maximum deletion attempts per minute, including retries. Default: 60.",
     "rateUnit": "/min",
     "concurrencyLabel": "Chats at once",
     "concurrencyHelp": "About chats at once",
-    "concurrencyTooltip": "How many chats can be deleted at the same time. Default: 1. A higher number may not make deletion faster.",
+    "concurrencyTooltip": "How many chats can be deleted at the same time. Deletions start at the configured rate. Default: 10.",
     "saveFailure": "Could not save the deletion scheduling settings."
   },
   "filters": {

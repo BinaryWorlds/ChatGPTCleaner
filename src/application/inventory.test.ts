@@ -403,7 +403,7 @@ describe("inventory and deletion planning", () => {
       )?.title,
     ).toBe("(Untitled)");
     expect(result.requestsPerMinute).toBe(75);
-    expect(result.maximumConcurrentDeleteRequests).toBe(1);
+    expect(result.maximumConcurrentDeleteRequests).toBe(10);
   });
 
   it("loads 393 standalone conversations in four 100-record pages and reports phases", async () => {
@@ -630,7 +630,7 @@ describe("inventory and deletion planning", () => {
     expect(settingsStore.savedValues).toEqual([60]);
     expect(
       normalized.kind === "ready" && normalized.maximumConcurrentDeleteRequests,
-    ).toBe(1);
+    ).toBe(10);
 
     const blocked = await loadInventory({
       gateway: new FakeConversationGateway(DEMO_FIXTURE, new FakeClock()),

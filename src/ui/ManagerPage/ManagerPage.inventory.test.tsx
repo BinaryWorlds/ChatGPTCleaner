@@ -341,12 +341,12 @@ describe("ManagerPage inventory controls", () => {
 
     fireEvent.focus(screen.getByLabelText("About deletion rate"));
     expect(await screen.findByRole("tooltip")).toHaveTextContent(
-      "How many deletion attempts the app can start per minute. Retries count too. Default: 60/min.",
+      "Maximum deletion attempts per minute, including retries. Default: 60.",
     );
     fireEvent.focus(screen.getByLabelText("About chats at once"));
     expect(
       await screen.findByText(
-        "How many chats can be deleted at the same time. Default: 1. A higher number may not make deletion faster.",
+        "How many chats can be deleted at the same time. Deletions start at the configured rate. Default: 10.",
       ),
     ).toBeInTheDocument();
 

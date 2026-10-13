@@ -747,7 +747,7 @@ If missing/invalid/out of range:
 
 ```text
 attempt starts per minute => fall back to 60
-maximum concurrency => fall back to 1
+maximum concurrency => fall back to 10
 ```
 
 Then persist normalized values when appropriate.
@@ -1170,7 +1170,7 @@ UI:
 
 ```text
 Deletion rate: [60] /min
-Chats at once: [1]
+Chats at once: [10]
 ```
 
 Each setting has its own keyboard-accessible explanation of its semantics and
@@ -1180,7 +1180,7 @@ Defaults:
 
 ```text
 60 attempts/minute
-1 simultaneous request
+10 simultaneous requests
 ```
 
 Allowed ranges:

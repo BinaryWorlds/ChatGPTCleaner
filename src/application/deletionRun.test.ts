@@ -882,7 +882,7 @@ describe("destructive run", () => {
     });
   });
 
-  it("preserves sequential behavior at the default concurrency", async () => {
+  it("captures the configured default concurrency without forcing overlap", async () => {
     const ids = ["one", "two", "three"];
     const clock = new FakeClock();
     const gateway = new ConcurrencyTrackingDeleteGateway(
@@ -899,6 +899,7 @@ describe("destructive run", () => {
     });
 
     await run.startDeletion();
+    expect(run.getState().progress.maximumConcurrentDeleteRequests).toBe(10);
     expect(gateway.maxActiveDeletes).toBe(1);
     expect(gateway.deleteAttempts.map(({ id }) => id)).toEqual(ids);
   });
@@ -1169,6 +1170,7 @@ describe("destructive run", () => {
     const run = new DeletionRun({
       confirmedPlan: confirmedPlan(ids),
       requestsPerMinute: 60,
+      maximumConcurrentDeleteRequests: 1,
       gateway,
       protectedConversationStore: new FakeProtectedConversationStore(),
       clock,
