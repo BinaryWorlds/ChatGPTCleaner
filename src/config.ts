@@ -17,7 +17,7 @@ export const AppConfig = {
       max: 120,
     },
     maximumConcurrentDeleteRequests: {
-      default: 1,
+      default: 10,
       min: 1,
       max: 20,
     },

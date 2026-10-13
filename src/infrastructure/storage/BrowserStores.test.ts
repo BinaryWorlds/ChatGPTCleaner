@@ -141,7 +141,7 @@ describe("browser-backed stores", () => {
     expect(storage.values.requestsPerMinute).toBe(60);
   });
 
-  it("normalizes malformed concurrency to 1 and persists the independent key", async () => {
+  it("normalizes malformed concurrency to 10 and persists the independent key", async () => {
     const storage = storageWith({
       requestsPerMinute: 30,
       maximumConcurrentDeleteRequests: 21,
@@ -151,10 +151,10 @@ describe("browser-backed stores", () => {
       new TrustedStorageAccess(storage),
     );
 
-    await expect(loadMaximumConcurrentDeleteRequests(store)).resolves.toBe(1);
+    await expect(loadMaximumConcurrentDeleteRequests(store)).resolves.toBe(10);
     expect(storage.values).toMatchObject({
       requestsPerMinute: 30,
-      maximumConcurrentDeleteRequests: 1,
+      maximumConcurrentDeleteRequests: 10,
     });
   });
 

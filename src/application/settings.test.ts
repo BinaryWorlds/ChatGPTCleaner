@@ -51,13 +51,13 @@ describe("serialized settings writes", () => {
 
     await expect(
       loadMaximumConcurrentDeleteRequests(settingsStore),
-    ).resolves.toBe(1);
+    ).resolves.toBe(10);
     const writer = new SerializedMaximumConcurrentDeleteRequestsWriter(
       settingsStore,
     );
     await expect(writer.save(20)).resolves.toBe(true);
     await expect(writer.save(21)).resolves.toBe(false);
-    expect(savedValues).toEqual([1, 20]);
+    expect(savedValues).toEqual([10, 20]);
   });
 
   it("keeps a stored concurrency value at the upper boundary", async () => {

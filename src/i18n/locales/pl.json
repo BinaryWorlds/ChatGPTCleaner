@@ -60,11 +60,11 @@
   "scheduling": {
     "rateLabel": "Tempo usuwania",
     "rateHelp": "Informacje o tempie usuwania",
-    "rateTooltip": "Ile razy na minutę aplikacja może rozpocząć usuwanie rozmowy. Ponowne próby też się liczą. Domyślnie: 60/min.",
+    "rateTooltip": "Maksymalna liczba prób usunięcia na minutę, wliczając ponowienia. Domyślnie: 60.",
     "rateUnit": "/min",
     "concurrencyLabel": "Rozmowy naraz",
     "concurrencyHelp": "Informacje o rozmowach usuwanych naraz",
-    "concurrencyTooltip": "Ile rozmów może być usuwanych jednocześnie. Domyślnie: 1. Większa liczba nie zawsze oznacza szybsze usuwanie.",
+    "concurrencyTooltip": "Ile rozmów może być usuwanych jednocześnie. Rozpoczynają się zgodnie z ustawionym tempem. Domyślnie: 10.",
     "saveFailure": "Nie udało się zapisać ustawień planowania usuwania."
   },
   "filters": {

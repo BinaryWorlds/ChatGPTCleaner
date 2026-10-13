@@ -1147,6 +1147,7 @@ describe("ManagerPage destructive flow", () => {
   it("does not expose or execute Retry Failed after an earlier failure and fatal stop", async () => {
     const user = userEvent.setup();
     const { gateway } = renderManager({
+      settingsStore: new FakeSettingsStore(60, 1),
       gatewayFixture: fixture(
         [
           { id: "failed", title: "Failed first", updatedAt: 200 },
