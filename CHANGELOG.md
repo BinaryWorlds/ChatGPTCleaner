@@ -4,10 +4,9 @@ All notable changes to ChatGPTCleaner are documented here.
 
 ## [1.1.0](https://github.com/BinaryWorlds/ChatGPTCleaner/compare/v1.0.1...v1.1.0) (2026-10-13)
 
-
 ### Added
 
-* default to 10 concurrent deletions and improve README ([#10](https://github.com/BinaryWorlds/ChatGPTCleaner/issues/10)) ([53d5a07](https://github.com/BinaryWorlds/ChatGPTCleaner/commit/53d5a0780f58fa6f96a35ca91feb25c704030bbd))
+- default to 10 concurrent deletions and improve README ([#10](https://github.com/BinaryWorlds/ChatGPTCleaner/issues/10)) ([53d5a07](https://github.com/BinaryWorlds/ChatGPTCleaner/commit/53d5a0780f58fa6f96a35ca91feb25c704030bbd))
 
 ## [1.0.1](https://github.com/BinaryWorlds/ChatGPTCleaner/compare/v1.0.0...v1.0.1) (2026-10-12)
 
